@@ -5,13 +5,92 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/ScriptSettings.h"
+#include "mozilla/ThreadLocal.h"
+#include "mozilla/Assertions.h"
 
+#include "jsapi.h"
+#include "nsIGlobalObject.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptContext.h"
 #include "nsContentUtils.h"
 
+#include <vector>
+
 namespace mozilla {
 namespace dom {
+
+class ScriptSettingsStack;
+static mozilla::ThreadLocal<ScriptSettingsStack*> sScriptSettingsTLS;
+
+ScriptSettingsStackEntry ScriptSettingsStackEntry::SystemSingleton;
+
+class ScriptSettingsStack {
+public:
+  static ScriptSettingsStack& Ref() {
+    return *sScriptSettingsTLS.get();
+  }
+  ScriptSettingsStack() {};
+
+  void Push(ScriptSettingsStackEntry& aSettings) {
+    // The bottom-most entry must always be a candidate entry point.
+    MOZ_ASSERT_IF(mStack.size() == 0 || mStack.back()->IsSystemSingleton(),
+                  aSettings.mIsCandidateEntryPoint);
+    mStack.push_back(&aSettings);
+  }
+
+  void PushSystem() {
+    mStack.push_back(&ScriptSettingsStackEntry::SystemSingleton);
+  }
+
+  void Pop() {
+    MOZ_ASSERT(mStack.size() > 0);
+    mStack.pop_back();
+  }
+
+  nsIGlobalObject* Incumbent() {
+    if (!mStack.size()) {
+      return nullptr;
+    }
+    return mStack.back()->mGlobalObject;
+  }
+
+  nsIGlobalObject* EntryPoint() {
+    if (!mStack.size())
+      return nullptr;
+    for (auto iter = mStack.rbegin(); iter != mStack.rend(); ++iter) {
+      if ((*iter)->mIsCandidateEntryPoint) {
+        return (*iter)->mGlobalObject;
+      }
+    }
+    MOZ_ASSUME_UNREACHABLE();
+  }
+
+private:
+  // These pointers are caller-owned.
+  std::vector<ScriptSettingsStackEntry*> mStack;
+};
+
+void
+InitScriptSettings()
+{
+  if (!sScriptSettingsTLS.initialized()) {
+    bool success = sScriptSettingsTLS.init();
+    if (!success) {
+      MOZ_CRASH();
+    }
+  }
+
+  ScriptSettingsStack* ptr = new ScriptSettingsStack();
+  sScriptSettingsTLS.set(ptr);
+}
+
+void DestroyScriptSettings()
+{
+  ScriptSettingsStack* ptr = sScriptSettingsTLS.get();
+  MOZ_ASSERT(ptr);
+  sScriptSettingsTLS.set(nullptr);
+  delete ptr;
+}
 
 AutoEntryScript::AutoEntryScript(nsIGlobalObject* aGlobalObject,
                                  bool aIsMainThread,
