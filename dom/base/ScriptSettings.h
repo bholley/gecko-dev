@@ -23,6 +23,7 @@ namespace dom {
 void InitScriptSettings();
 void DestroyScriptSettings();
 
+class ScriptSettingsStack;
 struct ScriptSettingsStackEntry {
   nsCOMPtr<nsIGlobalObject> mGlobalObject;
   bool mIsCandidateEntryPoint;
@@ -60,8 +61,11 @@ public:
   AutoEntryScript(nsIGlobalObject* aGlobalObject,
                   bool aIsMainThread = NS_IsMainThread(),
                   JSContext* aCx = nullptr);
+  ~AutoEntryScript();
 
 private:
+  dom::ScriptSettingsStack& mStack;
+  dom::ScriptSettingsStackEntry mEntry;
   nsCxPusher mCxPusher;
   mozilla::Maybe<JSAutoCompartment> mAc; // This can de-Maybe-fy when mCxPusher
                                          // goes away.
@@ -73,6 +77,10 @@ private:
 class AutoIncumbentScript {
 public:
   AutoIncumbentScript(nsIGlobalObject* aGlobalObject);
+  ~AutoIncumbentScript();
+private:
+  dom::ScriptSettingsStack& mStack;
+  dom::ScriptSettingsStackEntry mEntry;
 };
 
 /*
@@ -83,7 +91,9 @@ public:
 class AutoSystemCaller {
 public:
   AutoSystemCaller(bool aIsMainThread = NS_IsMainThread());
+  ~AutoSystemCaller();
 private:
+  dom::ScriptSettingsStack& mStack;
   nsCxPusher mCxPusher;
 };
 
