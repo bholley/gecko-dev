@@ -6123,10 +6123,38 @@ JS_DescribeScriptedCaller(JSContext *cx, MutableHandleScript script, unsigned *l
     if (i.done())
         return false;
 
+    // If there's an override, the embedding wants us to return null here so
+    // that it can check its own stack.
+    if (i.activation()->hasScriptedCallerOverride())
+        return false;
+
     script.set(i.script());
     if (lineno)
         *lineno = js::PCToLineNumber(i.script(), i.pc());
     return true;
+}
+
+JS_PUBLIC_API(void)
+JS_AddScriptedCallerOverride(JSContext *cx)
+{
+    MOZ_ASSERT(cx);
+
+    // If there's no accessible activation on the stack, we'll return null from
+    // JS_DescribeScriptedCaller anyway, so there's no need to annotate
+    // anything.
+    NonBuiltinScriptFrameIter i(cx);
+    if (i.done())
+        return;
+    i.activation()->addScriptedCallerOverride();
+}
+
+JS_PUBLIC_API(void)
+JS_RemoveScriptedCallerOverride(JSContext *cx)
+{
+    NonBuiltinScriptFrameIter i(cx);
+    if (i.done())
+        return;
+    i.activation()->removeScriptedCallerOverride();
 }
 
 #ifdef JS_THREADSAFE

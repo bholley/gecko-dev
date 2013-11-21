@@ -1167,6 +1167,13 @@ class Activation
     // set).
     size_t savedFrameChain_;
 
+    // Counter incremented by JS_AddScriptedCallerOverride and decremented by
+    // JS_RemoveScriptedCallerOverride. If > 0 for the top activation, that
+    // activation may not be queried by the embedder to determine the calling
+    // script, and embedding-specific data structures should be consulted
+    // instead.
+    size_t scriptedCallerOverrides_;
+
     enum Kind { Interpreter, Jit, ForkJoin };
     Kind kind_;
 
@@ -1216,6 +1223,17 @@ class Activation
     }
     bool hasSavedFrameChain() const {
         return savedFrameChain_ > 0;
+    }
+
+    void addScriptedCallerOverride() {
+        scriptedCallerOverrides_++;
+    }
+    void removeScriptedCallerOverride() {
+        JS_ASSERT(scriptedCallerOverrides_ > 0);
+        scriptedCallerOverrides_--;
+    }
+    bool hasScriptedCallerOverride() const {
+        return scriptedCallerOverrides_ > 0;
     }
 
   private:
