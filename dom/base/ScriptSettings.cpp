@@ -19,6 +19,10 @@
 namespace mozilla {
 namespace dom {
 
+namespace workers {
+extern JSContext* GetCurrentThreadJSContext();
+}
+
 class ScriptSettingsStack;
 static mozilla::ThreadLocal<ScriptSettingsStack*> sScriptSettingsTLS;
 
@@ -98,12 +102,14 @@ void DestroyScriptSettings()
 nsIGlobalObject*
 GetIncumbentGlobal()
 {
-  // We need the topmost JSContext in order to check the JS for
+  // We need the current JSContext in order to check the JS for
   // scripted frames that may have appeared since anyone last
   // manipulated the stack. If it's null, that means that there
   // must be no entry point on the stack, and therefore no incumbent
   // global either.
-  JSContext *cx = nsContentUtils::GetCurrentJSContext();
+  JSContext *cx = NS_IsMainThread()
+                    ? nsContentUtils::GetCurrentJSContext()
+                    : workers::GetCurrentThreadJSContext();
   if (!cx) {
     MOZ_ASSERT(ScriptSettingsStack::Ref().EntryPoint() == nullptr);
     return nullptr;

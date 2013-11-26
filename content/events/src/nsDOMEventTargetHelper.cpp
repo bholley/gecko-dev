@@ -274,7 +274,7 @@ nsDOMEventTargetHelper::SetEventHandler(nsIAtom* aType,
   JSObject* callable;
   if (aValue.isObject() &&
       JS_ObjectIsCallable(aCx, callable = &aValue.toObject())) {
-    handler = new EventHandlerNonNull(callable);
+    handler = new EventHandlerNonNull(callable, /* aIncumbentGlobal = */ nullptr);
   }
   SetEventHandler(aType, EmptyString(), handler);
   return NS_OK;
