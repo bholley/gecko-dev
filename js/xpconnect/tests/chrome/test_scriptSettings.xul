@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/css" href="chrome://global/skin"?>
+<?xml-stylesheet type="text/css" href="chrome://mochikit/content/tests/SimpleTest/test.css"?>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=937317
+-->
+<window title="Mozilla Bug 937317"
+        xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <script type="application/javascript" src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+
+  <!-- test results are displayed in the html:body -->
+  <body xmlns="http://www.w3.org/1999/xhtml">
+  <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=937317"
+     target="_blank">Mozilla Bug 937317</a>
+  </body>
+
+  <!-- test code goes here -->
+  <iframe></iframe>
+  <script type="application/javascript">
+  <![CDATA[
+
+  /** Test for the script settings stack. **/
+  const Cu = Components.utils;
+  var iwin = window[0];
+
+  // Smoketest.
+  is(Cu.getIncumbentGlobal(), window, "smoketest");
+
+  // Calling a cross-compartment non-scripted function changes the
+  // compartment, but not the incumbent script settings object.
+  var sb = new Cu.Sandbox(window, { wantComponents: true });
+  is(sb.Components.utils.getIncumbentGlobal(), window, "cross-compartment sb non-scripted");
+  is(iwin.Components.utils.getIncumbentGlobal(), window, "cross-compartment win non-scripted");
+
+  // If we call a scripted function in the other compartment, that becomes
+  // the incumbent script.
+  function gib() { return Components.utils.getIncumbentGlobal(); };
+  Cu.evalInSandbox(gib.toSource(), sb);
+  iwin.eval(gib.toSource());
+  is(sb.gib(), sb, "cross-compartment sb scripted");
+  is(iwin.gib(), iwin, "cross-compartment win scripted");
+
+  // Eval-ing top-level script in another component makes that compartment the
+  // incumbent script.
+  is(Cu.evalInSandbox('Components.utils.getIncumbentGlobal()', sb), sb, 'eval sb');
+  is(iwin.eval('Components.utils.getIncumbentGlobal()'), iwin, 'eval iwin');
+
+  ]]>
+  </script>
+</window>

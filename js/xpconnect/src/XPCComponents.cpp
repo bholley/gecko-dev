@@ -3463,6 +3463,19 @@ nsXPCComponents_Utils::GetDOMClassInfo(const nsAString& aClassName,
 }
 
 NS_IMETHODIMP
+nsXPCComponents_Utils::GetIncumbentGlobal(jsval *aOut)
+{
+    nsCOMPtr<nsIGlobalObject> global = mozilla::dom::GetIncumbentGlobal();
+    if (!global) {
+        *aOut = NullValue();
+        return NS_OK;
+    }
+
+    *aOut = ObjectValue(*global->GetGlobalJSObject());
+    return NS_OK;
+}
+
+NS_IMETHODIMP
 nsXPCComponents_Utils::GetWatchdogTimestamp(const nsAString& aCategory, PRTime *aOut)
 {
     WatchdogTimestampCategory category;
