@@ -199,6 +199,35 @@ CrossOriginXrayWrapper<Base>::~CrossOriginXrayWrapper()
 {
 }
 
+template <typename Base>
+bool
+CrossOriginXrayWrapper<Base>::getPropertyDescriptor(JSContext *cx,
+                                       JS::Handle<JSObject*> wrapper,
+                                       JS::Handle<jsid> id,
+                                       JS::MutableHandle<JSPropertyDescriptor> desc,
+                                       unsigned flags)
+{
+    if (!Base::getPropertyDescriptor(cx, wrapper, id, desc, flags))
+        return false;
+    if (desc.object()) {
+        // All properties on cross-origin DOM objects are |own|.
+        desc.object().set(wrapper);
+    }
+    return true;
+}
+
+template <typename Base>
+bool
+CrossOriginXrayWrapper<Base>::getOwnPropertyDescriptor(JSContext *cx,
+                                       JS::Handle<JSObject*> wrapper,
+                                       JS::Handle<jsid> id,
+                                       JS::MutableHandle<JSPropertyDescriptor> desc,
+                                       unsigned flags)
+{
+    // All properties on cross-origin DOM objects are |own|.
+    return getPropertyDescriptor(cx, wrapper, id, desc, flags);
+}
+
 // NB: don't need SOW here because the resulting wrapper would be identical to
 // NNXOW.
 #define SCSOW FilteringWrapper<SameCompartmentSecurityWrapper, Opaque>
