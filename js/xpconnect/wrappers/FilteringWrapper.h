@@ -53,6 +53,18 @@ class FilteringWrapper : public Base {
     static FilteringWrapper singleton;
 };
 
+/*
+ * The HTML5 spec mandates very particular object behavior for cross-origin DOM
+ * objects (Window and Location), some of which runs contrary to the way that
+ * other XrayWrappers behave. We use this class to implement those semantics.
+ */
+template <typename Base>
+class CrossOriginXrayWrapper : public Base {
+  public:
+    CrossOriginXrayWrapper(unsigned flags);
+    virtual ~CrossOriginXrayWrapper();
+};
+
 }
 
 #endif /* __FilteringWrapper_h__ */

@@ -359,9 +359,9 @@ SelectWrapper(bool securityWrapper, bool wantXrays, XrayType xrayType,
 
     // This is a security wrapper. Use the security versions and filter.
     if (xrayType == XrayForWrappedNative)
-        return &FilteringWrapper<SecurityXrayXPCWN,
+        return &FilteringWrapper<CrossOriginXrayWrapper<SecurityXrayXPCWN>,
                                  CrossOriginAccessiblePropertiesOnly>::singleton;
-    return &FilteringWrapper<SecurityXrayDOM,
+    return &FilteringWrapper<CrossOriginXrayWrapper<SecurityXrayDOM>,
                              CrossOriginAccessiblePropertiesOnly>::singleton;
 }
 

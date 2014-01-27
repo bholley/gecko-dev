@@ -188,11 +188,22 @@ FilteringWrapper<Base, Policy>::enter(JSContext *cx, HandleObject wrapper,
     return true;
 }
 
+
+template <typename Base>
+CrossOriginXrayWrapper<Base>::CrossOriginXrayWrapper(unsigned flags) : Base(flags)
+{
+}
+
+template <typename Base>
+CrossOriginXrayWrapper<Base>::~CrossOriginXrayWrapper()
+{
+}
+
 // NB: don't need SOW here because the resulting wrapper would be identical to
 // NNXOW.
 #define SCSOW FilteringWrapper<SameCompartmentSecurityWrapper, Opaque>
-#define XOW FilteringWrapper<SecurityXrayXPCWN, CrossOriginAccessiblePropertiesOnly>
-#define DXOW   FilteringWrapper<SecurityXrayDOM, CrossOriginAccessiblePropertiesOnly>
+#define XOW FilteringWrapper<CrossOriginXrayWrapper<SecurityXrayXPCWN>, CrossOriginAccessiblePropertiesOnly>
+#define DXOW   FilteringWrapper<CrossOriginXrayWrapper<SecurityXrayDOM>, CrossOriginAccessiblePropertiesOnly>
 #define NNXOW FilteringWrapper<CrossCompartmentSecurityWrapper, Opaque>
 #define GO FilteringWrapper<CrossCompartmentSecurityWrapper, GentlyOpaque>
 template<> SCSOW SCSOW::singleton(0);
