@@ -237,6 +237,31 @@ CrossOriginXrayWrapper<Base>::getOwnPropertyDescriptor(JSContext *cx,
 
 template <typename Base>
 bool
+CrossOriginXrayWrapper<Base>::defineProperty(JSContext *cx, JS::Handle<JSObject*> wrapper,
+                                       JS::Handle<jsid> id,
+                                       JS::MutableHandle<JSPropertyDescriptor> desc)
+{
+    // Until XPCWN Xrays go away, we'll have native resolves looping back
+    // through here.
+    if (XrayUtils::IsXrayResolving(cx, wrapper, id))
+        return Base::defineProperty(cx, wrapper, id, desc);
+
+    JS_ReportError(cx, "Permission denied to define property on cross-origin object");
+    return false;
+}
+
+template <typename Base>
+bool
+CrossOriginXrayWrapper<Base>::delete_(JSContext *cx, JS::Handle<JSObject*> wrapper,
+                                      JS::Handle<jsid> id, bool *bp)
+{
+    JS_ReportError(cx, "Permission denied to delete property on cross-origin object");
+    return false;
+}
+
+
+template <typename Base>
+bool
 CrossOriginXrayWrapper<Base>::getOwnPropertyNames(JSContext *cx, JS::Handle<JSObject*> wrapper,
                                        JS::AutoIdVector &props)
 {
