@@ -28,6 +28,7 @@ using namespace JS;
 using namespace mozilla;
 
 using js::Wrapper;
+using js::BaseProxyHandler;
 using js::IsCrossCompartmentWrapper;
 using js::UncheckedUnwrap;
 using js::CheckedUnwrap;
@@ -1400,7 +1401,7 @@ XrayWrapper<Base, Traits>::getPropertyDescriptor(JSContext *cx, HandleObject wra
                                                  JS::MutableHandle<JSPropertyDescriptor> desc,
                                                  unsigned flags)
 {
-    assertEnteredPolicy(cx, wrapper, id);
+    assertEnteredPolicy(cx, wrapper, id, BaseProxyHandler::GET | BaseProxyHandler::SET);
     RootedObject holder(cx, Traits::singleton.ensureHolder(cx, wrapper));
     if (Traits::isResolving(cx, holder, id)) {
         desc.object().set(nullptr);
@@ -1549,7 +1550,7 @@ XrayWrapper<Base, Traits>::getOwnPropertyDescriptor(JSContext *cx, HandleObject 
                                                     JS::MutableHandle<JSPropertyDescriptor> desc,
                                                     unsigned flags)
 {
-    assertEnteredPolicy(cx, wrapper, id);
+    assertEnteredPolicy(cx, wrapper, id, BaseProxyHandler::GET | BaseProxyHandler::SET);
     RootedObject holder(cx, Traits::singleton.ensureHolder(cx, wrapper));
     if (Traits::isResolving(cx, holder, id)) {
         desc.object().set(nullptr);
@@ -1630,7 +1631,7 @@ bool
 XrayWrapper<Base, Traits>::defineProperty(JSContext *cx, HandleObject wrapper,
                                           HandleId id, MutableHandle<JSPropertyDescriptor> desc)
 {
-    assertEnteredPolicy(cx, wrapper, id);
+    assertEnteredPolicy(cx, wrapper, id, BaseProxyHandler::SET);
 
     // NB: We still need JSRESOLVE_ASSIGNING here for the time being, because it
     // tells things like nodelists whether they should create the property or not.
@@ -1677,7 +1678,7 @@ bool
 XrayWrapper<Base, Traits>::getOwnPropertyNames(JSContext *cx, HandleObject wrapper,
                                                AutoIdVector &props)
 {
-    assertEnteredPolicy(cx, wrapper, JSID_VOID);
+    assertEnteredPolicy(cx, wrapper, JSID_VOID, BaseProxyHandler::GET);
     return enumerate(cx, wrapper, JSITER_OWNONLY | JSITER_HIDDEN, props);
 }
 
@@ -1686,7 +1687,7 @@ bool
 XrayWrapper<Base, Traits>::delete_(JSContext *cx, HandleObject wrapper,
                                    HandleId id, bool *bp)
 {
-    assertEnteredPolicy(cx, wrapper, id);
+    assertEnteredPolicy(cx, wrapper, id, BaseProxyHandler::SET);
 
     // Check the expando object.
     RootedObject target(cx, Traits::getTargetObject(wrapper));
@@ -1704,7 +1705,7 @@ bool
 XrayWrapper<Base, Traits>::enumerate(JSContext *cx, HandleObject wrapper, unsigned flags,
                                      AutoIdVector &props)
 {
-    assertEnteredPolicy(cx, wrapper, JSID_VOID);
+    assertEnteredPolicy(cx, wrapper, JSID_VOID, BaseProxyHandler::GET);
     if (!AccessCheck::wrapperSubsumes(wrapper)) {
         JS_ReportError(cx, "Not allowed to enumerate cross origin objects");
         return false;
@@ -1797,7 +1798,7 @@ template <typename Base, typename Traits>
 bool
 XrayWrapper<Base, Traits>::call(JSContext *cx, HandleObject wrapper, const JS::CallArgs &args)
 {
-    assertEnteredPolicy(cx, wrapper, JSID_VOID);
+    assertEnteredPolicy(cx, wrapper, JSID_VOID, BaseProxyHandler::CALL);
     return Traits::call(cx, wrapper, args, Base::singleton);
 }
 
@@ -1805,7 +1806,7 @@ template <typename Base, typename Traits>
 bool
 XrayWrapper<Base, Traits>::construct(JSContext *cx, HandleObject wrapper, const JS::CallArgs &args)
 {
-    assertEnteredPolicy(cx, wrapper, JSID_VOID);
+    assertEnteredPolicy(cx, wrapper, JSID_VOID, BaseProxyHandler::CALL);
     return Traits::construct(cx, wrapper, args, Base::singleton);
 }
 
