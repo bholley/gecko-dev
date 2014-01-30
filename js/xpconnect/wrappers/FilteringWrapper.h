@@ -72,6 +72,10 @@ class CrossOriginXrayWrapper : public Base {
                                           JS::Handle<jsid> id,
                                           JS::MutableHandle<JSPropertyDescriptor> desc,
                                           unsigned flags) MOZ_OVERRIDE;
+
+    virtual bool getPrototypeOf(JSContext *cx, JS::HandleObject wrapper,
+                                JS::MutableHandleObject protop) MOZ_OVERRIDE;
+
 };
 
 }

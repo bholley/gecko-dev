@@ -235,6 +235,16 @@ CrossOriginXrayWrapper<Base>::getOwnPropertyDescriptor(JSContext *cx,
     return getPropertyDescriptor(cx, wrapper, id, desc, flags);
 }
 
+template <typename Base>
+bool
+CrossOriginXrayWrapper<Base>::getPrototypeOf(JSContext *cx, JS::HandleObject wrapper,
+                                             JS::MutableHandleObject protop)
+{
+    // Cross-origin objects have null prototypes.
+    protop.set(nullptr);
+    return true;
+}
+
 // NB: don't need SOW here because the resulting wrapper would be identical to
 // NNXOW.
 #define SCSOW FilteringWrapper<SameCompartmentSecurityWrapper, Opaque>
