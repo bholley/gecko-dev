@@ -73,9 +73,13 @@ class CrossOriginXrayWrapper : public Base {
                                           JS::MutableHandle<JSPropertyDescriptor> desc,
                                           unsigned flags) MOZ_OVERRIDE;
 
+    virtual bool getOwnPropertyNames(JSContext *cx, JS::Handle<JSObject*> wrapper,
+                                     JS::AutoIdVector &props) MOZ_OVERRIDE;
+    virtual bool enumerate(JSContext *cx, JS::Handle<JSObject*> wrapper,
+                           JS::AutoIdVector &props) MOZ_OVERRIDE;
+
     virtual bool getPrototypeOf(JSContext *cx, JS::HandleObject wrapper,
                                 JS::MutableHandleObject protop) MOZ_OVERRIDE;
-
 };
 
 }

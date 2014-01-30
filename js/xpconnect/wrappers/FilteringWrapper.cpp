@@ -237,6 +237,26 @@ CrossOriginXrayWrapper<Base>::getOwnPropertyDescriptor(JSContext *cx,
 
 template <typename Base>
 bool
+CrossOriginXrayWrapper<Base>::getOwnPropertyNames(JSContext *cx, JS::Handle<JSObject*> wrapper,
+                                       JS::AutoIdVector &props)
+{
+    // All properties on cross-origin objects are supposed |own|, despite what
+    // the underlying native object may report. Override the inherited trap to
+    // avoid passing JSITER_OWNONLY as a flag.
+    return Base::enumerate(cx, wrapper, JSITER_HIDDEN, props);
+}
+
+template <typename Base>
+bool
+CrossOriginXrayWrapper<Base>::enumerate(JSContext *cx, JS::Handle<JSObject*> wrapper,
+                                       JS::AutoIdVector &props)
+{
+    // Cross-origin properties are non-enumerable.
+    return true;
+}
+
+template <typename Base>
+bool
 CrossOriginXrayWrapper<Base>::getPrototypeOf(JSContext *cx, JS::HandleObject wrapper,
                                              JS::MutableHandleObject protop)
 {

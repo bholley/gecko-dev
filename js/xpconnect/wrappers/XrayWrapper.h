@@ -113,7 +113,7 @@ class XrayWrapper : public Base {
 
     static XrayWrapper singleton;
 
-  private:
+  protected:
     bool enumerate(JSContext *cx, JS::Handle<JSObject*> wrapper, unsigned flags,
                    JS::AutoIdVector &props);
 };
