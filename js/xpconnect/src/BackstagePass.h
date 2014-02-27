@@ -33,6 +33,11 @@ public:
     return mGlobal;
   }
 
+  virtual void TraceGlobalJSObject(const TraceCallbacks& aCallbacks, void* aClosure) {
+    if (mGlobal)
+      aCallbacks.Trace(&mGlobal, "mGlobal", aClosure);
+  }
+
   virtual void ForgetGlobalObject() {
     mGlobal = nullptr;
   }

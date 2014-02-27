@@ -10,10 +10,11 @@
 #include "js/TypeDecls.h"
 
 #define NS_IGLOBALOBJECT_IID \
-{ 0xe2538ded, 0x13ef, 0x4f4d, \
-{ 0x94, 0x6b, 0x65, 0xd3, 0x33, 0xb4, 0xf0, 0x3c } }
+{ 0x1dc72dd3, 0xfdc3, 0x4393, \
+{ 0x8d, 0x41, 0xd0, 0x85, 0xfc, 0x92, 0xd8, 0x7a } }
 
 class nsIPrincipal;
+class TraceCallbacks;
 
 class nsIGlobalObject : public nsISupports
 {
@@ -21,6 +22,11 @@ public:
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_IGLOBALOBJECT_IID)
 
   virtual JSObject* GetGlobalJSObject() = 0;
+
+  // In general, nsIGlobalObject implementations do not hold their global alive.
+  // This method allows holders of an nsIGlobalObject pointer to explicitly
+  // trace the JS global and thus keep it alive.
+  virtual void TraceGlobalJSObject(const TraceCallbacks& aCallbacks, void* aClosure) = 0;
 
   // This method is not meant to be overridden.
   nsIPrincipal* PrincipalOrNull();

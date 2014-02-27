@@ -2740,4 +2740,3 @@ TabChildGlobal::GetGlobalJSObject()
   NS_ENSURE_TRUE(ref, nullptr);
   return ref->GetJSObject();
 }
-

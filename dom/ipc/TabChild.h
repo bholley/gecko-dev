@@ -129,6 +129,11 @@ public:
   virtual JSContext* GetJSContextForEventHandlers() MOZ_OVERRIDE;
   virtual nsIPrincipal* GetPrincipal() MOZ_OVERRIDE;
   virtual JSObject* GetGlobalJSObject() MOZ_OVERRIDE;
+  virtual void TraceGlobalJSObject(const TraceCallbacks& aCallbacks,
+                                   void* aClosure)
+  {
+    // Nothing to do here. The nsIXPConnectJSObjectHolder holds the global alive.
+  }
 
   nsCOMPtr<nsIContentFrameMessageManager> mMessageManager;
   TabChild* mTabChild;

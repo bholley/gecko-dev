@@ -339,15 +339,15 @@ public:
     return EnsureInnerWindow() ? GetWrapper() : nullptr;
   }
 
-  // nsIGlobalJSObjectHolder
+  // nsIGlobalObject
   virtual JSObject *GetGlobalJSObject();
+  virtual void TraceGlobalJSObject(const TraceCallbacks& aCallbacks, void* aClosure);
 
   // nsIScriptGlobalObject
   JSObject *FastGetGlobalJSObject() const
   {
     return mJSObject;
   }
-  void TraceGlobalJSObject(TraceCallbacks& aCallbacks, void* aClosure);
 
   virtual nsresult EnsureScriptEnvironment();
 

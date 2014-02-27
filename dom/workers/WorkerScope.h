@@ -50,6 +50,12 @@ public:
     return GetWrapper();
   }
 
+  virtual void
+  TraceGlobalJSObject(const TraceCallbacks& aCallbacks, void* aClosure) MOZ_OVERRIDE
+  {
+    TraceWrapper(aCallbacks, aClosure);
+  }
+
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_INHERITED(WorkerGlobalScope,
                                                          nsDOMEventTargetHelper)

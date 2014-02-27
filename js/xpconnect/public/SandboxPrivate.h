@@ -8,6 +8,7 @@
 #include "nsIGlobalObject.h"
 #include "nsIScriptObjectPrincipal.h"
 #include "nsIPrincipal.h"
+#include "nsCycleCollectionParticipant.h"
 #include "nsWeakReference.h"
 
 #include "js/RootingAPI.h"
@@ -37,6 +38,11 @@ public:
     JSObject *GetGlobalJSObject()
     {
         return mGlobalJSObject;
+    }
+
+    void TraceGlobalJSObject(const TraceCallbacks& aCallbacks, void* aClosure) {
+      if (mGlobalJSObject)
+        aCallbacks.Trace(&mGlobalJSObject, "mGlobalJSObject", aClosure);
     }
 
     void ForgetGlobalObject()

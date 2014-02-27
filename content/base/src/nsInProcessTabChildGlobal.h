@@ -148,6 +148,12 @@ public:
 
     return mGlobal->GetJSObject();
   }
+
+  virtual void TraceGlobalJSObject(const TraceCallbacks& aCallbacks, void* aClosure)
+  {
+      // No need to do anything here. mGlobal is already held alive via the
+      // nsIXPConnectJSObjectHolder.
+  }
 protected:
   nsresult Init();
   nsresult InitTabChildGlobal();
