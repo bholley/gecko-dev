@@ -44,6 +44,9 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(CallbackObject)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(CallbackObject)
   NS_IMPL_CYCLE_COLLECTION_TRACE_JS_MEMBER_CALLBACK(mCallback)
+  if (tmp->mIncumbentGlobal) {
+    tmp->mIncumbentGlobal->TraceGlobalJSObject(aCallbacks, aClosure);
+  }
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 CallbackObject::CallSetup::CallSetup(CallbackObject* aCallback,
@@ -122,8 +125,17 @@ CallbackObject::CallSetup::CallSetup(CallbackObject* aCallback,
 
     mAutoEntryScript.construct(globalObject, mIsMainThread, cx);
     mAutoEntryScript.ref().SetWebIDLCallerPrincipal(webIDLCallerPrincipal);
-    if (aCallback->IncumbentGlobalOrNull()) {
-      mAutoIncumbentScript.construct(aCallback->IncumbentGlobalOrNull());
+    nsIGlobalObject* incumbent = aCallback->IncumbentGlobalOrNull();
+    if (incumbent) {
+      // The callback object traces its incumbent JS global, so in general it
+      // should be alive here. However, it's possible that we could run afoul
+      // of the same IPC global lifetime weirdness described above. Let's just
+      // be safe here, so that nobody has to waste a day digging trying to debug
+      // gaia-ui tests.
+      if (!incumbent->GetGlobalJSObject()) {
+        return;
+      }
+      mAutoIncumbentScript.construct(incumbent);
     }
 
     // Unmark the callable (by invoking Callback() and not the CallbackPreserveColor()
