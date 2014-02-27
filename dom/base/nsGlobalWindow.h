@@ -347,7 +347,7 @@ public:
   {
     return mJSObject;
   }
-  void TraceGlobalJSObject(JSTracer* aTrc);
+  void TraceGlobalJSObject(TraceCallbacks& aCallbacks, void* aClosure);
 
   virtual nsresult EnsureScriptEnvironment();
 

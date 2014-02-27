@@ -31,6 +31,7 @@
 #include "xpcpublic.h"
 #include "nsObserverService.h"
 #include "nsFocusManager.h"
+#include "mozilla/CycleCollectedJSRuntime.h"
 
 using namespace mozilla::dom;
 
@@ -432,7 +433,8 @@ TraceActiveWindowGlobal(const uint64_t& aId, nsGlobalWindow*& aWindow, void* aCl
 {
   if (aWindow->GetDocShell() && aWindow->IsOuterWindow()) {
     TraceClosure* closure = static_cast<TraceClosure*>(aClosure);
-    aWindow->TraceGlobalJSObject(closure->mTrc);
+    GCTraceCallbacks callbacks;
+    aWindow->TraceGlobalJSObject(callbacks, closure->mTrc);
 #ifdef MOZ_XUL
     nsIDocument* doc = aWindow->GetExtantDoc();
     if (doc && doc->IsXUL()) {

@@ -1919,10 +1919,10 @@ nsGlobalWindow::GetGlobalJSObject()
 }
 
 void
-nsGlobalWindow::TraceGlobalJSObject(JSTracer* aTrc)
+nsGlobalWindow::TraceGlobalJSObject(TraceCallbacks& aCallbacks, void* aClosure)
 {
   if (mJSObject) {
-    JS_CallTenuredObjectTracer(aTrc, &mJSObject, "active window global");
+    aCallbacks.Trace(&mJSObject, "active window global", aClosure);
   }
 }
 
