@@ -69,6 +69,7 @@
 #include "nsIException.h"
 #include "nsThreadUtils.h"
 #include "xpcpublic.h"
+#include "js/Tracer.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -736,35 +737,10 @@ CycleCollectedJSRuntime::ContextCallback(JSContext* aContext,
   return self->CustomContextCallback(aContext, aOperation);
 }
 
-struct JsGcTracer : public TraceCallbacks
-{
-  virtual void Trace(JS::Heap<JS::Value> *p, const char *name, void *closure) const MOZ_OVERRIDE {
-    JS_CallHeapValueTracer(static_cast<JSTracer*>(closure), p, name);
-  }
-  virtual void Trace(JS::Heap<jsid> *p, const char *name, void *closure) const MOZ_OVERRIDE {
-    JS_CallHeapIdTracer(static_cast<JSTracer*>(closure), p, name);
-  }
-  virtual void Trace(JS::Heap<JSObject *> *p, const char *name, void *closure) const MOZ_OVERRIDE {
-    JS_CallHeapObjectTracer(static_cast<JSTracer*>(closure), p, name);
-  }
-  virtual void Trace(JS::TenuredHeap<JSObject *> *p, const char *name, void *closure) const MOZ_OVERRIDE {
-    JS_CallTenuredObjectTracer(static_cast<JSTracer*>(closure), p, name);
-  }
-  virtual void Trace(JS::Heap<JSString *> *p, const char *name, void *closure) const MOZ_OVERRIDE {
-    JS_CallHeapStringTracer(static_cast<JSTracer*>(closure), p, name);
-  }
-  virtual void Trace(JS::Heap<JSScript *> *p, const char *name, void *closure) const MOZ_OVERRIDE {
-    JS_CallHeapScriptTracer(static_cast<JSTracer*>(closure), p, name);
-  }
-  virtual void Trace(JS::Heap<JSFunction *> *p, const char *name, void *closure) const MOZ_OVERRIDE {
-    JS_CallHeapFunctionTracer(static_cast<JSTracer*>(closure), p, name);
-  }
-};
-
 static PLDHashOperator
 TraceJSHolder(void* aHolder, nsScriptObjectTracer*& aTracer, void* aArg)
 {
-  aTracer->Trace(aHolder, JsGcTracer(), aArg);
+  aTracer->Trace(aHolder, GCTraceCallbacks(), aArg);
 
   return PL_DHASH_NEXT;
 }
@@ -1150,4 +1126,46 @@ CycleCollectedJSRuntime::OnGC(JSGCStatus aStatus)
   }
 
   CustomGCCallback(aStatus);
+}
+
+void
+GCTraceCallbacks::Trace(JS::Heap<JS::Value>* p, const char* name, void* closure) const
+{
+  JS_CallHeapValueTracer(static_cast<JSTracer*>(closure), p, name);
+}
+
+void
+GCTraceCallbacks::Trace(JS::Heap<jsid>* p, const char* name, void* closure) const
+{
+  JS_CallHeapIdTracer(static_cast<JSTracer*>(closure), p, name);
+}
+
+void
+GCTraceCallbacks::Trace(JS::Heap<JSObject*>* p, const char* name, void* closure) const
+{
+  JS_CallHeapObjectTracer(static_cast<JSTracer*>(closure), p, name);
+}
+
+void
+GCTraceCallbacks::Trace(JS::TenuredHeap<JSObject*>* p, const char* name, void* closure) const
+{
+  JS_CallTenuredObjectTracer(static_cast<JSTracer*>(closure), p, name);
+}
+
+void
+GCTraceCallbacks::Trace(JS::Heap<JSFunction*>* p, const char* name, void* closure) const
+{
+  JS_CallHeapFunctionTracer(static_cast<JSTracer*>(closure), p, name);
+}
+
+void
+GCTraceCallbacks::Trace(JS::Heap<JSString*>* p, const char* name, void* closure) const
+{
+  JS_CallHeapStringTracer(static_cast<JSTracer*>(closure), p, name);
+}
+
+void
+GCTraceCallbacks::Trace(JS::Heap<JSScript*>* p, const char* name, void* closure) const
+{
+  JS_CallHeapScriptTracer(static_cast<JSTracer*>(closure), p, name);
 }

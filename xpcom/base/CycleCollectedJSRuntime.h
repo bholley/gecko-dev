@@ -244,4 +244,19 @@ private:
 
 } // namespace mozilla
 
+/*
+ * An implementation of TraceCallbacks that does GC tracing for all GCThing
+ * types encountered.
+ */
+struct GCTraceCallbacks : public TraceCallbacks
+{
+  virtual void Trace(JS::Heap<JS::Value> *p, const char *name, void *closure) const MOZ_OVERRIDE;
+  virtual void Trace(JS::Heap<jsid> *p, const char *name, void *closure) const MOZ_OVERRIDE;
+  virtual void Trace(JS::Heap<JSObject *> *p, const char *name, void *closure) const MOZ_OVERRIDE;
+  virtual void Trace(JS::TenuredHeap<JSObject *> *p, const char *name, void *closure) const MOZ_OVERRIDE;
+  virtual void Trace(JS::Heap<JSString *> *p, const char *name, void *closure) const MOZ_OVERRIDE;
+  virtual void Trace(JS::Heap<JSScript *> *p, const char *name, void *closure) const MOZ_OVERRIDE;
+  virtual void Trace(JS::Heap<JSFunction *> *p, const char *name, void *closure) const MOZ_OVERRIDE;
+};
+
 #endif // mozilla_CycleCollectedJSRuntime_h__
