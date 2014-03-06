@@ -67,34 +67,11 @@ XPCJSContextStack::Push(JSContext *cx)
 
     XPCJSContextInfo &e = mStack[mStack.Length() - 1];
     if (e.cx) {
-        // The cx we're pushing is also stack-top. In general we still need to
-        // call JS_SaveFrameChain here. But if that would put us in a
-        // compartment that's same-origin with the current one, we can skip it.
-        nsIScriptSecurityManager* ssm = XPCWrapper::GetSecurityManager();
-        if ((e.cx == cx) && ssm) {
-            // DOM JSContexts don't store their default compartment object on
-            // the cx, so in those cases we need to fetch it via the scx
-            // instead.
-            RootedObject defaultScope(cx, GetDefaultScopeFromJSContext(cx));
-
-            nsIPrincipal *currentPrincipal =
-              GetCompartmentPrincipal(js::GetContextCompartment(cx));
-            nsIPrincipal *defaultPrincipal = GetObjectPrincipal(defaultScope);
-            bool equal = false;
-            currentPrincipal->Equals(defaultPrincipal, &equal);
-            if (equal) {
-                mStack.AppendElement(cx);
-                return true;
-            }
-        }
-
-        {
-            // Push() can be called outside any request for e.cx.
-            JSAutoRequest ar(e.cx);
-            if (!JS_SaveFrameChain(e.cx))
-                return false;
-            e.savedFrameChain = true;
-        }
+        // Push() can be called outside any request for e.cx.
+        JSAutoRequest ar(e.cx);
+        if (!JS_SaveFrameChain(e.cx))
+            return false;
+        e.savedFrameChain = true;
     }
 
     mStack.AppendElement(cx);
