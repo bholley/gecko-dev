@@ -32,45 +32,26 @@ void
 XPCJSContextStack::Pop()
 {
     MOZ_ASSERT(!mStack.IsEmpty());
-
-    uint32_t idx = mStack.Length() - 1; // The thing we're popping
-
+    uint32_t idx = mStack.Length() - 1;
     mStack.RemoveElementAt(idx);
-    if (idx == 0) {
-        js::Debug_SetActiveJSContext(mRuntime->Runtime(), nullptr);
-        return;
+    JSContext *newCx = idx > 0 ? mStack[idx - 1] : nullptr;
+    if (newCx) {
+        JSAutoRequest ar(newCx);
+        JS_RestoreFrameChain(newCx);
     }
-
-    --idx; // Advance to new top of the stack
-
-    XPCJSContextInfo &e = mStack[idx];
-    if (e.cx && e.savedFrameChain) {
-        // Pop() can be called outside any request for e.cx.
-        JSAutoRequest ar(e.cx);
-        JS_RestoreFrameChain(e.cx);
-        e.savedFrameChain = false;
-    }
-    js::Debug_SetActiveJSContext(mRuntime->Runtime(), e.cx);
+    js::Debug_SetActiveJSContext(mRuntime->Runtime(), newCx);
 }
 
 void
 XPCJSContextStack::Push(JSContext *cx)
 {
     js::Debug_SetActiveJSContext(mRuntime->Runtime(), cx);
-    if (mStack.Length() == 0) {
-        mStack.AppendElement(cx);
-        return;
-    }
-
-    XPCJSContextInfo &e = mStack[mStack.Length() - 1];
-    if (e.cx) {
-        // Push() can be called outside any request for e.cx.
-        JSAutoRequest ar(e.cx);
-        if (!JS_SaveFrameChain(e.cx))
+    JSContext *oldCx = mStack.IsEmpty() ? nullptr : mStack[mStack.Length() - 1];
+    if (oldCx) {
+        JSAutoRequest ar(oldCx);
+        if (!JS_SaveFrameChain(oldCx))
             MOZ_CRASH();
-        e.savedFrameChain = true;
     }
-
     mStack.AppendElement(cx);
 }
 
@@ -78,7 +59,7 @@ bool
 XPCJSContextStack::HasJSContext(JSContext *cx)
 {
     for (uint32_t i = 0; i < mStack.Length(); i++)
-        if (cx == mStack[i].cx)
+        if (cx == mStack[i])
             return true;
     return false;
 }

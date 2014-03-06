@@ -2746,19 +2746,6 @@ private:
 
 
 /***************************************************************************/
-// XPCJSContextStack is not actually an xpcom object, but xpcom calls are
-// delegated to it as an implementation detail.
-struct XPCJSContextInfo {
-    XPCJSContextInfo(JSContext* aCx) :
-        cx(aCx),
-        savedFrameChain(false)
-    {}
-    JSContext* cx;
-
-    // Whether the frame chain was saved
-    bool savedFrameChain;
-};
-
 namespace xpc {
 
 // These functions are used in a few places where a callback model makes it
@@ -2788,15 +2775,12 @@ public:
 
     JSContext *Peek()
     {
-        return mStack.IsEmpty() ? nullptr : mStack[mStack.Length() - 1].cx;
+        return mStack.IsEmpty() ? nullptr : mStack[mStack.Length() - 1];
     }
 
     JSContext *InitSafeJSContext();
     JSContext *GetSafeJSContext();
     bool HasJSContext(JSContext *cx);
-
-    const InfallibleTArray<XPCJSContextInfo>* GetStack()
-    { return &mStack; }
 
 private:
     friend class mozilla::AutoCxPusher;
@@ -2808,7 +2792,7 @@ private:
     void Pop();
     void Push(JSContext *cx);
 
-    AutoInfallibleTArray<XPCJSContextInfo, 16> mStack;
+    AutoInfallibleTArray<JSContext*, 16> mStack;
     XPCJSRuntime* mRuntime;
     JSContext*  mSafeJSContext;
 };
