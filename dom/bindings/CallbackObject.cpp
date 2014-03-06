@@ -245,24 +245,9 @@ CallbackObject::CallSetup::~CallSetup()
       // already do a JS_SaveFrameChain and we are already in the compartment
       // we want to be in, so all nsJSUtils::ReportPendingException would do is
       // screw up our compartment, which is exactly what we do not want.
-      //
-      // XXXbz FIXME: bug 979525 means we don't always JS_SaveFrameChain here,
-      // so we need to go ahead and do that.
-      JS::Rooted<JSObject*> oldGlobal(mCx, JS::CurrentGlobalOrNull(mCx));
-      MOZ_ASSERT(oldGlobal, "How can we not have a global here??");
-      bool saved = JS_SaveFrameChain(mCx);
-      // Make sure the JSAutoCompartment goes out of scope before the
-      // JS_RestoreFrameChain call!
-      {
-        JSAutoCompartment ac(mCx, oldGlobal);
-        MOZ_ASSERT(!JS::DescribeScriptedCaller(mCx),
-                   "Our comment above about JS_SaveFrameChain having been "
-                   "called is a lie?");
-        JS_ReportPendingException(mCx);
-      }
-      if (saved) {
-        JS_RestoreFrameChain(mCx);
-      }
+      MOZ_ASSERT(!JS::DescribeScriptedCaller(mCx),
+                 "JS_SaveFrameChain should have been called");
+      JS_ReportPendingException(mCx);
     }
   }
 
