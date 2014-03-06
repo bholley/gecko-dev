@@ -1334,12 +1334,10 @@ XPCJSRuntime::ActivityCallback(void *arg, bool active)
 void
 XPCJSRuntime::CTypesActivityCallback(JSContext *cx, js::CTypesActivityType type)
 {
-  if (type == js::CTYPES_CALLBACK_BEGIN) {
-    if (!xpc::PushJSContextNoScriptContext(cx))
-      MOZ_CRASH();
-  } else if (type == js::CTYPES_CALLBACK_END) {
+  if (type == js::CTYPES_CALLBACK_BEGIN)
+    xpc::PushJSContextNoScriptContext(cx);
+  else if (type == js::CTYPES_CALLBACK_END)
     xpc::PopJSContextNoScriptContext();
-  }
 }
 
 // static

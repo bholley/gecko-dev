@@ -1067,8 +1067,7 @@ nsXPConnect::OnProcessNextEvent(nsIThreadInternal *aThread, bool aMayWait,
     // Push a null JSContext so that we don't see any script during
     // event processing.
     MOZ_ASSERT(NS_IsMainThread());
-    bool ok = PushJSContextNoScriptContext(nullptr);
-    NS_ENSURE_TRUE(ok, NS_ERROR_FAILURE);
+    PushJSContextNoScriptContext(nullptr);
     return NS_OK;
 }
 
@@ -1245,7 +1244,7 @@ nsXPConnect::GetSafeJSContext()
 
 namespace xpc {
 
-bool
+void
 PushJSContextNoScriptContext(JSContext *aCx)
 {
     MOZ_ASSERT_IF(aCx, !GetScriptContextFromJSContext(aCx));

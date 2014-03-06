@@ -2766,7 +2766,7 @@ namespace xpc {
 // depend on those stack-scoped classes to maintain nsIScriptContext
 // invariants, so these functions may only be used of the context is not
 // associated with an nsJSContext/nsIScriptContext.
-bool PushJSContextNoScriptContext(JSContext *aCx);
+void PushJSContextNoScriptContext(JSContext *aCx);
 void PopJSContextNoScriptContext();
 
 } /* namespace xpc */
@@ -2800,13 +2800,13 @@ public:
 
 private:
     friend class mozilla::AutoCxPusher;
-    friend bool xpc::PushJSContextNoScriptContext(JSContext *aCx);;
+    friend void xpc::PushJSContextNoScriptContext(JSContext *aCx);;
     friend void xpc::PopJSContextNoScriptContext();
 
     // We make these private so that stack manipulation can only happen
     // through one of the above friends.
-    JSContext *Pop();
-    bool Push(JSContext *cx);
+    void Pop();
+    void Push(JSContext *cx);
 
     AutoInfallibleTArray<XPCJSContextInfo, 16> mStack;
     XPCJSRuntime* mRuntime;
