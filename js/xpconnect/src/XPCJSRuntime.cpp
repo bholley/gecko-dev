@@ -617,6 +617,20 @@ WindowGlobalOrNull(JSObject *aObj)
     return WindowOrNull(glob);
 }
 
+nsGlobalWindow*
+AsWindowOrNull(JSObject *aObj)
+{
+    if (!IS_WN_CLASS(js::GetObjectClass(aObj))) {
+        return nullptr;
+    }
+
+    nsISupports* supports = XPCWrappedNative::Get(aObj)->GetIdentityObject();
+    nsCOMPtr<nsPIDOMWindow> piWin = do_QueryInterface(supports);
+    if (!piWin)
+        return nullptr;
+    return static_cast<nsGlobalWindow*>(piWin.get());
+}
+
 }
 
 static void

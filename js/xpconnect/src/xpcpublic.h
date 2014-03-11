@@ -438,6 +438,9 @@ WindowOrNull(JSObject *aObj);
 nsGlobalWindow*
 WindowGlobalOrNull(JSObject *aObj);
 
+nsGlobalWindow*
+AsWindowOrNull(JSObject *aObj);
+
 // Error reporter used when there is no associated DOM window on to which to
 // report errors and warnings.
 void

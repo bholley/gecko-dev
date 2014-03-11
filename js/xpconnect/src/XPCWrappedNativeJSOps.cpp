@@ -11,6 +11,7 @@
 #include "jsprf.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/Preferences.h"
+#include "nsGlobalWindow.h"
 
 using namespace mozilla;
 using namespace JS;
@@ -548,18 +549,22 @@ enum WNHelperType {
 static void
 WrappedNativeFinalize(js::FreeOp *fop, JSObject *obj, WNHelperType helperType)
 {
+    nsGlobalWindow *win = JS_IsGlobalObject(obj) ? AsWindowOrNull(obj) : nullptr;
     const js::Class* clazz = js::GetObjectClass(obj);
     if (clazz->flags & JSCLASS_DOM_GLOBAL) {
         mozilla::dom::DestroyProtoAndIfaceCache(obj);
     }
     nsISupports* p = static_cast<nsISupports*>(xpc_GetJSPrivate(obj));
-    if (!p)
+    if (!p) {
+        MOZ_RELEASE_ASSERT(!win);
         return;
+    }
 
     XPCWrappedNative* wrapper = static_cast<XPCWrappedNative*>(p);
     if (helperType == WN_HELPER)
         wrapper->GetScriptableCallback()->Finalize(wrapper, js::CastToJSFreeOp(fop), obj);
     wrapper->FlatJSObjectFinalized();
+    MOZ_RELEASE_ASSERT(!win || !win->FastGetGlobalJSObject());
 }
 
 static void
