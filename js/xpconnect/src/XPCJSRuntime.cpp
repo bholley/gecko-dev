@@ -636,6 +636,8 @@ AsWindowOrNull(JSObject *aObj)
 static void
 CompartmentDestroyedCallback(JSFreeOp *fop, JSCompartment *compartment)
 {
+    printf_stderr("bhdbg: Destroying Compartment: %p\n", compartment);
+
     // NB - This callback may be called in JS_DestroyRuntime, which happens
     // after the XPCJSRuntime has been torn down.
 

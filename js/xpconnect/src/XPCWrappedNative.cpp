@@ -17,6 +17,7 @@
 
 #include "nsContentUtils.h"
 #include "nsCxPusher.h"
+#include "nsGlobalWindow.h"
 
 #include <stdint.h>
 #include "mozilla/Likely.h"
@@ -146,6 +147,10 @@ XPCWrappedNative::WrapNewGlobal(xpcObjectHelper &nativeHelper,
 {
     AutoJSContext cx;
     nsISupports *identity = nativeHelper.GetCanonical();
+    nsCOMPtr<nsPIDOMWindow> piWin = do_QueryInterface(identity);
+    nsGlobalWindow *win = piWin ? static_cast<nsGlobalWindow*>(piWin.get()) : nullptr;
+    if (win)
+        printf_stderr("bhdbg: Creating global for Window @ %p...", win);
 
     // The object should specify that it's meant to be global.
     MOZ_ASSERT(nativeHelper.GetScriptableFlags() & nsIXPCScriptable::IS_GLOBAL_OBJECT);
@@ -174,6 +179,8 @@ XPCWrappedNative::WrapNewGlobal(xpcObjectHelper &nativeHelper,
     RootedObject global(cx, xpc::CreateGlobalObject(cx, clasp, principal, aOptions));
     if (!global)
         return NS_ERROR_FAILURE;
+    if (win)
+        printf_stderr("done! %p (compartment @ %p) \n", global.get(), js::GetObjectCompartment(global));
     XPCWrappedNativeScope *scope = GetCompartmentPrivate(global)->scope;
 
     // Immediately enter the global's compartment, so that everything else we

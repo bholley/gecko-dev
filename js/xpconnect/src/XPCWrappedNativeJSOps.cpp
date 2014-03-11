@@ -550,6 +550,12 @@ static void
 WrappedNativeFinalize(js::FreeOp *fop, JSObject *obj, WNHelperType helperType)
 {
     nsGlobalWindow *win = JS_IsGlobalObject(obj) ? AsWindowOrNull(obj) : nullptr;
+    const char *name = js::GetObjectClass(obj)->name;
+    MOZ_RELEASE_ASSERT(!!win == (!strcmp(name, "Window") || !strcmp(name, "ChromeWindow")));
+    if (win) {
+        JSCompartment *c = js::GetObjectCompartment(obj);
+        printf_stderr("bhdbg: WrappedNativeFinalize for Window Global: %p (native @ %p, compartment @ %p)\n", obj, win, c);
+    }
     const js::Class* clazz = js::GetObjectClass(obj);
     if (clazz->flags & JSCLASS_DOM_GLOBAL) {
         mozilla::dom::DestroyProtoAndIfaceCache(obj);
