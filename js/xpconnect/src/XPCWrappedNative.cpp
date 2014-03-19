@@ -180,8 +180,9 @@ XPCWrappedNative::WrapNewGlobal(xpcObjectHelper &nativeHelper,
     if (!global)
         return NS_ERROR_FAILURE;
     if (win) {
-        printf_stderr("done! %p (compartment @ %p) - AllocKind: %u, Arena: %p \n", global.get(), js::GetObjectCompartment(global),
-                      js::GetObjectFinalizeKind(global), js::GetArenaForObject(global));
+        printf_stderr("done! %p (compartment @ %p) - AllocKind: %u, Arena: %p, ScriptableShared: %p \n",
+                      global.get(), js::GetObjectCompartment(global),
+                      js::GetObjectFinalizeKind(global), js::GetArenaForObject(global), si.get()->GetScriptableShared());
         js::SetDumpForArena(global);
         MOZ_RELEASE_ASSERT(!js::IsObjectBackgroundFinalized(global));
         MOZ_RELEASE_ASSERT(js::GetObjectClass(global)->finalize == XPC_WN_Helper_Finalize);

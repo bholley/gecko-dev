@@ -1599,7 +1599,11 @@ public:
          MOZ_COUNT_CTOR(XPCNativeScriptableShared);}
 
     ~XPCNativeScriptableShared()
-        {if (mJSClass.base.name)nsMemory::Free((void*)mJSClass.base.name);
+        {
+         const char* name = mJSClass.base.name;
+         if (name && (!strcmp(name, "Window") || !strcmp(name, "ChromeWindow")))
+           printf_stderr("bhdbg: Freeing XPCNativeScriptableShared: %p\n", this);
+         if (mJSClass.base.name)nsMemory::Free((void*)mJSClass.base.name);
          MOZ_COUNT_DTOR(XPCNativeScriptableShared);}
 
     char* TransferNameOwnership()
