@@ -648,6 +648,12 @@ IsObjectBackgroundFinalized(JSObject *obj);
 JS_FRIEND_API(uint32_t)
 GetObjectFinalizeKind(JSObject *obj);
 
+JS_FRIEND_API(void*)
+GetArenaForObject(JSObject *obj);
+
+JS_FRIEND_API(void)
+SetDumpForArena(JSObject *obj);
+
 // Sidestep the activeContext checking implicitly performed in
 // JS_SetPendingException.
 JS_FRIEND_API(void)

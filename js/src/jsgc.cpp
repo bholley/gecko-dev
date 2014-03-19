@@ -231,6 +231,29 @@ using mozilla::DebugOnly;
 using mozilla::Maybe;
 using mozilla::Swap;
 
+#ifdef ANDROID
+static void
+bhdbg_vprintf_stderr(const char *fmt, va_list args)
+{
+    __android_log_vprint(ANDROID_LOG_INFO, "Gecko", fmt, args);
+}
+#else
+static void
+bhdbg_vprintf_stderr(const char *fmt, va_list args)
+{
+  vfprintf(stderr, fmt, args);
+}
+#endif
+
+static void
+bhdbg_printf_stderr(const char *fmt, ...)
+{
+  va_list args;
+  va_start(args, fmt);
+  bhdbg_vprintf_stderr(fmt, args);
+  va_end(args);
+}
+
 /* Perform a Full GC every 20 seconds if MaybeGC is called */
 static const uint64_t GC_IDLE_FULL_SPAN = 20 * 1000 * 1000;
 
@@ -431,9 +454,25 @@ Arena::setAsFullyUnused(AllocKind thingKind)
 }
 
 template<typename T>
+inline void
+DumpIfGlobal(T t) {}
+
+template<>
+inline void
+DumpIfGlobal(JSObject* obj)
+{
+    if (obj->is<GlobalObject>()) {
+        bhdbg_printf_stderr("bhdbg: Arena finalize hit global: %p (class @ %p, finalize @ %p)\n",
+                            obj, obj->getClass(), obj->getClass()->finalize) ;
+    }
+}
+
+template<typename T>
 inline bool
 Arena::finalize(FreeOp *fop, AllocKind thingKind, size_t thingSize)
 {
+    if (aheader.dumpEnabled)
+        bhdbg_printf_stderr("bhdbg: Invoking finalize() for Arena %p\n", &aheader);
     /* Enforce requirements on size of T. */
     JS_ASSERT(thingSize % CellSize == 0);
     JS_ASSERT(thingSize <= 255);
@@ -481,6 +520,7 @@ Arena::finalize(FreeOp *fop, AllocKind thingKind, size_t thingSize)
                     newFreeSpanStart = 0;
                 }
             } else {
+                DumpIfGlobal(t);
                 if (!newFreeSpanStart)
                     newFreeSpanStart = thing;
                 t->finalize(fop);
@@ -493,6 +533,8 @@ Arena::finalize(FreeOp *fop, AllocKind thingKind, size_t thingSize)
         JS_ASSERT(newListTail == &newListHead);
         JS_ASSERT(!newFreeSpanStart ||
                   newFreeSpanStart == thingsStart(thingKind));
+        if (aheader.dumpEnabled)
+            bhdbg_printf_stderr("bhdbg: Arena %p: all clear\n", &aheader);
         return true;
     }
 
@@ -514,6 +556,8 @@ Arena::finalize(FreeOp *fop, AllocKind thingKind, size_t thingSize)
 #endif
     aheader.setFirstFreeSpan(&newListHead);
 
+    if (aheader.dumpEnabled)
+        bhdbg_printf_stderr("bhdbg: Arena %p: NOT all clear\n", &aheader);;
     return false;
 }
 
@@ -972,6 +1016,9 @@ Chunk::recycleArena(ArenaHeader *aheader, ArenaList &dest, AllocKind thingKind)
 void
 Chunk::releaseArena(ArenaHeader *aheader)
 {
+    if (aheader->dumpEnabled) {
+        bhdbg_printf_stderr("bhdbg: Releasing Arena: %p\n", aheader);
+    }
     JS_ASSERT(aheader->allocated());
     JS_ASSERT(!aheader->hasDelayedMarking);
     Zone *zone = aheader->zone;

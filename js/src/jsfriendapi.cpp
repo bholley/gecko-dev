@@ -403,6 +403,20 @@ js::GetObjectFinalizeKind(JSObject *obj)
     return static_cast<uint32_t>(obj->tenuredGetAllocKind());
 }
 
+JS_FRIEND_API(void*)
+js::GetArenaForObject(JSObject *obj)
+{
+    ArenaHeader* header = obj->arenaHeader();
+    return header;
+}
+
+JS_FRIEND_API(void)
+js::SetDumpForArena(JSObject *obj)
+{
+    ArenaHeader* header = obj->arenaHeader();
+    header->dumpEnabled = true;
+}
+
 JS_FRIEND_API(void)
 js::SetPendingExceptionCrossContext(JSContext *cx, JS::HandleValue v)
 {

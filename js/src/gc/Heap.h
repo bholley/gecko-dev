@@ -444,8 +444,9 @@ struct ArenaHeader : public JS::shadow::ArenaHeader
     size_t       hasDelayedMarking  : 1;
     size_t       allocatedDuringIncremental : 1;
     size_t       markOverflow : 1;
-    size_t       auxNextLink : JS_BITS_PER_WORD - 8 - 1 - 1 - 1;
-    static_assert(ArenaShift >= 8 + 1 + 1 + 1,
+    size_t       dumpEnabled : 1;
+    size_t       auxNextLink : JS_BITS_PER_WORD - 8 - 1 - 1 - 1 - 1;
+    static_assert(ArenaShift >= 8 + 1 + 1 + 1 + 1,
                   "ArenaHeader::auxNextLink packing assumes that ArenaShift has enough bits to "
                   "cover allocKind and hasDelayedMarking.");
 
@@ -461,6 +462,7 @@ struct ArenaHeader : public JS::shadow::ArenaHeader
         JS_ASSERT(!allocated());
         JS_ASSERT(!markOverflow);
         JS_ASSERT(!allocatedDuringIncremental);
+        JS_ASSERT(!dumpEnabled);
         JS_ASSERT(!hasDelayedMarking);
         zone = zoneArg;
 
@@ -475,6 +477,7 @@ struct ArenaHeader : public JS::shadow::ArenaHeader
         allocKind = size_t(FINALIZE_LIMIT);
         markOverflow = 0;
         allocatedDuringIncremental = 0;
+        dumpEnabled = 0;
         hasDelayedMarking = 0;
         auxNextLink = 0;
     }
