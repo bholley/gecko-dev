@@ -389,6 +389,20 @@ js::GetGlobalForObjectCrossCompartment(JSObject *obj)
     return &obj->global();
 }
 
+JS_FRIEND_API(bool)
+js::IsObjectBackgroundFinalized(JSObject *obj)
+{
+    MOZ_ASSERT(obj->isTenured());
+    return IsBackgroundFinalized(obj->tenuredGetAllocKind());
+}
+
+JS_FRIEND_API(uint32_t)
+js::GetObjectFinalizeKind(JSObject *obj)
+{
+    MOZ_ASSERT(obj->isTenured());
+    return static_cast<uint32_t>(obj->tenuredGetAllocKind());
+}
+
 JS_FRIEND_API(void)
 js::SetPendingExceptionCrossContext(JSContext *cx, JS::HandleValue v)
 {

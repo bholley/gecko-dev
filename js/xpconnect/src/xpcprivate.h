@@ -3618,6 +3618,9 @@ xpc_LocalizeRuntime(JSRuntime *rt);
 void
 xpc_DelocalizeRuntime(JSRuntime *rt);
 
+void
+XPC_WN_Helper_Finalize(js::FreeOp *fop, JSObject *obj);
+
 /***************************************************************************/
 // Inlines use the above - include last.
 

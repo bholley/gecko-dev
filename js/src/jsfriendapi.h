@@ -642,6 +642,12 @@ GetObjectParentMaybeScope(JSObject *obj);
 JS_FRIEND_API(JSObject *)
 GetGlobalForObjectCrossCompartment(JSObject *obj);
 
+JS_FRIEND_API(bool)
+IsObjectBackgroundFinalized(JSObject *obj);
+
+JS_FRIEND_API(uint32_t)
+GetObjectFinalizeKind(JSObject *obj);
+
 // Sidestep the activeContext checking implicitly performed in
 // JS_SetPendingException.
 JS_FRIEND_API(void)

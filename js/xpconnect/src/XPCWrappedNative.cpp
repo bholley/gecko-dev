@@ -179,8 +179,12 @@ XPCWrappedNative::WrapNewGlobal(xpcObjectHelper &nativeHelper,
     RootedObject global(cx, xpc::CreateGlobalObject(cx, clasp, principal, aOptions));
     if (!global)
         return NS_ERROR_FAILURE;
-    if (win)
-        printf_stderr("done! %p (compartment @ %p) \n", global.get(), js::GetObjectCompartment(global));
+    if (win) {
+        printf_stderr("done! %p (compartment @ %p) - AllocKind: %u \n", global.get(), js::GetObjectCompartment(global),
+                      js::GetObjectFinalizeKind(global));
+        MOZ_RELEASE_ASSERT(!js::IsObjectBackgroundFinalized(global));
+        MOZ_RELEASE_ASSERT(js::GetObjectClass(global)->finalize == XPC_WN_Helper_Finalize);
+    }
     XPCWrappedNativeScope *scope = GetCompartmentPrivate(global)->scope;
 
     // Immediately enter the global's compartment, so that everything else we

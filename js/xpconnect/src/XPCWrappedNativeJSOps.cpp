@@ -875,7 +875,7 @@ XPC_WN_Helper_HasInstance(JSContext *cx, HandleObject obj, MutableHandleValue va
     POST_HELPER_STUB
 }
 
-static void
+void
 XPC_WN_Helper_Finalize(js::FreeOp *fop, JSObject *obj)
 {
     WrappedNativeFinalize(fop, obj, WN_HELPER);
