@@ -373,8 +373,7 @@ nsINode::ChromeOnlyAccess() const
     return false;
   }
 
-  return const_cast<nsINode*>(this)->AsContent()->IsInAnonymousSubtree() ||
-         HasFlag(NODE_CHROME_ONLY_ACCESS);
+  return const_cast<nsINode*>(this)->AsContent()->IsInAnonymousSubtree();
 }
 
 nsresult

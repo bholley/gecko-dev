@@ -8,7 +8,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=914618
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
   <bindings xmlns="http://www.mozilla.org/xbl"
             xmlns:html="http://www.w3.org/1999/xhtml">
-    <binding id="testBinding" chromeOnlyContent="true">
+    <binding id="testBinding">
       <!-- The root of the anonymous subtree is special, and is not allowed to
            be adopted, among other things. Work with a child of the root. -->
       <content><html:div><html:span id="nac">hidden text</html:span></html:div></content>

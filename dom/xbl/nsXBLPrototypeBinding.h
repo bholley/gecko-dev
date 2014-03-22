@@ -156,8 +156,6 @@ private:
    * aFlags can contain XBLBinding_Serialize_InheritStyle to indicate that
    * mInheritStyle flag should be set, and XBLBinding_Serialize_IsFirstBinding
    * to indicate the first binding in a document.
-   * XBLBinding_Serialize_ChromeOnlyContent indicates that
-   * nsXBLPrototypeBinding::mChromeOnlyContent should be true.
    */
 public:
   static nsresult ReadNewBinding(nsIObjectInputStream* aStream,
@@ -250,8 +248,6 @@ public:
                              nsIContent* aCopyRoot,
                              nsIContent* aTemplChild);
 
-  bool ChromeOnlyContent() { return mChromeOnlyContent; }
-
   typedef nsClassHashtable<nsISupportsHashKey, nsXBLAttributeEntry> InnerAttributeTable;
 
 protected:
@@ -281,7 +277,6 @@ protected:
   bool mInheritStyle;
   bool mCheckedBaseProto;
   bool mKeyHandlersRegistered;
-  bool mChromeOnlyContent;
 
   nsXBLPrototypeResources* mResources; // If we have any resources, this will be non-null.
 

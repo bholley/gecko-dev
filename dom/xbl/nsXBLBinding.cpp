@@ -226,8 +226,7 @@ nsXBLBinding::GetBindingWithContent()
 }
 
 void
-nsXBLBinding::InstallAnonymousContent(nsIContent* aAnonParent, nsIContent* aElement,
-                                      bool aChromeOnlyContent)
+nsXBLBinding::InstallAnonymousContent(nsIContent* aAnonParent, nsIContent* aElement)
 {
   // We need to ensure two things.
   // (1) The anonymous content should be fooled into thinking it's in the bound
@@ -246,10 +245,6 @@ nsXBLBinding::InstallAnonymousContent(nsIContent* aAnonParent, nsIContent* aElem
        child;
        child = child->GetNextSibling()) {
     child->UnbindFromTree();
-    if (aChromeOnlyContent) {
-      child->SetFlags(NODE_CHROME_ONLY_ACCESS |
-                      NODE_IS_ROOT_OF_CHROME_ONLY_ACCESS);
-    }
     nsresult rv =
       child->BindToTree(doc, aElement, mBoundElement, allowScripts);
     if (NS_FAILED(rv)) {
@@ -384,8 +379,7 @@ nsXBLBinding::GenerateAnonymousContent()
 
     // Do this after looking for <children> as this messes up the parent
     // pointer which would make the GetNextNode call above fail
-    InstallAnonymousContent(mContent, mBoundElement,
-                            mPrototypeBinding->ChromeOnlyContent());
+    InstallAnonymousContent(mContent, mBoundElement);
 
     // Insert explicit children into insertion points
     if (mDefaultInsertionPoint && mInsertionPoints.IsEmpty()) {

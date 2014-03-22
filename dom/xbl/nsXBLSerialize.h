@@ -23,7 +23,7 @@ typedef uint8_t XBLBindingSerializeDetails;
 // Set to indicate that nsXBLPrototypeBinding::mInheritStyle should be true
 #define XBLBinding_Serialize_InheritStyle 2
 
-// Set to indicate that nsXBLPrototypeBinding::mChromeOnlyContent should be true
+// Not used anymore, but keep it around to avoid disrupting the file format.
 #define XBLBinding_Serialize_ChromeOnlyContent 4
 
 // Appears at the end of the serialized data to indicate that no more bindings

@@ -695,7 +695,7 @@ FindChromeAccessOnlySubtreeOwner(nsIContent* aContent)
   if (aContent->ChromeOnlyAccess()) {
     bool chromeAccessOnly = false;
     while (aContent && !chromeAccessOnly) {
-      chromeAccessOnly = aContent->IsRootOfChromeAccessOnlySubtree();
+      chromeAccessOnly = aContent->IsRootOfAnonymousSubtree();
       aContent = aContent->GetParent();
     }
   }
@@ -711,7 +711,7 @@ nsIContent::PreHandleEvent(EventChainPreVisitor& aVisitor)
 
   // Don't propagate mouseover and mouseout events when mouse is moving
   // inside chrome access only content.
-  bool isAnonForEvents = IsRootOfChromeAccessOnlySubtree();
+  bool isAnonForEvents = IsRootOfAnonymousSubtree();
   if ((aVisitor.mEvent->message == NS_MOUSE_ENTER_SYNTH ||
        aVisitor.mEvent->message == NS_MOUSE_EXIT_SYNTH ||
        aVisitor.mEvent->message == NS_POINTER_OVER ||
