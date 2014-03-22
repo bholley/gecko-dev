@@ -366,6 +366,17 @@ nsINode::CheckNotNativeAnonymous() const
 }
 #endif
 
+bool
+nsINode::ChromeOnlyAccess() const
+{
+  if (!IsContent()) {
+    return false;
+  }
+
+  return const_cast<nsINode*>(this)->AsContent()->IsInAnonymousSubtree() ||
+         HasFlag(NODE_CHROME_ONLY_ACCESS);
+}
+
 nsresult
 nsINode::GetParentNode(nsIDOMNode** aParentNode)
 {

@@ -996,12 +996,8 @@ public:
 #endif
   }
 
-  // True for native anonymous content and for XBL content if the binging
-  // has chromeOnlyContent="true".
-  bool ChromeOnlyAccess() const
-  {
-    return HasFlag(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE | NODE_CHROME_ONLY_ACCESS);
-  }
+  // True for all anonymous content.
+  bool ChromeOnlyAccess() const;
 
   /**
    * Returns true if |this| node is the common ancestor of the start/end
