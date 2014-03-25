@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/css" href="chrome://global/skin"?>
+<?xml-stylesheet type="text/css" href="chrome://mochikit/content/tests/SimpleTest/test.css"?>
+<!--
+https://bugzilla.mozilla.org/show_bug.cgi?id=987794
+-->
+<window title="Mozilla Bug 987794"
+        xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <script type="application/javascript" src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"/>
+
+  <!-- test results are displayed in the html:body -->
+  <body xmlns="http://www.w3.org/1999/xhtml">
+  <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=987794"
+     target="_blank">Mozilla Bug 987794</a>
+  </body>
+
+  <!-- test code goes here -->
+  <script type="application/javascript">
+  <![CDATA[
+  /** Test for Bug 987794 **/
+
+  const Cu = Components.utils;
+  SimpleTest.waitForExplicitFinish();
+  function go() {
+    let doc = window[0].document;
+    let img = doc.createElement('img');
+    doc.body.appendChild(img);
+
+    // Sanity.
+    img.setAttribute('name', 'somename');
+    is(doc.somename, img, "Named getter works over Xrays");
+    img.setAttribute('name', 'getElementById');
+    is(typeof doc.somename, 'undefined', "Named getter updates");
+
+    // Test an img named getElementById.
+    is(typeof doc.getElementById, 'function', "Xray not fooled by native shadowing");
+    is(doc.wrappedJSObject.getElementById, img.wrappedJSObject, "Non-Xray should be fooled by native shadowing");
+    delete window[0].wrappedJSObject.Document.prototype.getElementById;
+    is(typeof doc.getElementById, 'function', "Xray not fooled by native shadowing, even after deleting");
+
+    // Test an img named constructor.
+    is(doc.constructor, window[0].HTMLDocument, "control test for Xray |constructor|");
+    is(doc.wrappedJSObject.constructor, window[0].wrappedJSObject.HTMLDocument, "control test for non-Xray |constructor|");
+    img.setAttribute('name', 'constructor');
+    is(doc.constructor, window[0].HTMLDocument, "Xray not fooled by |constructor| shadowing");
+    is(doc.wrappedJSObject.constructor, img.wrappedJSObject, "Non-Xray should be fooled by |constructor| shadowing");
+
+    // Test an img named hasOwnProperty.
+    let ourHOP = undefined; // FIXME - When Xrays get better prototypes, this should be Object.prototype.hasOwnProperty.
+    ok(false, "Fix up ourHOP here when Xrays get better prototypes!");
+    let theirHOP = Cu.unwaiveXrays(window[0].wrappedJSObject.Object.prototype.hasOwnProperty);
+    is(doc.hasOwnProperty, ourHOP, "control test for Xray |hasOwnProperty|");
+    is(doc.wrappedJSObject.hasOwnProperty, Cu.waiveXrays(theirHOP), "control test for non-Xray |hasOwnProperty|");
+    img.setAttribute('name', 'hasOwnProperty');
+    is(doc.hasOwnProperty, ourHOP, "Xray not fooled by |hasOwnProperty| shadowing");
+    is(doc.wrappedJSObject.hasOwnProperty, img.wrappedJSObject, "Non-Xray should be fooled by |hasOwnProperty| shadowing");
+    delete window[0].wrappedJSObject.Object.prototype.hasOwnProperty;
+    is(doc.hasOwnProperty, ourHOP, "Xray not fooled by |hasOwnProperty| shadowing, even after deleting it");
+    SimpleTest.finish();
+  }
+
+  ]]>
+  </script>
+  <iframe id="ifr" onload="go();" type="content" src="http://example.org/tests/js/xpconnect/tests/mochitest/file_empty.html" />
+</window>
