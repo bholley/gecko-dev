@@ -11861,6 +11861,8 @@ nsGlobalWindow::RunTimeoutHandler(nsTimeout* aTimeout,
            .setVersion(JSVERSION_DEFAULT);
     JS::Rooted<JSObject*> global(entryScript.cx(), FastGetGlobalJSObject());
     nsJSUtils::EvaluateOptions evalOptions;
+    // If this sets an exception, it will be reported when |entryScript| goes
+    // out of scope.
     nsJSUtils::EvaluateString(entryScript.cx(), nsDependentString(script),
                               global, options, evalOptions, nullptr);
   } else {

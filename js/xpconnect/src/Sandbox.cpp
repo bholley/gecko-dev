@@ -527,34 +527,26 @@ EvalInWindow(JSContext *cx, const nsAString &source, HandleObject scope, Mutable
 
         // We don't want the JS engine to automatically report
         // uncaught exceptions.
+        pusher.SetReportUncaught(false);
+
         nsJSUtils::EvaluateOptions evaluateOptions;
-        evaluateOptions.setReportUncaught(false);
+        bool ok = nsJSUtils::EvaluateString(wndCx,
+                                            source,
+                                            targetScope,
+                                            compileOptions,
+                                            evaluateOptions,
+                                            rval.address());
 
-        nsresult rv = nsJSUtils::EvaluateString(wndCx,
-                                                source,
-                                                targetScope,
-                                                compileOptions,
-                                                evaluateOptions,
-                                                rval.address());
-
-        if (NS_FAILED(rv)) {
-            // If there was an exception we get it as a return value, if
-            // the evaluation failed for some other reason, then a default
-            // exception is raised.
-            MOZ_ASSERT(!JS_IsExceptionPending(wndCx),
-                       "Exception should be delivered as return value.");
-            if (rval.isUndefined()) {
-                MOZ_ASSERT(rv == NS_ERROR_OUT_OF_MEMORY);
-                return false;
-            }
-
-            // If there was an exception thrown we should set it
-            // on the calling context.
-            RootedValue exn(wndCx, rval);
-            // First we should reset the return value.
+        if (!ok) {
+            // If there was an exception thrown we first set the return value to
+            // undefined.
             rval.set(UndefinedValue());
 
-            // Then clone the exception.
+            // Then get the exception, clone it, and set it on the caller's
+            // context.
+            RootedValue exn(wndCx);
+            JS_GetPendingException(wndCx, &exn);
+            JS_ClearPendingException(wndCx);
             JSAutoCompartment ac(wndCx, cxGlobal);
             if (CloneNonReflectors(wndCx, &exn))
                 js::SetPendingExceptionCrossContext(cx, exn);

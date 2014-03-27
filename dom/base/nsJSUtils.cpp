@@ -171,7 +171,7 @@ nsJSUtils::CompileFunction(JSContext* aCx,
   return NS_OK;
 }
 
-nsresult
+bool
 nsJSUtils::EvaluateString(JSContext* aCx,
                           const nsAString& aScript,
                           JS::Handle<JSObject*> aScopeObject,
@@ -184,7 +184,6 @@ nsJSUtils::EvaluateString(JSContext* aCx,
   MOZ_ASSERT_IF(aCompileOptions.versionSet,
                 aCompileOptions.version != JSVERSION_UNKNOWN);
   MOZ_ASSERT_IF(aEvaluateOptions.coerceToString, aRetValue);
-  MOZ_ASSERT_IF(!aEvaluateOptions.reportUncaught, aRetValue);
   MOZ_ASSERT(aCx == nsContentUtils::GetCurrentJSContext());
 
   // Unfortunately, the JS engine actually compiles scripts with a return value
@@ -197,18 +196,10 @@ nsJSUtils::EvaluateString(JSContext* aCx,
 
   JS::ExposeObjectToActiveJS(aScopeObject);
   nsAutoMicroTask mt;
-  nsresult rv = NS_OK;
 
   bool ok = false;
   nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
-  NS_ENSURE_TRUE(ssm->ScriptAllowed(js::GetGlobalForObjectCrossCompartment(aScopeObject)), NS_OK);
-
-  mozilla::Maybe<AutoDontReportUncaught> dontReport;
-  if (!aEvaluateOptions.reportUncaught) {
-    // We need to prevent AutoLastFrameCheck from reporting and clearing
-    // any pending exceptions.
-    dontReport.construct(aCx);
-  }
+  NS_ENSURE_TRUE(ssm->ScriptAllowed(js::GetGlobalForObjectCrossCompartment(aScopeObject)), true);
 
   // Scope the JSAutoCompartment so that we can later wrap the return value
   // into the caller's cx.
@@ -239,33 +230,19 @@ nsJSUtils::EvaluateString(JSContext* aCx,
     }
   }
 
-  if (!ok) {
-    if (aEvaluateOptions.reportUncaught) {
-      ReportPendingException(aCx);
-      if (aRetValue) {
-        *aRetValue = JS::UndefinedValue();
-      }
-    } else {
-      rv = JS_IsExceptionPending(aCx) ? NS_ERROR_FAILURE
-                                      : NS_ERROR_OUT_OF_MEMORY;
-      JS::Rooted<JS::Value> exn(aCx);
-      JS_GetPendingException(aCx, &exn);
-      if (aRetValue) {
-        *aRetValue = exn;
-      }
-      JS_ClearPendingException(aCx);
-    }
+  if (!ok && aRetValue) {
+    *aRetValue = JS::UndefinedValue();
   }
 
   // Wrap the return value into whatever compartment aCx was in.
   if (aRetValue) {
     JS::Rooted<JS::Value> v(aCx, *aRetValue);
     if (!JS_WrapValue(aCx, &v)) {
-      return NS_ERROR_OUT_OF_MEMORY;
+      return false;
     }
     *aRetValue = v;
   }
-  return rv;
+  return ok;
 }
 
 //

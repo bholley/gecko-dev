@@ -392,11 +392,6 @@ nsXBLProtoImplField::InstallField(JS::Handle<JSObject*> aBoundNode,
   }
 
   nsAutoMicroTask mt;
-
-  // EvaluateString and JS_DefineUCProperty can both trigger GC, so
-  // protect |result| here.
-  nsresult rv;
-
   nsAutoCString uriSpec;
   aBindingDocURI->GetSpec(uriSpec);
 
@@ -428,14 +423,13 @@ nsXBLProtoImplField::InstallField(JS::Handle<JSObject*> aBoundNode,
   options.setFileAndLine(uriSpec.get(), mLineNumber)
          .setVersion(JSVERSION_LATEST);
   nsJSUtils::EvaluateOptions evalOptions;
-  rv = nsJSUtils::EvaluateString(cx, nsDependentString(mFieldText,
-                                                       mFieldTextLength),
+  nsJSUtils::EvaluateString(cx, nsDependentString(mFieldText,
+                                                  mFieldTextLength),
                                  wrappedNode, options, evalOptions,
                                  result.address());
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
-
+  // Press on in the case of failure, because that's what we've historically
+  // done.
+  JS_ReportPendingException(cx);
 
   // Now, enter the node's compartment, wrap the eval result, and define it on
   // the bound node.
