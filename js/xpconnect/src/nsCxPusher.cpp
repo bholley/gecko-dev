@@ -99,6 +99,8 @@ nsCxPusher::Pop()
 namespace mozilla {
 
 AutoCxPusher::AutoCxPusher(JSContext* cx, bool allowNull)
+  : mReportUncaught(true)
+  , mOriginalDontReportUncaught(false)
 {
   MOZ_ASSERT_IF(!allowNull, cx);
 
@@ -114,8 +116,10 @@ AutoCxPusher::AutoCxPusher(JSContext* cx, bool allowNull)
   }
   mStackDepthAfterPush = stack->Count();
 
-#ifdef DEBUG
   mPushedContext = cx;
+  if (cx)
+    mOriginalDontReportUncaught = ContextOptionsRef(cx).dontReportUncaught();
+#ifdef DEBUG
   mCompartmentDepthOnEntry = cx ? js::GetEnterCompartmentDepth(cx) : 0;
 #endif
 
@@ -132,8 +136,19 @@ AutoCxPusher::AutoCxPusher(JSContext* cx, bool allowNull)
   }
 }
 
+void
+AutoCxPusher::SetReportUncaught(bool aReport)
+{
+  MOZ_ASSERT(mPushedContext);
+  mReportUncaught = aReport;
+  ContextOptionsRef(mPushedContext).setDontReportUncaught(!aReport);
+}
+
 AutoCxPusher::~AutoCxPusher()
 {
+  if (mPushedContext)
+    ContextOptionsRef(mPushedContext).setDontReportUncaught(mOriginalDontReportUncaught);
+
   // GC when we pop a script entry point. This is a useful heuristic that helps
   // us out on certain (flawed) benchmarks like sunspider, because it lets us
   // avoid GCing during the timing loop.
@@ -141,7 +156,7 @@ AutoCxPusher::~AutoCxPusher()
   // NB: We need to take care to only do this if we're in a compartment,
   // otherwise JS_MaybeGC will segfault.
   if (mScx && !mAutoCompartment.empty())
-    JS_MaybeGC(nsXPConnect::XPConnect()->GetCurrentJSContext());
+    JS_MaybeGC(mPushedContext);
 
   // Leave the compartment and request before popping.
   mAutoCompartment.destroyIfConstructed();

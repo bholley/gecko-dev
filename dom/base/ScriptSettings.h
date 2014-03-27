@@ -110,6 +110,9 @@ public:
     mWebIDLCallerPrincipal = aPrincipal;
   }
 
+  void SetReportUncaught(bool aReport) { mCxPusher.ref().SetReportUncaught(aReport); }
+  bool WillReportUncaught() const { return mCxPusher.ref().WillReportUncaught(); }
+
   JSContext* cx() const { return mCx; }
 
 private:

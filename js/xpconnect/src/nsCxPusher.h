@@ -35,15 +35,20 @@ public:
   // the top of the cx stack.
   bool IsStackTop();
 
+  void SetReportUncaught(bool aReport);
+  bool WillReportUncaught() const { return mReportUncaught; }
+
 private:
   mozilla::Maybe<JSAutoRequest> mAutoRequest;
   mozilla::Maybe<JSAutoCompartment> mAutoCompartment;
   nsCOMPtr<nsIScriptContext> mScx;
   uint32_t mStackDepthAfterPush;
-#ifdef DEBUG
   JSContext* mPushedContext;
+#ifdef DEBUG
   unsigned mCompartmentDepthOnEntry;
 #endif
+  bool mReportUncaught;
+  bool mOriginalDontReportUncaught; // XXXbholley - local to this patch stack.
 };
 
 } /* namespace mozilla */
