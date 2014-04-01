@@ -4370,6 +4370,24 @@ CreateTypeError(JSContext *cx, HandleString stack, HandleString fileName,
 /************************************************************************/
 
 /*
+ * Weak Maps.
+ */
+
+extern JS_PUBLIC_API(JSObject *)
+JS_NewWeakMapObject(JSContext *cx);
+
+extern JS_PUBLIC_API(bool)
+JS_IsWeakMapObject(JSObject *obj);
+
+extern JS_PUBLIC_API(bool)
+JS_GetWeakMapEntry(JSContext *cx, JS::HandleObject mapObj, JS::HandleObject key,
+                   JS::MutableHandleValue val);
+
+extern JS_PUBLIC_API(bool)
+JS_SetWeakMapEntry(JSContext *cx, JS::HandleObject mapObj, JS::HandleObject key,
+                   JS::HandleValue val);
+
+/*
  * Dates.
  */
 
