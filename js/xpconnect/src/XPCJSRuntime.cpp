@@ -588,6 +588,14 @@ GetJunkScopeGlobal()
 }
 
 JSObject *
+GetCompilationScope()
+{
+    XPCJSRuntime *self = nsXPConnect::GetRuntimeInstance();
+    NS_ENSURE_TRUE(self, nullptr);
+    return self->GetCompilationScope();
+}
+
+JSObject *
 GetSafeJSContextGlobal()
 {
     return XPCJSRuntime::Get()->GetJSContextStack()->GetSafeJSContextGlobal();
@@ -3026,6 +3034,7 @@ XPCJSRuntime::XPCJSRuntime(nsXPConnect* aXPConnect)
    mObjectHolderRoots(nullptr),
    mWatchdogManager(new WatchdogManager(MOZ_THIS_IN_INITIALIZER_LIST())),
    mJunkScope(nullptr),
+   mCompilationScope(nullptr),
    mAsyncSnowWhiteFreer(new AsyncFreeSnowWhite())
 {
     DOM_InitInterfaces();
@@ -3468,13 +3477,36 @@ XPCJSRuntime::GetJunkScope()
     return mJunkScope;
 }
 
-void
-XPCJSRuntime::DeleteJunkScope()
+JSObject *
+XPCJSRuntime::GetCompilationScope()
 {
-    if(!mJunkScope)
-        return;
+    if (!mCompilationScope) {
+        AutoSafeJSContext cx;
+        SandboxOptions options;
+        options.sandboxName.AssignASCII("XPConnect Compilation Compartment");
+        options.invisibleToDebugger = true;
+        RootedValue v(cx);
+        nsresult rv = CreateSandboxObject(cx, &v, /* principal = */ nullptr, options);
+        NS_ENSURE_SUCCESS(rv, nullptr);
 
+        mCompilationScope = js::UncheckedUnwrap(&v.toObject());
+        JS_AddNamedObjectRoot(cx, &mCompilationScope, "XPConnect Compilation Compartment");
+
+    }
+    return mCompilationScope;
+}
+
+
+void
+XPCJSRuntime::DeleteSingletonScopes()
+{
     AutoSafeJSContext cx;
-    JS_RemoveObjectRoot(cx, &mJunkScope);
-    mJunkScope = nullptr;
+    if(mJunkScope) {
+        JS_RemoveObjectRoot(cx, &mJunkScope);
+        mJunkScope = nullptr;
+    }
+    if(mCompilationScope) {
+        JS_RemoveObjectRoot(cx, &mCompilationScope);
+        mCompilationScope = nullptr;
+    }
 }
