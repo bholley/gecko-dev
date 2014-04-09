@@ -1348,7 +1348,6 @@ nsXPConnect::NotifyDidPaint()
     return NS_OK;
 }
 
-static const uint8_t HAS_PRINCIPALS_FLAG               = 1;
 static const uint8_t HAS_ORIGIN_PRINCIPALS_FLAG        = 2;
 
 static nsresult
@@ -1363,15 +1362,13 @@ WriteScriptOrFunction(nsIObjectOutputStream *stream, JSContext *cx,
         RootedFunction fun(cx, JS_GetObjectFunction(functionObj));
         script.set(JS_GetFunctionScript(cx, fun));
     }
-
+ 
     nsIPrincipal *principal =
         nsJSPrincipals::get(JS_GetScriptPrincipals(script));
     nsIPrincipal *originPrincipal =
         nsJSPrincipals::get(JS_GetScriptOriginPrincipals(script));
 
     uint8_t flags = 0;
-    if (principal)
-        flags |= HAS_PRINCIPALS_FLAG;
 
     // Optimize for the common case when originPrincipals == principals. As
     // originPrincipals is set to principals when the former is null we can
@@ -1382,12 +1379,6 @@ WriteScriptOrFunction(nsIObjectOutputStream *stream, JSContext *cx,
     nsresult rv = stream->Write8(flags);
     if (NS_FAILED(rv))
         return rv;
-
-    if (flags & HAS_PRINCIPALS_FLAG) {
-        rv = stream->WriteObject(principal, true);
-        if (NS_FAILED(rv))
-            return rv;
-    }
 
     if (flags & HAS_ORIGIN_PRINCIPALS_FLAG) {
         rv = stream->WriteObject(originPrincipal, true);
@@ -1427,17 +1418,6 @@ ReadScriptOrFunction(nsIObjectInputStream *stream, JSContext *cx,
     if (NS_FAILED(rv))
         return rv;
 
-    nsJSPrincipals* principal = nullptr;
-    nsCOMPtr<nsIPrincipal> readPrincipal;
-    if (flags & HAS_PRINCIPALS_FLAG) {
-        nsCOMPtr<nsISupports> supports;
-        rv = stream->ReadObject(true, getter_AddRefs(supports));
-        if (NS_FAILED(rv))
-            return rv;
-        readPrincipal = do_QueryInterface(supports);
-        principal = nsJSPrincipals::get(readPrincipal);
-    }
-
     nsJSPrincipals* originPrincipal = nullptr;
     nsCOMPtr<nsIPrincipal> readOriginPrincipal;
     if (flags & HAS_ORIGIN_PRINCIPALS_FLAG) {
@@ -1461,14 +1441,14 @@ ReadScriptOrFunction(nsIObjectInputStream *stream, JSContext *cx,
 
     {
         if (scriptp) {
-            JSScript *script = JS_DecodeScript(cx, data, size, principal, originPrincipal);
+            JSScript *script = JS_DecodeScript(cx, data, size, originPrincipal);
             if (!script)
                 rv = NS_ERROR_OUT_OF_MEMORY;
             else
                 *scriptp = script;
         } else {
             JSObject *funobj = JS_DecodeInterpretedFunction(cx, data, size,
-                                                            principal, originPrincipal);
+                                                            originPrincipal);
             if (!funobj)
                 rv = NS_ERROR_OUT_OF_MEMORY;
             else
