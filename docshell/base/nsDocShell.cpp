@@ -8645,7 +8645,7 @@ nsDocShell::CheckLoadingPermissions()
     // frames in the new window through window.frames[] (which is
     // allAccess for historic reasons), so we still need to do this
     // check on load.
-    nsresult rv = NS_OK, sameOrigin = NS_OK;
+    nsresult rv = NS_OK;
 
     if (!gValidateOrigin || !IsFrame()) {
         // Origin validation was turned off, or we're not a frame.
@@ -8657,13 +8657,6 @@ nsDocShell::CheckLoadingPermissions()
     nsCOMPtr<nsIScriptSecurityManager> securityManager =
       do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID, &rv);
     NS_ENSURE_SUCCESS(rv, rv);
-
-    // We're a frame. Check that the caller has write permission to
-    // the parent before allowing it to load anything into this
-    // docshell.
-    nsCOMPtr<nsIPrincipal> subjPrincipal;
-    rv = securityManager->GetSubjectPrincipal(getter_AddRefs(subjPrincipal));
-    NS_ENSURE_TRUE(NS_SUCCEEDED(rv) && subjPrincipal, rv);
 
     // Check if the caller is from the same origin as this docshell,
     // or any of its ancestors.
@@ -8677,17 +8670,9 @@ nsDocShell::CheckLoadingPermissions()
             return NS_ERROR_UNEXPECTED;
         }
 
-        // Compare origins
-        bool subsumes;
-        sameOrigin = subjPrincipal->Subsumes(p, &subsumes);
-        if (NS_SUCCEEDED(sameOrigin)) {
-            if (subsumes) {
-                // Same origin, permit load
-
-                return sameOrigin;
-            }
-
-            sameOrigin = NS_ERROR_DOM_PROP_ACCESS_DENIED;
+        if (nsContentUtils::GetSubjectPrincipal()->Subsumes(p)) {
+            // Same origin, permit load
+            return NS_OK;;
         }
 
         nsCOMPtr<nsIDocShellTreeItem> tmp;
@@ -8695,7 +8680,7 @@ nsDocShell::CheckLoadingPermissions()
         item.swap(tmp);
     } while (item);
 
-    return sameOrigin;
+    return NS_ERROR_DOM_PROP_ACCESS_DENIED;
 }
 
 //*****************************************************************************

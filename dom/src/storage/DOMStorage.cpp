@@ -241,17 +241,10 @@ DOMStorage::CanUseStorage(DOMStorage* aStorage)
   }
 
   // chrome can always use aStorage regardless of permission preferences
-  if (nsContentUtils::IsCallerChrome()) {
+  nsCOMPtr<nsIPrincipal> subject = nsContentUtils::GetSubjectPrincipal();
+  if (nsContentUtils::IsSystemPrincipal(subject)) {
     return true;
   }
-
-  nsCOMPtr<nsIPrincipal> subjectPrincipal;
-  nsresult rv = nsContentUtils::GetSecurityManager()->
-                  GetSubjectPrincipal(getter_AddRefs(subjectPrincipal));
-  NS_ENSURE_SUCCESS(rv, false);
-
-  // if subjectPrincipal were null we'd have returned after
-  // IsCallerChrome().
 
   nsCOMPtr<nsIPermissionManager> permissionManager =
     do_GetService(NS_PERMISSIONMANAGER_CONTRACTID);
@@ -260,7 +253,7 @@ DOMStorage::CanUseStorage(DOMStorage* aStorage)
   }
 
   uint32_t perm;
-  permissionManager->TestPermissionFromPrincipal(subjectPrincipal,
+  permissionManager->TestPermissionFromPrincipal(subject,
                                                  kPermissionType, &perm);
 
   if (perm == nsIPermissionManager::DENY_ACTION) {
@@ -286,7 +279,7 @@ DOMStorage::CanUseStorage(DOMStorage* aStorage)
   }
 
   if (aStorage) {
-    return aStorage->CanAccess(subjectPrincipal);
+    return aStorage->CanAccess(subject);
   }
 
   return true;

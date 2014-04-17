@@ -340,26 +340,9 @@ NS_IMPL_ISUPPORTS4(nsScriptSecurityManager,
 bool
 nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(JSContext *cx)
 {
-    // Get the security manager
-    nsScriptSecurityManager *ssm =
-        nsScriptSecurityManager::GetScriptSecurityManager();
-
-    NS_ASSERTION(ssm, "Failed to get security manager service");
-    if (!ssm)
-        return false;
-
-    nsresult rv;
-    nsIPrincipal* subjectPrincipal = ssm->GetSubjectPrincipal(cx, &rv);
-
-    NS_ASSERTION(NS_SUCCEEDED(rv), "CSP: Failed to get nsIPrincipal from js context");
-    if (NS_FAILED(rv))
-        return false; // Not just absence of principal, but failure.
-
-    if (!subjectPrincipal)
-        return true;
-
+    nsCOMPtr<nsIPrincipal> subjectPrincipal = nsContentUtils::GetSubjectPrincipal();
     nsCOMPtr<nsIContentSecurityPolicy> csp;
-    rv = subjectPrincipal->GetCsp(getter_AddRefs(csp));
+    nsresult rv = subjectPrincipal->GetCsp(getter_AddRefs(csp));
     NS_ASSERTION(NS_SUCCEEDED(rv), "CSP: Failed to get CSP from principal.");
 
     // don't do anything unless there's a CSP
@@ -410,27 +393,8 @@ NS_IMETHODIMP
 nsScriptSecurityManager::CheckSameOrigin(JSContext* cx,
                                          nsIURI* aTargetURI)
 {
-    nsresult rv;
-
-    // Get a context if necessary
-    if (!cx)
-    {
-        cx = GetCurrentJSContext();
-        if (!cx)
-            return NS_OK; // No JS context, so allow access
-    }
-
     // Get a principal from the context
-    nsIPrincipal* sourcePrincipal = GetSubjectPrincipal(cx, &rv);
-    if (NS_FAILED(rv))
-        return rv;
-
-    if (!sourcePrincipal)
-    {
-        NS_WARNING("CheckSameOrigin called on script w/o principals; should this happen?");
-        return NS_OK;
-    }
-
+    nsIPrincipal* sourcePrincipal = nsContentUtils::GetSubjectPrincipal();
     if (sourcePrincipal == mSystemPrincipal)
     {
         // This is a system (chrome) script, so allow access
@@ -507,14 +471,7 @@ nsScriptSecurityManager::CheckLoadURIFromScript(JSContext *cx, nsIURI *aURI)
 {
     // Get principal of currently executing script.
     nsresult rv;
-    nsIPrincipal* principal = GetSubjectPrincipal(cx, &rv);
-    if (NS_FAILED(rv))
-        return rv;
-
-    // Native code can load all URIs.
-    if (!principal)
-        return NS_OK;
-
+    nsIPrincipal* principal = nsContentUtils::GetSubjectPrincipal();
     rv = CheckLoadURIWithPrincipal(principal, aURI,
                                    nsIScriptSecurityManager::STANDARD);
     if (NS_SUCCEEDED(rv)) {
@@ -965,19 +922,7 @@ nsScriptSecurityManager::SubjectPrincipalIsSystem(bool* aIsSystem)
     if (!mSystemPrincipal)
         return NS_OK;
 
-    nsCOMPtr<nsIPrincipal> subject;
-    nsresult rv = GetSubjectPrincipal(getter_AddRefs(subject));
-    if (NS_FAILED(rv))
-        return rv;
-
-    if(!subject)
-    {
-        // No subject principal means no JS is running;
-        // this is the equivalent of system principal code
-        *aIsSystem = true;
-        return NS_OK;
-    }
-
+    nsCOMPtr<nsIPrincipal> subject = nsContentUtils::GetSubjectPrincipal();
     return mSystemPrincipal->Equals(subject, aIsSystem);
 }
 
@@ -1145,10 +1090,8 @@ nsScriptSecurityManager::CanCreateWrapper(JSContext *cx,
     NS_ConvertUTF8toUTF16 strName("CreateWrapperDenied");
     nsAutoCString origin;
     nsresult rv2;
-    nsIPrincipal* subjectPrincipal = doGetSubjectPrincipal(&rv2);
-    if (NS_SUCCEEDED(rv2) && subjectPrincipal) {
-        GetPrincipalDomainOrigin(subjectPrincipal, origin);
-    }
+    nsIPrincipal* subjectPrincipal = nsContentUtils::GetSubjectPrincipal();
+    GetPrincipalDomainOrigin(subjectPrincipal, origin);
     NS_ConvertUTF8toUTF16 originUnicode(origin);
     NS_ConvertUTF8toUTF16 classInfoName(objClassInfo.GetName());
     const char16_t* formatStrings[] = {
