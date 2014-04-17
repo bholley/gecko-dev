@@ -785,15 +785,8 @@ nsWindowWatcher::OpenWindowInternal(nsIDOMWindow *aParent,
 
   // Now we have to set the right opener principal on the new window.  Note
   // that we have to do this _before_ starting any URI loads, thanks to the
-  // sync nature of javascript: loads.  Since this is the only place where we
-  // set said opener principal, we need to do it for all URIs, including
-  // chrome ones.  So to deal with the mess that is bug 79775, just press on in
-  // a reasonable way even if GetSubjectPrincipal fails.  In that case, just
-  // use a null subjectPrincipal.
-  nsCOMPtr<nsIPrincipal> subjectPrincipal;
-  if (NS_FAILED(sm->GetSubjectPrincipal(getter_AddRefs(subjectPrincipal)))) {
-    subjectPrincipal = nullptr;
-  }
+  // sync nature of javascript: loads.
+  nsCOMPtr<nsIPrincipal> subjectPrincipal = nsContentUtils::GetSubjectPrincipal();
 
   if (windowIsNew) {
     // Now set the opener principal on the new window.  Note that we need to do

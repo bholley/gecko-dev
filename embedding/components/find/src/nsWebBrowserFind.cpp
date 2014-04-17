@@ -660,21 +660,8 @@ nsresult nsWebBrowserFind::SearchInFrame(nsIDOMWindow* aWindow,
     nsCOMPtr<nsIDocument> theDoc = do_QueryInterface(domDoc);
     if (!theDoc) return NS_ERROR_FAILURE;
 
-    nsCOMPtr<nsIScriptSecurityManager> secMan =
-      do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID, &rv);
-    NS_ENSURE_SUCCESS(rv, rv);
-  
-    nsCOMPtr<nsIPrincipal> subject;
-    rv = secMan->GetSubjectPrincipal(getter_AddRefs(subject));
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    if (subject) {
-        bool subsumes;
-        rv = subject->Subsumes(theDoc->NodePrincipal(), &subsumes);
-        NS_ENSURE_SUCCESS(rv, rv);
-        if (!subsumes) {
-            return NS_ERROR_DOM_PROP_ACCESS_DENIED;
-        }
+    if (!nsContentUtils::GetSubjectPrincipal()->Subsumes(theDoc->NodePrincipal())) {
+      return NS_ERROR_DOM_PROP_ACCESS_DENIED;
     }
 
     nsCOMPtr<nsIFind> find = do_CreateInstance(NS_FIND_CONTRACTID, &rv);

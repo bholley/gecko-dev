@@ -594,9 +594,7 @@ DataTransfer::MozGetDataAt(const nsAString& aFormat, uint32_t aIndex,
       (mEventType != NS_DRAGDROP_DROP && mEventType != NS_DRAGDROP_DRAGDROP &&
        mEventType != NS_PASTE &&
        !nsContentUtils::IsCallerChrome())) {
-    nsresult rv = NS_OK;
-    principal = GetCurrentPrincipal(&rv);
-    NS_ENSURE_SUCCESS(rv, rv);
+    principal = nsContentUtils::GetSubjectPrincipal();
   }
 
   uint32_t count = item.Length();
@@ -625,8 +623,9 @@ DataTransfer::MozGetDataAt(const nsAString& aFormat, uint32_t aIndex,
           MOZ_ASSERT(sp, "This cannot fail on the main thread.");
           nsIPrincipal* dataPrincipal = sp->GetPrincipal();
           NS_ENSURE_TRUE(dataPrincipal, NS_ERROR_DOM_SECURITY_ERR);
-          NS_ENSURE_TRUE(principal || (principal = GetCurrentPrincipal(&rv)),
-                         NS_ERROR_DOM_SECURITY_ERR);
+          if (!principal) {
+            principal = nsContentUtils::GetSubjectPrincipal();
+          }
           NS_ENSURE_SUCCESS(rv, rv);
           bool equals = false;
           NS_ENSURE_TRUE(NS_SUCCEEDED(principal->Equals(dataPrincipal, &equals)) && equals,
@@ -697,11 +696,8 @@ DataTransfer::MozSetDataAt(const nsAString& aFormat, nsIVariant* aData,
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
-  nsresult rv = NS_OK;
-  nsIPrincipal* principal = GetCurrentPrincipal(&rv);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  return SetDataWithPrincipal(aFormat, aData, aIndex, principal);
+  return SetDataWithPrincipal(aFormat, aData, aIndex,
+                              nsContentUtils::GetSubjectPrincipal());
 }
 
 void
@@ -754,12 +750,7 @@ DataTransfer::MozClearDataAtHelper(const nsAString& aFormat, uint32_t aIndex,
   nsAutoString format;
   GetRealFormat(aFormat, format);
 
-  nsresult rv = NS_OK;
-  nsIPrincipal* principal = GetCurrentPrincipal(&rv);
-  if (NS_FAILED(rv)) {
-    aRv = rv;
-    return;
-  }
+  nsIPrincipal* principal = nsContentUtils::GetSubjectPrincipal();
 
   // if the format is empty, clear all formats
   bool clearall = format.IsEmpty();
@@ -1087,21 +1078,6 @@ DataTransfer::SetDataWithPrincipal(const nsAString& aFormat,
   formatitem->mData = aData;
 
   return NS_OK;
-}
-
-nsIPrincipal*
-DataTransfer::GetCurrentPrincipal(nsresult* rv)
-{
-  nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
-
-  nsCOMPtr<nsIPrincipal> currentPrincipal;
-  *rv = ssm->GetSubjectPrincipal(getter_AddRefs(currentPrincipal));
-  NS_ENSURE_SUCCESS(*rv, nullptr);
-
-  if (!currentPrincipal)
-    ssm->GetSystemPrincipal(getter_AddRefs(currentPrincipal));
-
-  return currentPrincipal.get();
 }
 
 void
