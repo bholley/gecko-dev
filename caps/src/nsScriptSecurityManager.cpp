@@ -957,7 +957,7 @@ nsScriptSecurityManager::doGetSubjectPrincipal(nsresult* rv)
     if (!cx)
     {
         *rv = NS_OK;
-        return nullptr;
+        return mSystemPrincipal;
     }
     return GetSubjectPrincipal(cx, rv);
 }
