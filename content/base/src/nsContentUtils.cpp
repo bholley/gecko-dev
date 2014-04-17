@@ -2331,10 +2331,15 @@ nsContentUtils::GenerateStateKey(nsIContent* aContent,
 nsIPrincipal*
 nsContentUtils::GetSubjectPrincipal()
 {
-  nsCOMPtr<nsIPrincipal> subject;
-  sSecurityManager->GetSubjectPrincipal(getter_AddRefs(subject));
-  MOZ_ASSERT(subject);
-  return subject;
+  JSContext *cx = GetCurrentJSContext();
+  if (!cx) {
+    return GetSystemPrincipal();
+  }
+
+  JSCompartment *compartment = js::GetContextCompartment(cx);
+  MOZ_ASSERT(!!compartment);
+  JSPrincipals *principals = JS_GetCompartmentPrincipals(compartment);
+  return nsJSPrincipals::get(principals);
 }
 
 // static
