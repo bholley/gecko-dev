@@ -2363,11 +2363,7 @@ nsContentUtils::GetSubjectPrincipal()
 {
   nsCOMPtr<nsIPrincipal> subject;
   sSecurityManager->GetSubjectPrincipal(getter_AddRefs(subject));
-
-  // When the ssm says the subject is null, that means system principal.
-  if (!subject)
-    sSecurityManager->GetSystemPrincipal(getter_AddRefs(subject));
-
+  MOZ_ASSERT(subject);
   return subject;
 }
 
