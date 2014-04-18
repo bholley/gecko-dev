@@ -1341,6 +1341,12 @@ public:
   static nsIPrincipal* GetSystemPrincipal();
 
   /**
+   * Gets the null subject principal singleton. This is only useful for
+   * assertions.
+   */
+  static nsIPrincipal* GetNullSubjectPrincipal() { return sNullSubjectPrincipal; }
+
+  /**
    * *aResourcePrincipal is a principal describing who may access the contents
    * of a resource. The resource can only be consumed by a principal that
    * subsumes *aResourcePrincipal. MAKE SURE THAT NOTHING EVER ACTS WITH THE
@@ -2175,6 +2181,7 @@ private:
 
   static nsIScriptSecurityManager *sSecurityManager;
   static nsIPrincipal *sSystemPrincipal;
+  static nsIPrincipal *sNullSubjectPrincipal;
 
   static nsIParserService *sParserService;
 
