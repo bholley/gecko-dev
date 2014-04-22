@@ -2094,6 +2094,8 @@ public:
     XPCWrappedNativeTearOff* FindTearOff(XPCNativeInterface* aInterface,
                                          bool needJSObject = false,
                                          nsresult* pError = nullptr);
+    XPCWrappedNativeTearOff* FindTearOff(const nsIID& iid);
+
     void Mark() const
     {
         mSet->Mark();
