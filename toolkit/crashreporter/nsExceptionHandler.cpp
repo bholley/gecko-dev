@@ -2056,6 +2056,8 @@ GetExtraFileForMinidump(nsIFile* minidump, nsIFile** extraFile)
 bool
 WriteScreenShotToFile(const nsAString& id)
 {
+  return false;
+#if 0
   const char *envvar = PR_GetEnv("MOZ_CRASHREPORTER_DUMP_FB");
   if (!envvar || !*envvar || !pendingDirectory)
     return false;
@@ -2083,6 +2085,7 @@ WriteScreenShotToFile(const nsAString& id)
   write(fd.get(), bits, fi.smem_len);
   munmap(bits, fi.smem_len);
   return true;
+#endif
 }
 
 bool
