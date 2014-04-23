@@ -20,7 +20,7 @@ class nsXBLProtoImpl
 {
 public:
   nsXBLProtoImpl()
-    : mClassObject(nullptr),
+    : mPrecompiledMemberHolder(nullptr),
       mMembers(nullptr),
       mFields(nullptr),
       mConstructor(nullptr),
@@ -75,7 +75,7 @@ public:
   void UndefineFields(JSContext* cx, JS::Handle<JSObject*> obj) const;
 
   bool CompiledMembers() const {
-    return mClassObject != nullptr;
+    return mPrecompiledMemberHolder != nullptr;
   }
 
   nsresult Read(nsIObjectInputStream* aStream,
@@ -101,7 +101,7 @@ public:
   nsCString mClassName; // The name of the class.
 
 protected:
-  JSObject* mClassObject; // The class object for the binding. We'll use this to pre-compile properties
+  JSObject* mPrecompiledMemberHolder; // The class object for the binding. We'll use this to pre-compile properties
                           // and methods for the binding.
 
   nsXBLProtoImplMember* mMembers; // The members of an implementation are chained in this singly-linked list.
