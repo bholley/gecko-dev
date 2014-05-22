@@ -191,7 +191,8 @@ const WorkerSandbox = Class({
     let onEvent = onContentEvent.bind(null, this);
     // `ContentWorker` is defined in CONTENT_WORKER_URL file
     let chromeAPI = createChromeAPI();
-    let result = apiSandbox.ContentWorker.inject(content, chromeAPI, onEvent, options);
+    let inject = Cu.unwaiveXrays(Cu.waiveXrays(apiSandbox.ContentWorker).inject);
+    let result = inject.call(apiSandbox.ContentWorker, content, chromeAPI, onEvent, options);
 
     // Merge `emitToContent` and `hasListenerFor` into our private
     // model of the WorkerSandbox so we can communicate with content
