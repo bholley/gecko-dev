@@ -511,7 +511,7 @@ var FirefoxCom = (function FirefoxComClosure() {
       var sender = document.createEvent('CustomEvent');
       sender.initCustomEvent('pdf.js.message', true, false,
                              {action: action, data: data, sync: false,
-                              callback: callback});
+                              async: true});
       return request.dispatchEvent(sender);
     }
   };

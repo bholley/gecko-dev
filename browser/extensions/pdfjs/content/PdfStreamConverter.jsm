@@ -704,12 +704,10 @@ RequestListener.prototype.receive = function(event) {
   }
   if (sync) {
     var response = actions[action].call(this.actions, data);
-    var detail = event.detail;
-    detail.__exposedProps__ = {response: 'r'};
-    detail.response = response;
+    event.detail.response = response;
   } else {
     var response;
-    if (!event.detail.callback) {
+    if (!event.detail.async) {
       doc.documentElement.removeChild(message);
       response = null;
     } else {
