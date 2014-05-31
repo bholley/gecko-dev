@@ -38,6 +38,26 @@ namespace xpc {
 
 using namespace XrayUtils;
 
+inline bool
+IsTypedArrayKey(JSProtoKey key)
+{
+#ifdef DEBUG
+    bool isTypedArraySlow = JSProto_Int8Array ||
+                            JSProto_Uint8Array ||
+                            JSProto_Int16Array ||
+                            JSProto_Uint16Array ||
+                            JSProto_Int32Array ||
+                            JSProto_Uint32Array ||
+                            JSProto_Float32Array ||
+                            JSProto_Float64Array ||
+                            JSProto_Uint8ClampedArray;
+#endif
+    bool isTypedArray = key >= JSProto_Int8Array &&
+                        key <= JSProto_Uint8ClampedArray;
+    MOZ_ASSERT(isTypedArray == isTypedArraySlow, "Somebody reordered jsprototypes.h!");
+    return isTypedArray;
+}
+
 // Whitelist for the standard ES classes we can Xray to.
 static bool
 IsJSXraySupported(JSProtoKey key)
@@ -396,6 +416,20 @@ public:
                                                HandleId id,
                                                MutableHandle<JSPropertyDescriptor> desc);
 
+    static uint32_t getLengthForArraylike(JSContext *cx, HandleObject target, JSProtoKey key) {
+        JSAutoCompartment ac(cx, target);
+        if (key == JSProto_Array) {
+            uint32_t length;
+            DebugOnly<bool> ok = JS_GetArrayLength(cx, target, &length);
+            MOZ_ASSERT(ok, "JS_GetArrayLength should be infallible for bonafide arrays");
+            return length;
+        } else if (IsTypedArrayKey(key)) {
+            return JS_GetTypedArrayLength(target);
+        } else {
+            MOZ_ASSUME_UNREACHABLE("Unsupported object type for length");
+        }
+    }
+
     static const JSClass HolderClass;
     static JSXrayTraits singleton;
 };
@@ -524,6 +558,31 @@ JSXrayTraits::resolveOwnProperty(JSContext *cx, Wrapper &jsWrapper,
             if (!getOwnPropertyFromTargetIfSafe(cx, target, wrapper, id, desc))
                 return false;
             return JS_WrapPropertyDescriptor(cx, desc);
+        } else if (key == JSProto_Array || IsTypedArrayKey(key)) {
+            uint32_t length = getLengthForArraylike(cx, target, key);
+            if (id == GetRTIdByIndex(cx, XPCJSRuntime::IDX_LENGTH)) {
+                desc.object().set(wrapper);
+                desc.setGetter(nullptr);
+                desc.setSetter(nullptr);
+                desc.value().setNumber(length);
+                desc.setAttributes(JSPROP_PERMANENT);
+                return true;
+            }
+            int32_t asIndex = GetArrayIndexFromId(cx, id);
+            if (IsArrayIndex(asIndex) && uint32_t(asIndex) < length) {
+                if (IsTypedArrayKey(key)) {
+                    JS_ReportError(cx, "Accessing TypedArray data over Xrays is slow, and forbidden "
+                                       "in order to encourage performant code. To copy TypedArrays "
+                                       "across origin boundaries, consider using Components.utils.cloneInto().");
+                    return false;
+                }
+                MOZ_ASSERT(key == JSProto_Array);
+                JSAutoCompartment ac(cx, target);
+                if (!getOwnPropertyFromTargetIfSafe(cx, target, wrapper, id, desc))
+                    return false;
+            }
+            if (desc.object())
+                return JS_WrapPropertyDescriptor(cx, desc);
         }
 
         // The rest of this function applies only to prototypes.
