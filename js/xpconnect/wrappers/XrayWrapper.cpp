@@ -516,20 +516,14 @@ JSXrayTraits::resolveOwnProperty(JSContext *cx, Wrapper &jsWrapper,
 
     RootedObject target(cx, getTargetObject(wrapper));
     if (!isPrototype(holder)) {
+        JSProtoKey key = getProtoKey(holder);
         // For object instances, we expose some properties from the underlying
         // object, but only after filtering them carefully.
-        switch (getProtoKey(holder)) {
-          case JSProto_Object:
-            {
-                JSAutoCompartment ac(cx, target);
-                if (!getOwnPropertyFromTargetIfSafe(cx, target, wrapper, id, desc))
-                    return false;
-            }
+        if (key == JSProto_Object) {
+            JSAutoCompartment ac(cx, target);
+            if (!getOwnPropertyFromTargetIfSafe(cx, target, wrapper, id, desc))
+                return false;
             return JS_WrapPropertyDescriptor(cx, desc);
-
-          default:
-            // Most instance (non-prototypes) Xrays don't have anything on them.
-            break;
         }
 
         // The rest of this function applies only to prototypes.
@@ -747,10 +741,10 @@ JSXrayTraits::enumerateNames(JSContext *cx, HandleObject wrapper, unsigned flags
         return false;
 
     if (!isPrototype(holder)) {
+        JSProtoKey key = getProtoKey(holder);
         // For object instances, we expose some properties from the underlying
         // object, but only after filtering them carefully.
-        switch (getProtoKey(holder)) {
-          case JSProto_Object:
+        if (key == JSProto_Object) {
             MOZ_ASSERT(props.empty());
             {
                 JSAutoCompartment ac(cx, target);
@@ -769,9 +763,6 @@ JSXrayTraits::enumerateNames(JSContext *cx, HandleObject wrapper, unsigned flags
                 }
             }
             return JS_WrapAutoIdVector(cx, props);
-          default:
-            // Most instance (non-prototypes) Xrays don't have anything on them.
-            break;
         }
 
         // The rest of this function applies only to prototypes.
