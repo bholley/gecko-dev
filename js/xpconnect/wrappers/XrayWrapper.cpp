@@ -824,6 +824,38 @@ JSXrayTraits::enumerateNames(JSContext *cx, HandleObject wrapper, unsigned flags
                 }
             }
             return JS_WrapAutoIdVector(cx, props);
+        } else if (key == JSProto_Array) {
+            // The semantics of array enumeration are really complicated.
+            // Delegate it to the underlying object, and filter out everything
+            // that isn't an in-range index.
+            uint32_t length = getLengthForArraylike(cx, target, key);
+            {
+                JSAutoCompartment ac(cx, target);
+                AutoIdVector targetProps(cx);
+                if (!js::GetPropertyNames(cx, target, flags | JSITER_OWNONLY, &targetProps))
+                    return false;
+                // Pre-reserve all the space we might need, and also a slot for 'length'.
+                if (!props.reserve(targetProps.length() + 1))
+                    return false;
+                for (size_t i = 0; i < targetProps.length(); ++i) {
+                    jsid id = targetProps[i];
+                    if (JSID_IS_INT(id) && uint32_t(JSID_TO_INT(id)) < length)
+                        props.infallibleAppend(id);
+                }
+                // We only added ints, so no need to wrap the ids.
+            }
+            // Add the 'length' property when iterating non-enumerable properties.
+            if (flags & JSITER_HIDDEN)
+                props.infallibleAppend(GetRTIdByIndex(cx, XPCJSRuntime::IDX_LENGTH));
+            return true;
+        } else if (IsTypedArrayKey(key)) {
+            uint32_t length = getLengthForArraylike(cx, target, key);
+            // TypedArrays enumerate every indexed property in range, but
+            // |length| is a getter that lives on the proto, like it should be.
+            if (!props.reserve(length))
+                return false;
+            for (int32_t i = 0; i <= int32_t(length - 1); ++i)
+                props.infallibleAppend(INT_TO_JSID(i));
         }
 
         // The rest of this function applies only to prototypes.
