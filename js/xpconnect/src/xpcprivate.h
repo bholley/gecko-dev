@@ -593,6 +593,7 @@ public:
     ~XPCJSRuntime();
 
     ShortLivedStringBuffer<nsString> mScratchStrings;
+    ShortLivedStringBuffer<nsString> mScratchCStrings;
 
     void AddGCCallback(xpcGCCallback cb);
     void RemoveGCCallback(xpcGCCallback cb);
