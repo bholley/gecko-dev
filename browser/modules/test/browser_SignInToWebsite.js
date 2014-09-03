@@ -255,7 +255,7 @@ function test_auth() {
 
   let winObs = new WindowObserver(function(authWin) {
     ok(authWin, "Authentication window opened");
-    ok(authWin.contentWindow.location);
+    ok(authWin.location);
   });
 
   Services.ww.registerNotification(winObs);
