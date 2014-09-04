@@ -80,8 +80,9 @@ const gXPInstallObserver = {
                               action, null, options);
       break;
     case "addon-install-blocked":
+      let originatingHost = installInfo.originatingURI ? installInfo.originatingURI.host : "";
       messageString = gNavigatorBundle.getFormattedString("xpinstallPromptWarning",
-                        [brandShortName, installInfo.originatingURI.host]);
+                        [brandShortName, originatingHost]);
 
       let secHistogram = Components.classes["@mozilla.org/base/telemetry;1"].getService(Ci.nsITelemetry).getHistogramById("SECURITY_UI");
       action = {
