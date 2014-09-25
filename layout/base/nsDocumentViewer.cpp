@@ -68,6 +68,7 @@
 #include "nsIClipboardHelper.h"
 
 #include "nsPIDOMWindow.h"
+#include "nsGlobalWindow.h"
 #include "nsDOMNavigationTiming.h"
 #include "nsPIWindowRoot.h"
 #include "nsJSEnvironment.h"
@@ -1141,17 +1142,16 @@ nsDocumentViewer::PermitUnloadInternal(bool aCallerClosesWindow,
     nsAutoPopupStatePusher popupStatePusher(openAbused, true);
 
     // Never permit dialogs from the beforeunload handler
-    nsCOMPtr<nsIDOMWindowUtils> utils = do_GetInterface(window);
-    bool dialogsWereEnabled = false;
-    utils->AreDialogsEnabled(&dialogsWereEnabled);
-    utils->DisableDialogs();
+    nsGlobalWindow *win = static_cast<nsGlobalWindow*>(window);
+    bool dialogsWereEnabled = win->AreDialogsEnabled();
+    win->DisableDialogs();
 
     mInPermitUnload = true;
     EventDispatcher::DispatchDOMEvent(window, nullptr, event, mPresContext,
                                       nullptr);
     mInPermitUnload = false;
     if (dialogsWereEnabled) {
-      utils->EnableDialogs();
+      win->EnableDialogs();
     }
   }
 
