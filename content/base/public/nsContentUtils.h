@@ -175,6 +175,9 @@ public:
   static nsresult Init();
 
   static bool     IsCallerChrome();
+  static bool     IsCallerNativeCode() { return !GetCurrentJSContext(); }
+  static bool     IsCallerChromeOrNativeCode() { return IsCallerNativeCode() || IsCallerChrome(); }
+
   static bool     ThreadsafeIsCallerChrome();
   static bool     IsCallerContentXBL();
 
@@ -453,6 +456,17 @@ public:
   // Returns the subject principal. Guaranteed to return non-null. May only
   // be called when nsContentUtils is initialized.
   static nsIPrincipal* SubjectPrincipal();
+
+  // In general, the subject principal only makes sense in situations where an
+  // AutoJSAPI is on the stack. We use this API as a transitional opt-out for
+  // consumers that still depend on assuming System Principal in that case.
+  static nsIPrincipal* SubjectPrincipalOrSystemIfNativeCaller()
+  {
+    if (!GetCurrentJSContext()) {
+      return GetSystemPrincipal();
+    }
+    return SubjectPrincipal();
+  }
 
   // Returns the prinipal of the given JS object. This may only be called on
   // the main thread for objects from the main thread's JSRuntime.
