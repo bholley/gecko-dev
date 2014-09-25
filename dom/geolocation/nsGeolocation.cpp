@@ -1330,7 +1330,7 @@ Geolocation::WatchPosition(GeoPositionCallback& aCallback,
     return NS_OK;
   }
 
-  if (!mOwner && !nsContentUtils::IsCallerChrome()) {
+  if (!mOwner && !nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_FAILURE;
   }
 
@@ -1352,7 +1352,7 @@ Geolocation::WatchPositionReady(nsGeolocationRequest* aRequest)
     return NS_OK;
   }
 
-  if (!nsContentUtils::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_FAILURE;
   }
 

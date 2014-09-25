@@ -1567,7 +1567,7 @@ nsDocShell::LoadURI(nsIURI * aURI,
     }
     if (!owner && !inheritOwner && !ownerIsExplicit) {
         // See if there's system or chrome JS code running
-        inheritOwner = nsContentUtils::IsCallerChrome();
+        inheritOwner = nsContentUtils::IsCallerChromeOrNativeCode();
     }
 
     if (aLoadFlags & LOAD_FLAGS_DISALLOW_INHERIT_OWNER) {

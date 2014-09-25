@@ -4004,7 +4004,7 @@ NS_IMETHODIMP HTMLMediaElement::CanPlayChanged(int32_t canPlay)
                 "Enum of channel state on nsIAudioChannelAgent.idl should be "
                 "the same with AudioChannelCommon.h");
 
-  NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(), NS_ERROR_NOT_AVAILABLE);
+  NS_ENSURE_TRUE(nsContentUtils::IsCallerChromeOrNativeCode(), NS_ERROR_NOT_AVAILABLE);
 
   UpdateChannelMuteState(static_cast<AudioChannelState>(canPlay));
   mPaused.SetCanPlay(canPlay != AUDIO_CHANNEL_STATE_MUTED);

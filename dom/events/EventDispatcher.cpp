@@ -22,6 +22,7 @@
 #include "mozilla/dom/PopStateEvent.h"
 #include "mozilla/dom/StorageEvent.h"
 #include "mozilla/dom/TouchEvent.h"
+#include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/InternalMutationEvent.h"
@@ -664,7 +665,9 @@ EventDispatcher::DispatchDOMEvent(nsISupports* aTarget,
 
     if (!dontResetTrusted) {
       //Check security state to determine if dispatcher is trusted
-      aDOMEvent->SetTrusted(nsContentUtils::ThreadsafeIsCallerChrome());
+      bool trusted = NS_IsMainThread() ? nsContentUtils::IsCallerChromeOrNativeCode()
+                                       : mozilla::dom::workers::IsCurrentThreadRunningChromeWorker();
+      aDOMEvent->SetTrusted(trusted);
     }
 
     return EventDispatcher::Dispatch(aTarget, aPresContext, innerEvent,

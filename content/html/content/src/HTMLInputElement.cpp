@@ -1671,7 +1671,7 @@ HTMLInputElement::GetValueInternal(nsAString& aValue) const
       return NS_OK;
 
     case VALUE_MODE_FILENAME:
-      if (nsContentUtils::IsCallerChrome()) {
+      if (nsContentUtils::IsCallerChromeOrNativeCode()) {
         if (!mFiles.IsEmpty()) {
           return mFiles[0]->GetMozFullPath(aValue);
         }
@@ -3227,7 +3227,7 @@ HTMLInputElement::DispatchSelectEvent(nsPresContext* aPresContext)
 
   // If already handling select event, don't dispatch a second.
   if (!mHandlingSelectEvent) {
-    WidgetEvent event(nsContentUtils::IsCallerChrome(), NS_FORM_SELECTED);
+    WidgetEvent event(nsContentUtils::IsCallerChromeOrNativeCode(), NS_FORM_SELECTED);
 
     mHandlingSelectEvent = true;
     EventDispatcher::Dispatch(static_cast<nsIContent*>(this),

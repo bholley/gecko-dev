@@ -274,7 +274,7 @@ nsDOMWindowUtils::Redraw(uint32_t aCount, uint32_t *aDurationOut)
 NS_IMETHODIMP
 nsDOMWindowUtils::SetCSSViewport(float aWidthPx, float aHeightPx)
 {
-  if (!nsContentUtils::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -405,7 +405,7 @@ nsDOMWindowUtils::SetDisplayPortMarginsForElement(float aLeftMargin,
                                                   nsIDOMElement* aElement,
                                                   uint32_t aPriority)
 {
-  if (!nsContentUtils::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -478,7 +478,7 @@ nsDOMWindowUtils::SetDisplayPortBaseForElement(int32_t aX,
 NS_IMETHODIMP
 nsDOMWindowUtils::SetResolution(float aXResolution, float aYResolution)
 {
-  if (!nsContentUtils::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -537,7 +537,7 @@ nsDOMWindowUtils::GetIsResolutionSet(bool* aIsResolutionSet) {
 NS_IMETHODIMP
 nsDOMWindowUtils::SetIsFirstPaint(bool aIsFirstPaint)
 {
-  if (!nsContentUtils::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -552,7 +552,7 @@ nsDOMWindowUtils::SetIsFirstPaint(bool aIsFirstPaint)
 NS_IMETHODIMP
 nsDOMWindowUtils::GetIsFirstPaint(bool *aIsFirstPaint)
 {
-  if (!nsContentUtils::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -567,7 +567,9 @@ nsDOMWindowUtils::GetIsFirstPaint(bool *aIsFirstPaint)
 NS_IMETHODIMP
 nsDOMWindowUtils::GetPresShellId(uint32_t *aPresShellId)
 {
-  if (!nsContentUtils::IsCallerChrome()) {
+  // Unfortunately, this is called from APZCCallbackHelper.cpp, and fixing that
+  // would take some refactoring, so we need to allow non-scripted callers here.
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
@@ -1269,7 +1271,7 @@ nsDOMWindowUtils::SendNativeKeyEvent(int32_t aNativeKeyboardLayout,
                                      const nsAString& aCharacters,
                                      const nsAString& aUnmodifiedCharacters)
 {
-  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
+  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChromeOrNativeCode());
 
   // get the widget to send the event to
   nsCOMPtr<nsIWidget> widget = GetWidget();
@@ -1928,7 +1930,9 @@ nsDOMWindowUtils::GetBoundsWithoutFlushing(nsIDOMElement *aElement,
 NS_IMETHODIMP
 nsDOMWindowUtils::GetRootBounds(nsIDOMClientRect** aResult)
 {
-  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChrome());
+  // Unfortunately, this is called from AndroidBridge.cpp and the logic here is
+  // nontrivial, so we need to allow non-scripted callers.
+  MOZ_RELEASE_ASSERT(nsContentUtils::IsCallerChromeOrNativeCode());
 
   nsIDocument* doc = GetDocument();
   NS_ENSURE_STATE(doc);
@@ -3268,7 +3272,7 @@ MaybeReflowForInflationScreenWidthChange(nsPresContext *aPresContext)
 NS_IMETHODIMP
 nsDOMWindowUtils::SetScrollPositionClampingScrollPortSize(float aWidth, float aHeight)
 {
-  if (!nsContentUtils::IsCallerChrome()) {
+  if (!nsContentUtils::IsCallerChromeOrNativeCode()) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 

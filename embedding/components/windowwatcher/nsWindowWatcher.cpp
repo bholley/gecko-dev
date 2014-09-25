@@ -562,7 +562,7 @@ nsWindowWatcher::OpenWindowInternal(nsIDOMWindow *aParent,
   nsCOMPtr<nsIScriptSecurityManager>
     sm(do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID));
 
-  bool isCallerChrome = nsContentUtils::IsCallerChrome() && !openedFromRemoteTab;
+  bool isCallerChrome = nsContentUtils::IsCallerChromeOrNativeCode() && !openedFromRemoteTab;
 
   dom::AutoJSAPI jsapiChromeGuard;
 
@@ -1435,7 +1435,7 @@ uint32_t nsWindowWatcher::CalculateChromeFlags(nsIDOMWindow *aParent,
 
   /* Next, allow explicitly named options to override the initial settings */
 
-  bool isCallerChrome = nsContentUtils::IsCallerChrome() && !aOpenedFromRemoteTab;
+  bool isCallerChrome = nsContentUtils::IsCallerChromeOrNativeCode() && !aOpenedFromRemoteTab;
 
   // Determine whether the window is a private browsing window
   if (isCallerChrome) {

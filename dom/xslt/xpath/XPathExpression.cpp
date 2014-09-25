@@ -101,7 +101,9 @@ XPathExpression::EvaluateWithContext(nsINode& aContextNode,
         return nullptr;
     }
 
-    if (!nsContentUtils::CanCallerAccess(&aContextNode)) {
+    if (!nsContentUtils::IsCallerNativeCode() &&
+        !nsContentUtils::CanCallerAccess(&aContextNode))
+    {
         aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
         return nullptr;
     }

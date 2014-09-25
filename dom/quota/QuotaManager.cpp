@@ -2244,7 +2244,7 @@ QuotaManager::GetInfoForChrome(nsACString* aGroup,
                                PersistenceType* aDefaultPersistenceType)
 {
   MOZ_ASSERT(NS_IsMainThread());
-  MOZ_ASSERT(nsContentUtils::IsCallerChrome());
+  MOZ_ASSERT(nsContentUtils::IsCallerChromeOrNativeCode());
 
   if (aGroup) {
     ChromeOrigin(*aGroup);

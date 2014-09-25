@@ -77,7 +77,8 @@ XPathEvaluator::CreateNSResolver(nsIDOMNode *aNodeResolver,
                                  nsIDOMXPathNSResolver **aResult)
 {
     NS_ENSURE_ARG(aNodeResolver);
-    if (!nsContentUtils::CanCallerAccess(aNodeResolver))
+    if (!nsContentUtils::IsCallerNativeCode() &&
+        !nsContentUtils::CanCallerAccess(aNodeResolver))
         return NS_ERROR_DOM_SECURITY_ERR;
 
     *aResult = new nsXPathNSResolver(aNodeResolver);
