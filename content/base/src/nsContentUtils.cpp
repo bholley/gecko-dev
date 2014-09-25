@@ -1847,9 +1847,6 @@ nsContentUtils::CheckSameOrigin(const nsINode* aTrustedNode,
 {
   MOZ_ASSERT(aTrustedNode);
   MOZ_ASSERT(unTrustedNode);
-  if (IsCallerChrome()) {
-    return NS_OK;
-  }
 
   /*
    * Get hold of each node's principal
