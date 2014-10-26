@@ -1387,6 +1387,7 @@ void MediaDecoderStateMachine::Shutdown()
 
 void MediaDecoderStateMachine::StartDecoding()
 {
+  DECODER_LOG("Invoked StartDecoding()");
   NS_ASSERTION(OnStateMachineThread() || OnDecodeThread(),
                "Should be on state machine or decode thread.");
   ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
@@ -2302,6 +2303,7 @@ private:
 nsresult MediaDecoderStateMachine::RunStateMachine()
 {
   AssertCurrentThreadInMonitor();
+  DECODER_LOG("Invoking RunStateMachine with state %s", gMachineStateStr[mState]);
 
   MediaResource* resource = mDecoder->GetResource();
   NS_ENSURE_TRUE(resource, NS_ERROR_NULL_POINTER);
@@ -3036,6 +3038,7 @@ void MediaDecoderStateMachine::ScheduleStateMachineWithLockAndWakeDecoder() {
 }
 
 nsresult MediaDecoderStateMachine::ScheduleStateMachine(int64_t aUsecs) {
+  DECODER_LOG("Scheduled State machine");
   return mScheduler->Schedule(aUsecs);
 }
 
