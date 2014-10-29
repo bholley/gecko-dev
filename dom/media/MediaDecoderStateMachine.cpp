@@ -569,6 +569,7 @@ MediaDecoderStateMachine::NeedToDecodeVideo()
 void
 MediaDecoderStateMachine::DecodeVideo()
 {
+  SAMPLE_LOG("Entering ::DecodeVideo");
   int64_t currentTime = 0;
   bool skipToNextKeyFrame = false;
   {
@@ -578,6 +579,7 @@ MediaDecoderStateMachine::DecodeVideo()
     if (mState != DECODER_STATE_DECODING &&
         mState != DECODER_STATE_BUFFERING &&
         mState != DECODER_STATE_SEEKING) {
+      SAMPLE_LOG("Bailing early in ::DecodeVideo");
       mVideoRequestPending = false;
       DispatchDecodeTasksIfNeeded();
       return;
@@ -622,6 +624,7 @@ MediaDecoderStateMachine::DecodeVideo()
     mVideoDecodeStartTime = TimeStamp::Now();
   }
 
+  SAMPLE_LOG("::DecodeVideo Invoking mReader->RequestVideoData");
   mReader->RequestVideoData(skipToNextKeyFrame, currentTime);
 }
 
@@ -990,7 +993,6 @@ void
 MediaDecoderStateMachine::CheckIfSeekComplete()
 {
   AssertCurrentThreadInMonitor();
-
   const bool videoSeekComplete = IsVideoSeekComplete();
   if (HasVideo() && !videoSeekComplete) {
     // We haven't reached the target. Ensure we have requested another sample.
@@ -1760,13 +1762,16 @@ MediaDecoderStateMachine::EnsureAudioDecodeTaskQueued()
 nsresult
 MediaDecoderStateMachine::DispatchVideoDecodeTaskIfNeeded()
 {
+  SAMPLE_LOG("DispatchVideoDecodeTaskIfNeeded");
   ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
   NS_ASSERTION(OnStateMachineThread() || OnDecodeThread(),
                "Should be on state machine or decode thread.");
 
   if (NeedToDecodeVideo()) {
+    SAMPLE_LOG("DispatchVideoDecodeTaskIfNeeded: Queueing task");
     return EnsureVideoDecodeTaskQueued();
   }
+  SAMPLE_LOG("DispatchVideoDecodeTaskIfNeeded: NOT Queueing task");
 
   return NS_OK;
 }
@@ -1788,7 +1793,12 @@ MediaDecoderStateMachine::EnsureVideoDecodeTaskQueued()
 
   MOZ_ASSERT(mState > DECODER_STATE_DECODING_METADATA);
 
+  if (mVideoRequestPending) {
+    SAMPLE_LOG("Already have a request, so not dispatching ::DecodeVideo");
+  }
+
   if (IsVideoDecoding() && !mVideoRequestPending) {
+    SAMPLE_LOG("Dispatching ::DecodeVideo");
     RefPtr<nsIRunnable> task(
       NS_NewRunnableMethod(this, &MediaDecoderStateMachine::DecodeVideo));
     nsresult rv = mDecodeTaskQueue->Dispatch(task);
@@ -3033,6 +3043,7 @@ nsresult MediaDecoderStateMachine::TimeoutExpired(void* aClosure)
 
 void MediaDecoderStateMachine::ScheduleStateMachineWithLockAndWakeDecoder() {
   ReentrantMonitorAutoEnter mon(mDecoder->GetReentrantMonitor());
+  SAMPLE_LOG("ScheduleStateMachineWithLockAndWakeDecoder");
   DispatchAudioDecodeTaskIfNeeded();
   DispatchVideoDecodeTaskIfNeeded();
 }
