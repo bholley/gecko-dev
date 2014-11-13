@@ -50,7 +50,6 @@ public:
   virtual bool IsShutdown() const = 0;
 
   virtual bool OnStateMachineThread() const = 0;
-  virtual nsIEventTarget* GetStateMachineThread() const = 0;
 
   virtual bool OnDecodeThread() const = 0;
 

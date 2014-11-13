@@ -1418,11 +1418,6 @@ bool MediaDecoder::OnStateMachineThread() const
   return mDecoderStateMachine->OnStateMachineThread();
 }
 
-nsIEventTarget* MediaDecoder::GetStateMachineThread() const
-{
-  return mDecoderStateMachine->GetStateMachineThread();
-}
-
 void MediaDecoder::SetPlaybackRate(double aPlaybackRate)
 {
   if (aPlaybackRate == 0.0) {

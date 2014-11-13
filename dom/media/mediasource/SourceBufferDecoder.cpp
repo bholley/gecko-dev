@@ -158,12 +158,6 @@ SourceBufferDecoder::OnStateMachineThread() const
   return mParentDecoder->OnStateMachineThread();
 }
 
-nsIEventTarget*
-SourceBufferDecoder::GetStateMachineThread() const
-{
-  return mParentDecoder->GetStateMachineThread();
-}
-
 bool
 SourceBufferDecoder::OnDecodeThread() const
 {

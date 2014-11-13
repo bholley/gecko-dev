@@ -63,13 +63,6 @@ BufferDecoder::OnStateMachineThread() const
   return true;
 }
 
-nsIEventTarget*
-BufferDecoder::GetStateMachineThread() const
-{
-  // BufferDecoder doesn't have the concept of a state machine.
-  return nullptr;
-}
-
 bool
 BufferDecoder::OnDecodeThread() const
 {
