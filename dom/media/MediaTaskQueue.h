@@ -33,6 +33,7 @@ public:
   explicit MediaTaskQueue(TemporaryRef<SharedThreadPool> aPool);
 
   nsresult Dispatch(TemporaryRef<nsIRunnable> aRunnable);
+  nsresult ForceDispatch(TemporaryRef<nsIRunnable> aRunnable);
 
   nsresult SyncDispatch(TemporaryRef<nsIRunnable> aRunnable);
 
@@ -68,7 +69,7 @@ private:
   // mQueueMonitor must be held.
   void AwaitIdleLocked();
 
-  enum DispatchMode { AbortIfFlushing, IgnoreFlushing };
+  enum DispatchMode { AbortIfFlushing, IgnoreFlushing, Forced };
 
   nsresult DispatchLocked(TemporaryRef<nsIRunnable> aRunnable,
                           DispatchMode aMode);
@@ -78,8 +79,16 @@ private:
   // Monitor that protects the queue and mIsRunning;
   Monitor mQueueMonitor;
 
+  struct TaskQueueEntry {
+    RefPtr<nsIRunnable> mRunnable;
+    bool mForceDispatch;
+
+    TaskQueueEntry(TemporaryRef<nsIRunnable> aRunnable, bool aForceDispatch = false)
+      : mRunnable(aRunnable), mForceDispatch(aForceDispatch) {}
+  };
+
   // Queue of tasks to run.
-  std::queue<RefPtr<nsIRunnable>> mTasks;
+  std::queue<TaskQueueEntry> mTasks;
 
   // The thread currently running the task queue. We store a reference
   // to this so that IsCurrentThreadIn() can tell if the current thread
