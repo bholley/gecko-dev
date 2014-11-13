@@ -664,6 +664,7 @@ public:
   void DurationChanged();
 
   bool OnStateMachineThread() const MOZ_OVERRIDE;
+  nsIEventTarget* GetStateMachineThread() const MOZ_OVERRIDE;
 
   bool OnDecodeThread() const MOZ_OVERRIDE;
 

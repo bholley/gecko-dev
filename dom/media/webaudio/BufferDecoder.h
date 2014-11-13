@@ -34,6 +34,7 @@ public:
   virtual bool IsShutdown() const MOZ_FINAL MOZ_OVERRIDE;
 
   virtual bool OnStateMachineThread() const MOZ_FINAL MOZ_OVERRIDE;
+  virtual nsIEventTarget* GetStateMachineThread() const MOZ_FINAL MOZ_OVERRIDE;
 
   virtual bool OnDecodeThread() const MOZ_FINAL MOZ_OVERRIDE;
 
