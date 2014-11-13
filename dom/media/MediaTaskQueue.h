@@ -32,6 +32,7 @@ public:
   explicit MediaTaskQueue(TemporaryRef<SharedThreadPool> aPool);
 
   nsresult Dispatch(TemporaryRef<nsIRunnable> aRunnable);
+  nsresult ForceDispatch(TemporaryRef<nsIRunnable> aRunnable);
 
   nsresult SyncDispatch(TemporaryRef<nsIRunnable> aRunnable);
 

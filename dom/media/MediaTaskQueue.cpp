@@ -35,6 +35,13 @@ MediaTaskQueue::Dispatch(TemporaryRef<nsIRunnable> aRunnable)
 }
 
 nsresult
+MediaTaskQueue::ForceDispatch(TemporaryRef<nsIRunnable> aRunnable)
+{
+  MonitorAutoLock mon(mQueueMonitor);
+  return DispatchLocked(aRunnable, IgnoreFlushing);
+}
+
+nsresult
 MediaTaskQueue::DispatchLocked(TemporaryRef<nsIRunnable> aRunnable,
                                DispatchMode aMode)
 {
