@@ -487,7 +487,7 @@ MediaCodecReader::DecodeAudioDataTask()
     }
   }
   if (AudioQueue().AtEndOfStream()) {
-    GetCallback()->OnNotDecoded(MediaData::AUDIO_DATA, RequestSampleCallback::END_OF_STREAM);
+    GetCallback()->OnNotDecoded(MediaData::AUDIO_DATA, END_OF_STREAM);
   }
   return result;
 }
@@ -507,7 +507,7 @@ MediaCodecReader::DecodeVideoFrameTask(int64_t aTimeThreshold)
     }
   }
   if (VideoQueue().AtEndOfStream()) {
-    GetCallback()->OnNotDecoded(MediaData::VIDEO_DATA, RequestSampleCallback::END_OF_STREAM);
+    GetCallback()->OnNotDecoded(MediaData::VIDEO_DATA, END_OF_STREAM);
   }
   return result;
 }
