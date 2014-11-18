@@ -185,10 +185,12 @@ private:
   int64_t mTimeThreshold;
 };
 
-void
+nsRefPtr<MediaDecoderReader::VideoDataPromise>
 MediaDecoderReader::RequestVideoData(bool aSkipToNextKeyframe,
                                      int64_t aTimeThreshold)
 {
+  AutoReturnMediaPromise<VideoDataPromise> promise(&mVideoPromise,
+                                                   "MediaDecoderReader::RequestVideoData");
   bool skip = aSkipToNextKeyframe;
   while (VideoQueue().GetSize() == 0 &&
          !VideoQueue().IsFinished()) {
@@ -201,7 +203,7 @@ MediaDecoderReader::RequestVideoData(bool aSkipToNextKeyframe,
       // would hog the decode task queue.
       RefPtr<nsIRunnable> task(new RequestVideoWithSkipTask(this, aTimeThreshold));
       mTaskQueue->Dispatch(task);
-      return;
+      return promise;
     }
   }
   if (VideoQueue().GetSize() > 0) {
@@ -210,15 +212,20 @@ MediaDecoderReader::RequestVideoData(bool aSkipToNextKeyframe,
       v->mDiscontinuity = true;
       mVideoDiscontinuity = false;
     }
-    GetCallback()->OnVideoDecoded(v);
+    promise.Resolve(v);
   } else if (VideoQueue().IsFinished()) {
-    GetCallback()->OnNotDecoded(MediaData::VIDEO_DATA, END_OF_STREAM);
+    promise.Reject(END_OF_STREAM);
+  } else {
+    MOZ_ASSERT(false, "Dropping this promise on the floor");
   }
+
+  return promise;
 }
 
-void
+nsRefPtr<MediaDecoderReader::AudioDataPromise>
 MediaDecoderReader::RequestAudioData()
 {
+  AutoReturnMediaPromise<AudioDataPromise> promise(&mAudioPromise, "MediaDecoderReader::RequestAudioData");
   while (AudioQueue().GetSize() == 0 &&
          !AudioQueue().IsFinished()) {
     if (!DecodeAudioData()) {
@@ -233,7 +240,7 @@ MediaDecoderReader::RequestAudioData()
       RefPtr<nsIRunnable> task(NS_NewRunnableMethod(
           this, &MediaDecoderReader::RequestAudioData));
       mTaskQueue->Dispatch(task.forget());
-      return;
+      return promise;
     }
   }
   if (AudioQueue().GetSize() > 0) {
@@ -242,12 +249,14 @@ MediaDecoderReader::RequestAudioData()
       a->mDiscontinuity = true;
       mAudioDiscontinuity = false;
     }
-    GetCallback()->OnAudioDecoded(a);
-    return;
+    promise.Resolve(a);
   } else if (AudioQueue().IsFinished()) {
-    GetCallback()->OnNotDecoded(MediaData::AUDIO_DATA, END_OF_STREAM);
-    return;
+    promise.Reject(END_OF_STREAM);
+  } else {
+    MOZ_ASSERT(false, "Dropping this promise on the floor");
   }
+
+  return promise;
 }
 
 void
@@ -278,8 +287,9 @@ MediaDecoderReader::Shutdown()
   ReleaseMediaResources();
 }
 
-AudioDecodeRendezvous::AudioDecodeRendezvous()
-  : mMonitor("AudioDecodeRendezvous")
+AudioDecodeRendezvous::AudioDecodeRendezvous(MediaDecoderReader *aReader)
+  : mReader(aReader)
+  , mMonitor("AudioDecodeRendezvous")
   , mHaveResult(false)
 {
 }
@@ -299,10 +309,8 @@ AudioDecodeRendezvous::OnAudioDecoded(AudioData* aSample)
 }
 
 void
-AudioDecodeRendezvous::OnNotDecoded(MediaData::Type aType,
-                                    MediaDecoderReader::NotDecodedReason aReason)
+AudioDecodeRendezvous::OnAudioNotDecoded(MediaDecoderReader::NotDecodedReason aReason)
 {
-  MOZ_ASSERT(aType == MediaData::AUDIO_DATA);
   MonitorAutoLock mon(mMonitor);
   mSample = nullptr;
   mStatus = aReason == MediaDecoderReader::DECODE_ERROR ? NS_ERROR_FAILURE : NS_OK;
@@ -320,24 +328,25 @@ AudioDecodeRendezvous::Reset()
 }
 
 nsresult
-AudioDecodeRendezvous::Await(nsRefPtr<AudioData>& aSample)
+AudioDecodeRendezvous::RequestAndWait(nsRefPtr<AudioData>& aSample)
 {
   MonitorAutoLock mon(mMonitor);
+  // XXXbholley: We hackily use the main thread for calling back the rendezvous,
+  // since the decode thread is blocked. This is fine for correctness but not
+  // for jank, and so it goes away in a subsequent patch.
+  nsCOMPtr<nsIThread> mainThread;
+  nsresult rv = NS_GetMainThread(getter_AddRefs(mainThread));
+  NS_ENSURE_SUCCESS(rv, rv);
+  mReader->RequestAudioData()->Then(mainThread.get(), this,
+                                    &AudioDecodeRendezvous::OnAudioDecoded,
+                                    &AudioDecodeRendezvous::OnAudioNotDecoded,
+                                    "AudioDecodeRendezvous::Await");
   while (!mHaveResult) {
     mon.Wait();
   }
   mHaveResult = false;
   aSample = mSample;
   return mStatus;
-}
-
-void
-AudioDecodeRendezvous::Cancel()
-{
-  MonitorAutoLock mon(mMonitor);
-  mStatus = NS_ERROR_ABORT;
-  mHaveResult = true;
-  mon.NotifyAll();
 }
 
 } // namespace mozilla

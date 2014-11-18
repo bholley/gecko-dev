@@ -9,6 +9,7 @@
 #include "AbstractMediaDecoder.h"
 #include "MediaInfo.h"
 #include "MediaData.h"
+#include "MediaPromise.h"
 #include "MediaQueue.h"
 #include "AudioCompactor.h"
 
@@ -34,6 +35,9 @@ public:
     DECODE_ERROR,
     WAITING_FOR_DATA
   };
+
+  typedef MediaPromise<nsRefPtr<AudioData>, NotDecodedReason> AudioDataPromise;
+  typedef MediaPromise<nsRefPtr<VideoData>, NotDecodedReason> VideoDataPromise;
 
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(MediaDecoderReader)
 
@@ -82,7 +86,7 @@ public:
   // the callback can be performed on any thread. Don't hold the decoder
   // monitor while calling this, as the implementation may try to wait
   // on something that needs the monitor and deadlock.
-  virtual void RequestAudioData();
+  virtual nsRefPtr<AudioDataPromise> RequestAudioData();
 
   // Requests the Reader to call OnVideoDecoded() on aCallback with one
   // video sample. The decode should be performed asynchronously, and
@@ -91,8 +95,8 @@ public:
   // on something that needs the monitor and deadlock.
   // If aSkipToKeyframe is true, the decode should skip ahead to the
   // the next keyframe at or after aTimeThreshold microseconds.
-  virtual void RequestVideoData(bool aSkipToNextKeyframe,
-                                int64_t aTimeThreshold);
+  virtual nsRefPtr<VideoDataPromise>
+  RequestVideoData(bool aSkipToNextKeyframe, int64_t aTimeThreshold);
 
   virtual bool HasAudio() = 0;
   virtual bool HasVideo() = 0;
@@ -259,8 +263,11 @@ protected:
   // and then set to a value >= by MediaDecoderStateMachine::SetStartTime(),
   // after which point it never changes.
   int64_t mStartTime;
-private:
 
+  nsRefPtr<AudioDataPromise> mAudioPromise;
+  nsRefPtr<VideoDataPromise> mVideoPromise;
+
+private:
   nsRefPtr<RequestSampleCallback> mSampleDecodedCallback;
 
   nsRefPtr<MediaTaskQueue> mTaskQueue;
@@ -279,17 +286,6 @@ class RequestSampleCallback {
 public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(RequestSampleCallback)
 
-  // Receives the result of a RequestAudioData() call.
-  virtual void OnAudioDecoded(AudioData* aSample) = 0;
-
-  // Receives the result of a RequestVideoData() call.
-  virtual void OnVideoDecoded(VideoData* aSample) = 0;
-
-  // Called when a RequestAudioData() or RequestVideoData() call can't be
-  // fulfiled. The reason is passed as aReason.
-  virtual void OnNotDecoded(MediaData::Type aType,
-                            MediaDecoderReader::NotDecodedReason aReason) = 0;
-
   virtual void OnSeekCompleted(nsresult aResult) = 0;
 
   // Called during shutdown to break any reference cycles.
@@ -303,29 +299,28 @@ protected:
 // MediaDecoderReader to block the thread requesting an audio sample until
 // the audio decode is complete. This is used to adapt the asynchronous
 // model of the MediaDecoderReader to a synchronous model.
-class AudioDecodeRendezvous : public RequestSampleCallback {
+class AudioDecodeRendezvous {
 public:
-  AudioDecodeRendezvous();
-  ~AudioDecodeRendezvous();
+  AudioDecodeRendezvous(MediaDecoderReader *aReader);
 
-  // RequestSampleCallback implementation. Called when decode is complete.
-  // Note: aSample is null at end of stream.
-  virtual void OnAudioDecoded(AudioData* aSample) MOZ_OVERRIDE;
-  virtual void OnVideoDecoded(VideoData* aSample) MOZ_OVERRIDE {}
-  virtual void OnNotDecoded(MediaData::Type aType,
-                            MediaDecoderReader::NotDecodedReason aReason) MOZ_OVERRIDE;
-  virtual void OnSeekCompleted(nsresult aResult) MOZ_OVERRIDE {};
-  virtual void BreakCycles() MOZ_OVERRIDE {};
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(AudioDecodeRendezvous)
+
+  void OnAudioDecoded(AudioData* aSample);
+  void OnAudioNotDecoded(MediaDecoderReader::NotDecodedReason aReason);
   void Reset();
 
   // Returns failure on error, or NS_OK.
   // If *aSample is null, EOS has been reached.
-  nsresult Await(nsRefPtr<AudioData>& aSample);
+  nsresult RequestAndWait(nsRefPtr<AudioData>& aSample);
 
   // Interrupts a call to Wait().
   void Cancel();
 
+protected:
+  ~AudioDecodeRendezvous();
+
 private:
+  nsRefPtr<MediaDecoderReader> mReader;
   Monitor mMonitor;
   nsresult mStatus;
   nsRefPtr<AudioData> mSample;

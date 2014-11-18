@@ -90,30 +90,40 @@ MediaSourceReader::IsWaitingMediaResources()
   return !mHasEssentialTrackBuffers;
 }
 
-void
+nsRefPtr<MediaSourceReader::AudioDataPromise>
 MediaSourceReader::RequestAudioData()
 {
+  AutoReturnMediaPromise<AudioDataPromise> promise(&mAudioPromise,
+                                                   "MediaSourceReader::RequestAudioData");
   MSE_DEBUGV("MediaSourceReader(%p)::RequestAudioData", this);
   if (!mAudioReader) {
     MSE_DEBUG("MediaSourceReader(%p)::RequestAudioData called with no audio reader", this);
-    GetCallback()->OnNotDecoded(MediaData::AUDIO_DATA, DECODE_ERROR);
-    return;
+    promise.Reject(DECODE_ERROR);
+    return promise;
   }
   mAudioIsSeeking = false;
   SwitchAudioReader(mLastAudioTime);
-  mAudioReader->RequestAudioData();
+  mAudioReader->RequestAudioData()->Then(GetTaskQueue(), this,
+                                         &MediaSourceReader::OnAudioDecoded,
+                                         &MediaSourceReader::OnAudioNotDecoded,
+                                         "MediaSourceReader::RequestAudioData");
+  return promise;
 }
 
 void
 MediaSourceReader::OnAudioDecoded(AudioData* aSample)
 {
+  AutoServiceMediaPromise<AudioDataPromise> promise(&mAudioPromise, "MediaSourceReader::OnAudioDecoded");
   MSE_DEBUGV("MediaSourceReader(%p)::OnAudioDecoded [mTime=%lld mDuration=%lld mDiscontinuity=%d]",
              this, aSample->mTime, aSample->mDuration, aSample->mDiscontinuity);
   if (mDropAudioBeforeThreshold) {
     if (aSample->mTime < mTimeThreshold) {
       MSE_DEBUG("MediaSourceReader(%p)::OnAudioDecoded mTime=%lld < mTimeThreshold=%lld",
                 this, aSample->mTime, mTimeThreshold);
-      mAudioReader->RequestAudioData();
+      mAudioReader->RequestAudioData()->Then(GetTaskQueue(), this,
+                                             &MediaSourceReader::OnAudioDecoded,
+                                             &MediaSourceReader::OnAudioNotDecoded,
+                                             "MediaSourceReader::OnAudioDecoded");
       return;
     }
     mDropAudioBeforeThreshold = false;
@@ -125,18 +135,88 @@ MediaSourceReader::OnAudioDecoded(AudioData* aSample)
   if (!mAudioIsSeeking) {
     mLastAudioTime = aSample->mTime + aSample->mDuration;
   }
-  GetCallback()->OnAudioDecoded(aSample);
+
+  promise.Resolve(aSample);
+}
+
+// Find the closest approximation to the end time for this stream.
+// mLast{Audio,Video}Time differs from the actual end time because of
+// Bug 1065207 - the duration of a WebM fragment is an estimate not the
+// actual duration. In the case of audio time an example of where they
+// differ would be the actual sample duration being small but the
+// previous sample being large. The buffered end time uses that last
+// sample duration as an estimate of the end time duration giving an end
+// time that is greater than mLastAudioTime, which is the actual sample
+// end time.
+// Reader switching is based on the buffered end time though so they can be
+// quite different. By using the EOS_FUZZ_US and the buffered end time we
+// attempt to account for this difference.
+static void
+AdjustEndTime(int64_t* aEndTime, MediaDecoderReader* aReader)
+{
+  if (aReader) {
+    nsRefPtr<dom::TimeRanges> ranges = new dom::TimeRanges();
+    aReader->GetBuffered(ranges);
+    if (ranges->Length() > 0) {
+      // End time is a double so we convert to nearest by adding 0.5.
+      int64_t end = ranges->GetEndTime() * USECS_PER_S + 0.5;
+      *aEndTime = std::max(*aEndTime, end);
+    }
+  }
 }
 
 void
+MediaSourceReader::OnAudioNotDecoded(NotDecodedReason aReason)
+{
+  AutoServiceMediaPromise<AudioDataPromise> promise(&mAudioPromise,
+                                                    "MediaSourceReader::OnAudioNotDecoded");
+  MSE_DEBUG("MediaSourceReader(%p)::OnAudioNotDecoded aReason=%u IsEnded: %d", this, aReason, IsEnded());
+  if (aReason == DECODE_ERROR) {
+    promise.Reject(aReason);
+    return;
+  }
+
+  // End of stream. Force switching past this stream to another reader by
+  // switching to the end of the buffered range.
+  MOZ_ASSERT(aReason == END_OF_STREAM);
+  if (mAudioReader) {
+    AdjustEndTime(&mLastAudioTime, mAudioReader);
+  }
+
+  // See if we can find a different reader that can pick up where we left off. We use the
+  // EOS_FUZZ_US to allow for the fact that our end time can be inaccurate due to bug
+  // 1065207.
+  if (SwitchAudioReader(mLastAudioTime + EOS_FUZZ_US)) {
+    mAudioReader->RequestAudioData()->Then(GetTaskQueue(), this,
+                                           &MediaSourceReader::OnAudioDecoded,
+                                           &MediaSourceReader::OnAudioNotDecoded,
+                                           "MediaSourceReader::OnAudioNotDecoded");
+    return;
+  }
+
+  // If the entire MediaSource is done, generate an EndOfStream.
+  if (IsEnded()) {
+    promise.Reject(END_OF_STREAM);
+    return;
+  }
+
+  // We don't have the data the caller wants. Tell that we're waiting for JS to
+  // give us more data.
+  promise.Reject(WAITING_FOR_DATA);
+}
+
+
+nsRefPtr<MediaDecoderReader::VideoDataPromise>
 MediaSourceReader::RequestVideoData(bool aSkipToNextKeyframe, int64_t aTimeThreshold)
 {
+  AutoReturnMediaPromise<VideoDataPromise> promise(&mVideoPromise,
+                                                   "MediaSourceReader::RequestVideoData");
   MSE_DEBUGV("MediaSourceReader(%p)::RequestVideoData(%d, %lld)",
              this, aSkipToNextKeyframe, aTimeThreshold);
   if (!mVideoReader) {
     MSE_DEBUG("MediaSourceReader(%p)::RequestVideoData called with no video reader", this);
-    GetCallback()->OnNotDecoded(MediaData::VIDEO_DATA, DECODE_ERROR);
-    return;
+    promise.Reject(DECODE_ERROR);
+    return promise;
   }
   if (aSkipToNextKeyframe) {
     mTimeThreshold = aTimeThreshold;
@@ -145,19 +225,29 @@ MediaSourceReader::RequestVideoData(bool aSkipToNextKeyframe, int64_t aTimeThres
   }
   mVideoIsSeeking = false;
   SwitchVideoReader(mLastVideoTime);
-  mVideoReader->RequestVideoData(aSkipToNextKeyframe, aTimeThreshold);
+
+  mVideoReader->RequestVideoData(aSkipToNextKeyframe, aTimeThreshold)
+              ->Then(GetTaskQueue(), this,
+                     &MediaSourceReader::OnVideoDecoded, &MediaSourceReader::OnVideoNotDecoded,
+                     "MediaSourceReader::RequestVideoData");
+  return promise;
 }
 
 void
 MediaSourceReader::OnVideoDecoded(VideoData* aSample)
 {
+  AutoServiceMediaPromise<VideoDataPromise> promise(&mVideoPromise,
+                                                    "MediaSourceReader::OnVideoDecoded");
   MSE_DEBUGV("MediaSourceReader(%p)::OnVideoDecoded [mTime=%lld mDuration=%lld mDiscontinuity=%d]",
              this, aSample->mTime, aSample->mDuration, aSample->mDiscontinuity);
   if (mDropVideoBeforeThreshold) {
     if (aSample->mTime < mTimeThreshold) {
       MSE_DEBUG("MediaSourceReader(%p)::OnVideoDecoded mTime=%lld < mTimeThreshold=%lld",
                 this, aSample->mTime, mTimeThreshold);
-      mVideoReader->RequestVideoData(false, 0);
+      mVideoReader->RequestVideoData(false, 0)->Then(GetTaskQueue(), this,
+                                                     &MediaSourceReader::OnVideoDecoded,
+                                                     &MediaSourceReader::OnVideoNotDecoded,
+                                                     "MediaSourceReader::OnVideoDecoded");
       return;
     }
     mDropVideoBeforeThreshold = false;
@@ -169,67 +259,49 @@ MediaSourceReader::OnVideoDecoded(VideoData* aSample)
   if (!mVideoIsSeeking) {
     mLastVideoTime = aSample->mTime + aSample->mDuration;
   }
-  GetCallback()->OnVideoDecoded(aSample);
+
+  promise.Resolve(aSample);
 }
 
 void
-MediaSourceReader::OnNotDecoded(MediaData::Type aType, NotDecodedReason aReason)
+MediaSourceReader::OnVideoNotDecoded(NotDecodedReason aReason)
 {
-  MSE_DEBUG("MediaSourceReader(%p)::OnNotDecoded aType=%u aReason=%u IsEnded: %d", this, aType, aReason, IsEnded());
+  AutoServiceMediaPromise<VideoDataPromise> promise(&mVideoPromise,
+                                                    "MediaSourceReader::OnVideoNotDecoded");
+  MSE_DEBUG("MediaSourceReader(%p)::OnVideoNotDecoded aReason=%u IsEnded: %d", this, aReason, IsEnded());
   if (aReason == DECODE_ERROR) {
-    GetCallback()->OnNotDecoded(aType, aReason);
+    promise.Reject(aReason);
     return;
   }
+
   // End of stream. Force switching past this stream to another reader by
   // switching to the end of the buffered range.
   MOZ_ASSERT(aReason == END_OF_STREAM);
-  nsRefPtr<MediaDecoderReader> reader = aType == MediaData::AUDIO_DATA ?
-                                          mAudioReader : mVideoReader;
-
-  // Find the closest approximation to the end time for this stream.
-  // mLast{Audio,Video}Time differs from the actual end time because of
-  // Bug 1065207 - the duration of a WebM fragment is an estimate not the
-  // actual duration. In the case of audio time an example of where they
-  // differ would be the actual sample duration being small but the
-  // previous sample being large. The buffered end time uses that last
-  // sample duration as an estimate of the end time duration giving an end
-  // time that is greater than mLastAudioTime, which is the actual sample
-  // end time.
-  // Reader switching is based on the buffered end time though so they can be
-  // quite different. By using the EOS_FUZZ_US and the buffered end time we
-  // attempt to account for this difference.
-  int64_t* time = aType == MediaData::AUDIO_DATA ? &mLastAudioTime : &mLastVideoTime;
-  if (reader) {
-    nsRefPtr<dom::TimeRanges> ranges = new dom::TimeRanges();
-    reader->GetBuffered(ranges);
-    if (ranges->Length() > 0) {
-      // End time is a double so we convert to nearest by adding 0.5.
-      int64_t end = ranges->GetEndTime() * USECS_PER_S + 0.5;
-      *time = std::max(*time, end);
-    }
+  if (mVideoReader) {
+    AdjustEndTime(&mLastVideoTime, mAudioReader);
   }
 
   // See if we can find a different reader that can pick up where we left off. We use the
   // EOS_FUZZ_US to allow for the fact that our end time can be inaccurate due to bug
-  // 1065207 - the duration of a WebM frame is an estimate.
-  if (aType == MediaData::AUDIO_DATA && SwitchAudioReader(*time + EOS_FUZZ_US)) {
-    RequestAudioData();
-    return;
-  }
-  if (aType == MediaData::VIDEO_DATA && SwitchVideoReader(*time + EOS_FUZZ_US)) {
-    RequestVideoData(false, 0);
+  // 1065207.
+  if (SwitchVideoReader(mLastVideoTime + EOS_FUZZ_US)) {
+    mVideoReader->RequestVideoData(false, 0)
+                ->Then(GetTaskQueue(), this,
+                       &MediaSourceReader::OnVideoDecoded,
+                       &MediaSourceReader::OnVideoNotDecoded,
+                       "MediaSourceReader::OnVideoNotDecoded");
     return;
   }
 
   // If the entire MediaSource is done, generate an EndOfStream.
   if (IsEnded()) {
-    GetCallback()->OnNotDecoded(aType, END_OF_STREAM);
+    promise.Reject(END_OF_STREAM);
     return;
   }
 
   // We don't have the data the caller wants. Tell that we're waiting for JS to
   // give us more data.
-  GetCallback()->OnNotDecoded(aType, WAITING_FOR_DATA);
+  promise.Reject(WAITING_FOR_DATA);
 }
 
 void

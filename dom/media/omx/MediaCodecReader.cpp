@@ -475,6 +475,8 @@ MediaCodecReader::DecodeAudioDataSync()
 bool
 MediaCodecReader::DecodeAudioDataTask()
 {
+  AutoServiceMediaPromise<AudioDataPromise>
+    promise(&mAudioPromise, "MediaCodecReader::DecodeAudioDataTask");
   bool result = DecodeAudioDataSync();
   if (AudioQueue().GetSize() > 0) {
     nsRefPtr<AudioData> a = AudioQueue().PopFront();
@@ -483,11 +485,13 @@ MediaCodecReader::DecodeAudioDataTask()
         a->mDiscontinuity = true;
         mAudioTrack.mDiscontinuity = false;
       }
-      GetCallback()->OnAudioDecoded(a);
+      promise.Resolve(a);
     }
   }
-  if (AudioQueue().AtEndOfStream()) {
-    GetCallback()->OnNotDecoded(MediaData::AUDIO_DATA, END_OF_STREAM);
+  else if (AudioQueue().AtEndOfStream()) {
+    promise.Reject(END_OF_STREAM);
+  } else {
+    MOZ_CRASH("Dropping promise on the floor");
   }
   return result;
 }
@@ -495,6 +499,8 @@ MediaCodecReader::DecodeAudioDataTask()
 bool
 MediaCodecReader::DecodeVideoFrameTask(int64_t aTimeThreshold)
 {
+  AutoServiceMediaPromise<VideoDataPromise>
+    promise(&mVideoPromise, "MediaCodecReader::DecodeVideoFrameTask");
   bool result = DecodeVideoFrameSync(aTimeThreshold);
   if (VideoQueue().GetSize() > 0) {
     nsRefPtr<VideoData> v = VideoQueue().PopFront();
@@ -503,11 +509,13 @@ MediaCodecReader::DecodeVideoFrameTask(int64_t aTimeThreshold)
         v->mDiscontinuity = true;
         mVideoTrack.mDiscontinuity = false;
       }
-      GetCallback()->OnVideoDecoded(v);
+      promise.Resolve(v);
     }
   }
-  if (VideoQueue().AtEndOfStream()) {
-    GetCallback()->OnNotDecoded(MediaData::VIDEO_DATA, END_OF_STREAM);
+  else if (VideoQueue().AtEndOfStream()) {
+    promise.Reject(END_OF_STREAM);
+  } else {
+    MOZ_CRASH("Dropping promise on the floor");
   }
   return result;
 }
