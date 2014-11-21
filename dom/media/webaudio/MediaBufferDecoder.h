@@ -71,10 +71,8 @@ private:
 };
 
 /**
- * This class is used to decode media buffers on a dedicated threadpool.
- *
- * This class manages the resources that it uses internally (such as the
- * thread-pool) and provides a clean external interface.
+ * This class is used to decode media buffers on the decode threadpool. It
+ * doesn't hold anything for the time being, bug will when we fix bug 1104964.
  */
 class MediaBufferDecoder
 {
@@ -89,12 +87,6 @@ public:
   {
     return 0;
   }
-
-private:
-  bool EnsureThreadPoolInitialized();
-
-private:
-  nsCOMPtr<nsIThreadPool> mThreadPool;
 };
 
 }
