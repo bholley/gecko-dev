@@ -61,7 +61,14 @@ public:
   virtual void Shutdown();
 
   virtual void SetCallback(RequestSampleCallback* aDecodedSampleCallback);
-  virtual void SetTaskQueue(MediaTaskQueue* aTaskQueue);
+  MediaTaskQueue* EnsureTaskQueue();
+
+  void SetBorrowedTaskQueue(MediaTaskQueue* aTaskQueue)
+  {
+    MOZ_ASSERT(!mTaskQueue);
+    mTaskQueue = aTaskQueue;
+    mTaskQueueIsBorrowed = true;
+  }
 
   // Resets all state related to decoding, emptying all buffers etc.
   // Cancels all pending Request*Data() request callbacks, and flushes the
@@ -261,6 +268,7 @@ private:
   nsRefPtr<RequestSampleCallback> mSampleDecodedCallback;
 
   nsRefPtr<MediaTaskQueue> mTaskQueue;
+  bool mTaskQueueIsBorrowed;
 
   // Flags whether a the next audio/video sample comes after a "gap" or
   // "discontinuity" in the stream. For example after a seek.

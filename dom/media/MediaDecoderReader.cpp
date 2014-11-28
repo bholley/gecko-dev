@@ -63,6 +63,7 @@ MediaDecoderReader::MediaDecoderReader(AbstractMediaDecoder* aDecoder)
   , mDecoder(aDecoder)
   , mIgnoreAudioOutputFormat(false)
   , mStartTime(-1)
+  , mTaskQueueIsBorrowed(false)
   , mAudioDiscontinuity(false)
   , mVideoDiscontinuity(false)
   , mShutdown(false)
@@ -247,10 +248,17 @@ MediaDecoderReader::SetCallback(RequestSampleCallback* aCallback)
   mSampleDecodedCallback = aCallback;
 }
 
-void
-MediaDecoderReader::SetTaskQueue(MediaTaskQueue* aTaskQueue)
+MediaTaskQueue*
+MediaDecoderReader::EnsureTaskQueue()
 {
-  mTaskQueue = aTaskQueue;
+  if (!mTaskQueue) {
+    RefPtr<SharedThreadPool> decodePool(GetMediaDecodeThreadPool());
+    NS_ENSURE_TRUE(decodePool, nullptr);
+
+    mTaskQueue = new MediaTaskQueue(decodePool.forget());
+  }
+
+  return mTaskQueue;
 }
 
 void
@@ -269,6 +277,12 @@ MediaDecoderReader::Shutdown()
   MOZ_ASSERT(mDecoder->OnDecodeThread());
   mShutdown = true;
   ReleaseMediaResources();
+  if (mTaskQueue && !mTaskQueueIsBorrowed) {
+    // We may be running in the task queue ourselves, so we don't block this
+    // thread on task queue draining, since that would deadlock.
+    mTaskQueue->BeginShutdown();
+  }
+  mTaskQueue = nullptr;
 }
 
 AudioDecodeRendezvous::AudioDecodeRendezvous()

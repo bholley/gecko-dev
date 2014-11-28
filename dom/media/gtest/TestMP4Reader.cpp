@@ -36,8 +36,7 @@ public:
     decoder->SetResource(resource);
 
     reader->Init(nullptr);
-    reader->SetTaskQueue(
-      new MediaTaskQueue(SharedThreadPool::Get(NS_LITERAL_CSTRING("TestMP4Reader"))));
+    reader->EnsureTaskQueue();
     {
       // This needs to be done before invoking GetBuffered. This is normally
       // done by MediaDecoderStateMachine.
@@ -59,9 +58,6 @@ private:
   {
     reader->GetTaskQueue()->Dispatch(NS_NewRunnableMethod(reader,
                                                           &MP4Reader::Shutdown));
-    reader->GetTaskQueue()->BeginShutdown();
-    reader->GetTaskQueue()->AwaitShutdownAndIdle();
-
     decoder = nullptr;
     resource = nullptr;
     reader = nullptr;
