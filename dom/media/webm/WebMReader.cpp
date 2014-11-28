@@ -226,9 +226,9 @@ WebMReader::~WebMReader()
 void WebMReader::Shutdown()
 {
 #if defined(MOZ_PDM_VPX)
-  if (mTaskQueue) {
-    mTaskQueue->BeginShutdown();
-    mTaskQueue->AwaitShutdownAndIdle();
+  if (mIntelVP8TaskQueue) {
+    mIntelVP8TaskQueue->BeginShutdown();
+    mIntelVP8TaskQueue->AwaitShutdownAndIdle();
   }
 #endif
 
@@ -253,9 +253,9 @@ nsresult WebMReader::Init(MediaDecoderReader* aCloneDonor)
 
     InitLayersBackendType();
 
-    mTaskQueue = new MediaTaskQueue(
+    mIntelVP8TaskQueue = new MediaTaskQueue(
       SharedThreadPool::Get(NS_LITERAL_CSTRING("IntelVP8 Video Decode")));
-    NS_ENSURE_TRUE(mTaskQueue, NS_ERROR_FAILURE);
+    NS_ENSURE_TRUE(mIntelVP8TaskQueue, NS_ERROR_FAILURE);
   }
 #endif
 
