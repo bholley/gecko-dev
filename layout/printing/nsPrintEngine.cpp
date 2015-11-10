@@ -2113,7 +2113,7 @@ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
   rv = aPO->mViewManager->Init(mPrt->mPrintDC);
   NS_ENSURE_SUCCESS(rv,rv);
 
-  nsStyleSet* styleSet;
+  StyleSet* styleSet;
   rv = mDocViewerPrint->CreateStyleSet(aPO->mDocument, &styleSet);
   NS_ENSURE_SUCCESS(rv, rv);
 

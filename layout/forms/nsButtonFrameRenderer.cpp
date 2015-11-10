@@ -451,7 +451,7 @@ nsButtonFrameRenderer::ReResolveStyles(nsPresContext* aPresContext)
 {
   // get all the styles
   nsStyleContext* context = mFrame->StyleContext();
-  nsStyleSet *styleSet = aPresContext->StyleSet();
+  StyleSet* styleSet = aPresContext->StyleSet();
 
 #ifdef DEBUG
   if (mInnerFocusStyle) {

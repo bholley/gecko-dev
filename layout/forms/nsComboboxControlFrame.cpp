@@ -1345,7 +1345,7 @@ nsComboboxControlFrame::CreateFrameFor(nsIContent*      aContent)
 
   // Get PresShell
   nsIPresShell *shell = PresContext()->PresShell();
-  nsStyleSet *styleSet = shell->StyleSet();
+  StyleSet* styleSet = shell->StyleSet();
 
   // create the style contexts for the anonymous block frame and text frame
   RefPtr<nsStyleContext> styleContext;

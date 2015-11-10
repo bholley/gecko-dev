@@ -7,16 +7,19 @@
 
 #include "nsISupports.h"
 
+namespace mozilla {
+class StyleSet;
+}
 class nsIDocument;
-class nsStyleSet;
 class nsIPresShell;
 class nsPresContext;
 class nsViewManager;
 
-// {c6f255cf-cadd-4382-b57f-cd2a9874169b}
+// {66f9ad8d-4c81-45d2-8901-1b8d96ff3c82}
 #define NS_IDOCUMENT_VIEWER_PRINT_IID \
-{ 0xc6f255cf, 0xcadd, 0x4382, \
-  { 0xb5, 0x7f, 0xcd, 0x2a, 0x98, 0x74, 0x16, 0x9b } }
+{ 0x66f9ad8d, 0x4c81, 0x45d2, \
+  { 0x89, 0x01, 0x1b, 0x8d, 0x96, 0xff, 0x3c, 0x82 } }
+
 
 /**
  * A DocumentViewerPrint is an INTERNAL Interface used for interaction
@@ -36,7 +39,7 @@ public:
   // The style set returned by CreateStyleSet is in the middle of an
   // update batch so that the caller can add sheets to it if needed.
   // Callers should call EndUpdate() on it when ready to use.
-  virtual nsresult CreateStyleSet(nsIDocument* aDocument, nsStyleSet** aStyleSet) = 0;
+  virtual nsresult CreateStyleSet(nsIDocument* aDocument, mozilla::StyleSet** aStyleSet) = 0;
 
   virtual void IncrementDestroyRefCount() = 0;
 
@@ -71,7 +74,7 @@ NS_DEFINE_STATIC_IID_ACCESSOR(nsIDocumentViewerPrint,
   virtual bool     GetIsPrinting() override; \
   virtual void     SetIsPrintPreview(bool aIsPrintPreview) override; \
   virtual bool     GetIsPrintPreview() override; \
-  virtual nsresult CreateStyleSet(nsIDocument* aDocument, nsStyleSet** aStyleSet) override; \
+  virtual nsresult CreateStyleSet(nsIDocument* aDocument, mozilla::StyleSet** aStyleSet) override; \
   virtual void     IncrementDestroyRefCount() override; \
   virtual void     ReturnToGalleyPresentation() override; \
   virtual void     OnDonePrinting() override; \
