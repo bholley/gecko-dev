@@ -481,7 +481,7 @@ nsComputedDOMStyle::GetStyleContextForElementNoFlush(Element* aElement,
   if (!presContext)
     return nullptr;
 
-  nsStyleSet *styleSet = presShell->StyleSet();
+  StyleSet* styleSet = presShell->StyleSet();
 
   RefPtr<nsStyleContext> sc;
   if (aPseudo) {
@@ -518,7 +518,10 @@ nsComputedDOMStyle::GetStyleContextForElementNoFlush(Element* aElement,
       rules[i].swap(rules[length - i - 1]);
     }
     
-    sc = styleSet->ResolveStyleForRules(parentContext, rules);
+    if (styleSet->IsServo()) {
+      return nullptr;
+    }
+    sc = styleSet->AsGecko()->ResolveStyleForRules(parentContext, rules);
   }
 
   return sc.forget();

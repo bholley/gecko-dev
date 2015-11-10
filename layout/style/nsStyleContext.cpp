@@ -129,7 +129,7 @@ nsStyleContext::~nsStyleContext()
   NS_ASSERTION((nullptr == mChild) && (nullptr == mEmptyChild), "destructing context with children");
 
   nsPresContext *presContext = mRuleNode->PresContext();
-  nsStyleSet* styleSet = presContext->PresShell()->StyleSet();
+  nsStyleSet* styleSet = presContext->PresShell()->StyleSet()->AsGecko();
 
   NS_ASSERTION(styleSet->GetRuleTree() == mRuleNode->RuleTree() ||
                styleSet->IsInRuleTreeReconstruct(),

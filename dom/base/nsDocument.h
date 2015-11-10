@@ -778,7 +778,7 @@ public:
    */
   virtual already_AddRefed<nsIPresShell> CreateShell(nsPresContext* aContext,
                                                      nsViewManager* aViewManager,
-                                                     nsStyleSet* aStyleSet) override;
+                                                     mozilla::StyleSet* aStyleSet) override;
   virtual void DeleteShell() override;
 
   virtual nsresult GetAllowPlugins(bool* aAllowPlugins) override;
@@ -1495,7 +1495,7 @@ public:
 protected:
   already_AddRefed<nsIPresShell> doCreateShell(nsPresContext* aContext,
                                                nsViewManager* aViewManager,
-                                               nsStyleSet* aStyleSet,
+                                               mozilla::StyleSet* aStyleSet,
                                                nsCompatibility aCompatMode);
 
   void RemoveDocStyleSheetsFromStyleSets();
@@ -1503,7 +1503,7 @@ protected:
       nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aSheets,
       mozilla::SheetType aType);
   void ResetStylesheetsToURI(nsIURI* aURI);
-  void FillStyleSet(nsStyleSet* aStyleSet);
+  void FillStyleSet(mozilla::StyleSet* aStyleSet);
 
   // Return whether all the presshells for this document are safe to flush
   bool IsSafeToFlush() const;

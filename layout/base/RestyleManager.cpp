@@ -1134,7 +1134,7 @@ RestyleManager::ContentStateChanged(nsIContent* aContent,
 
   Element* aElement = aContent->AsElement();
 
-  nsStyleSet* styleSet = mPresContext->StyleSet();
+  nsStyleSet* styleSet = mPresContext->StyleSet()->AsGecko();
   NS_ASSERTION(styleSet, "couldn't get style set");
 
   nsChangeHint hint = NS_STYLE_HINT_NONE;
@@ -1217,12 +1217,12 @@ RestyleManager::AttributeWillChange(Element* aElement,
 {
   RestyleHintData rsdata;
   nsRestyleHint rshint =
-    mPresContext->StyleSet()->HasAttributeDependentStyle(aElement,
-                                                         aAttribute,
-                                                         aModType,
-                                                         false,
-                                                         aNewValue,
-                                                         rsdata);
+    mPresContext->StyleSet()->AsGecko()->HasAttributeDependentStyle(aElement,
+                                                                    aAttribute,
+                                                                    aModType,
+                                                                    false,
+                                                                    aNewValue,
+                                                                    rsdata);
   PostRestyleEvent(aElement, rshint, NS_STYLE_HINT_NONE, &rsdata);
 }
 
@@ -1308,12 +1308,12 @@ RestyleManager::AttributeChanged(Element* aElement,
   // the frame's AttributeChanged() in case it does something that affects the style
   RestyleHintData rsdata;
   nsRestyleHint rshint =
-    mPresContext->StyleSet()->HasAttributeDependentStyle(aElement,
-                                                         aAttribute,
-                                                         aModType,
-                                                         true,
-                                                         aOldValue,
-                                                         rsdata);
+    mPresContext->StyleSet()->AsGecko()->HasAttributeDependentStyle(aElement,
+                                                                    aAttribute,
+                                                                    aModType,
+                                                                    true,
+                                                                    aOldValue,
+                                                                    rsdata);
   PostRestyleEvent(aElement, rshint, hint, &rsdata);
 }
 
@@ -1656,7 +1656,7 @@ RestyleManager::StartRebuildAllStyleData(RestyleTracker& aRestyleTracker)
 
   // Tell the style set to get the old rule tree out of the way
   // so we can recalculate while maintaining rule tree immutability
-  nsresult rv = mPresContext->StyleSet()->BeginReconstruct();
+  nsresult rv = mPresContext->StyleSet()->AsGecko()->BeginReconstruct();
   if (NS_FAILED(rv)) {
     MOZ_CRASH("unable to rebuild style data");
   }
@@ -1709,7 +1709,7 @@ RestyleManager::FinishRebuildAllStyleData()
   // change list has frame reconstructs in it (since frames to be
   // reconstructed will still have their old style context pointers
   // until they are destroyed).
-  mPresContext->StyleSet()->EndReconstruct();
+  mPresContext->StyleSet()->AsGecko()->EndReconstruct();
 
   mInRebuildAllStyleData = false;
 }
@@ -2415,7 +2415,7 @@ RestyleManager::ReparentStyleContext(nsIFrame* aFrame)
       ElementForStyleContext(parentFrame ? parentFrame->GetContent() : nullptr,
                              aFrame,
                              oldContext->GetPseudoType());
-    newContext = mPresContext->StyleSet()->
+    newContext = mPresContext->StyleSet()->AsGecko()->
                    ReparentStyleContext(oldContext, newParentContext, element);
   }
 
@@ -2494,7 +2494,7 @@ RestyleManager::ReparentStyleContext(nsIFrame* aFrame)
            (oldExtraContext = aFrame->GetAdditionalStyleContext(contextIndex));
            ++contextIndex) {
         RefPtr<nsStyleContext> newExtraContext;
-        newExtraContext = mPresContext->StyleSet()->
+        newExtraContext = mPresContext->StyleSet()->AsGecko()->
                             ReparentStyleContext(oldExtraContext,
                                                  newContext, nullptr);
         if (newExtraContext) {
@@ -3691,7 +3691,7 @@ ElementRestyler::CanReparentStyleContext(nsRestyleHint aRestyleHint)
   return !(aRestyleHint & ~(eRestyle_Force |
                             eRestyle_ForceDescendants |
                             eRestyle_SomeDescendants)) &&
-         !mPresContext->StyleSet()->IsInRuleTreeReconstruct();
+         !mPresContext->StyleSet()->AsGecko()->IsInRuleTreeReconstruct();
 }
 
 ElementRestyler::RestyleResult
@@ -3756,7 +3756,7 @@ ElementRestyler::RestyleSelf(nsIFrame* aSelf,
 
   nsChangeHint assumeDifferenceHint = NS_STYLE_HINT_NONE;
   RefPtr<nsStyleContext> oldContext = aSelf->StyleContext();
-  nsStyleSet* styleSet = mPresContext->StyleSet();
+  nsStyleSet* styleSet = mPresContext->StyleSet()->AsGecko();
 
 #ifdef ACCESSIBILITY
   mWasFrameVisible = nsIPresShell::IsAccessibilityActive() ?
@@ -4509,7 +4509,7 @@ ElementRestyler::RestyleUndisplayedNodes(nsRestyleHint    aChildRestyleHint,
         nsRestyleHint(thisChildHint | undisplayedRestyleData->mRestyleHint);
     }
     RefPtr<nsStyleContext> undisplayedContext;
-    nsStyleSet* styleSet = mPresContext->StyleSet();
+    nsStyleSet* styleSet = mPresContext->StyleSet()->AsGecko();
     if (MustRestyleSelf(thisChildHint, element)) {
       undisplayedContext =
         styleSet->ResolveStyleFor(element, aParentContext, mTreeMatchContext);

@@ -250,6 +250,10 @@ nsTransitionManager::StyleContextChanged(dom::Element *aElement,
     return;
   }
 
+  if (mPresContext->StyleSet()->IsServo()) {
+    return;
+  }
+
   if (aOldStyleContext->HasPseudoElementData() !=
       newStyleContext->HasPseudoElementData()) {
     // If the old style context and new style context differ in terms of
@@ -332,7 +336,7 @@ nsTransitionManager::StyleContextChanged(dom::Element *aElement,
   // not stopping or starting right now.
   RefPtr<nsStyleContext> afterChangeStyle;
   if (collection) {
-    nsStyleSet* styleSet = mPresContext->StyleSet();
+    nsStyleSet* styleSet = mPresContext->StyleSet()->AsGecko();
     afterChangeStyle =
       styleSet->ResolveStyleWithoutAnimation(aElement, newStyleContext,
                                              eRestyle_CSSTransitions);

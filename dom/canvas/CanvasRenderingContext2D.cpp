@@ -2202,8 +2202,12 @@ GetFontParentStyleContext(Element* aElement, nsIPresShell* presShell,
 
   nsTArray<nsCOMPtr<nsIStyleRule>> parentRules;
   parentRules.AppendElement(parentRule);
+  if (presShell->StyleSet()->IsServo()) {
+    error.Throw(NS_ERROR_FAILURE);
+    return nullptr;
+  }
   RefPtr<nsStyleContext> result =
-    presShell->StyleSet()->ResolveStyleForRules(nullptr, parentRules);
+    presShell->StyleSet()->AsGecko()->ResolveStyleForRules(nullptr, parentRules);
 
   if (!result) {
     error.Throw(NS_ERROR_FAILURE);
@@ -2269,7 +2273,12 @@ GetFontStyleContext(Element* aElement, const nsAString& aFont,
   // add a rule to prevent text zoom from affecting the style
   rules.AppendElement(new nsDisableTextZoomStyleRule);
 
-  nsStyleSet* styleSet = presShell->StyleSet();
+  if (presShell->StyleSet()->IsServo()) {
+    error.Throw(NS_ERROR_FAILURE);
+    return nullptr;
+  }
+
+  nsStyleSet* styleSet = presShell->StyleSet()->AsGecko();
   RefPtr<nsStyleContext> sc =
     styleSet->ResolveStyleForRules(parentContext, rules);
 
@@ -2318,8 +2327,13 @@ ResolveStyleForFilter(const nsAString& aFilterString,
   nsTArray<nsCOMPtr<nsIStyleRule>> rules;
   rules.AppendElement(decl);
 
+  if (aPresShell->StyleSet()->IsServo()) {
+    error.Throw(NS_ERROR_FAILURE);
+    return nullptr;
+  }
+
   RefPtr<nsStyleContext> sc =
-    aPresShell->StyleSet()->ResolveStyleForRules(aParentContext, rules);
+    aPresShell->StyleSet()->AsGecko()->ResolveStyleForRules(aParentContext, rules);
 
   return sc.forget();
 }

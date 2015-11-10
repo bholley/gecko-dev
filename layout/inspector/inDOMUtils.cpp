@@ -81,8 +81,8 @@ inDOMUtils::GetAllStyleSheets(nsIDOMDocument *aDocument, uint32_t *aLength,
 
   // Get the agent, then user and finally xbl sheets in the style set.
   nsIPresShell* presShell = document->GetShell();
-  if (presShell) {
-    nsStyleSet* styleSet = presShell->StyleSet();
+  if (presShell && presShell->StyleSet()->IsGecko()) {
+    nsStyleSet* styleSet = presShell->StyleSet()->AsGecko();
     SheetType sheetType = SheetType::Agent;
     for (int32_t i = 0; i < styleSet->SheetCount(sheetType); i++) {
       sheets.AppendElement(styleSet->StyleSheetAt(sheetType, i));

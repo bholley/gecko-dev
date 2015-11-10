@@ -162,9 +162,12 @@ ElementHasActiveStyle(dom::Element* aElement)
   if (!pc) {
     return false;
   }
-  nsStyleSet* styleSet = pc->StyleSet();
+  StyleSet* styleSet = pc->StyleSet();
+  if (styleSet->IsServo()) {
+    return false;
+  }
   for (dom::Element* e = aElement; e; e = e->GetParentElement()) {
-    if (styleSet->HasStateDependentStyle(e, NS_EVENT_STATE_ACTIVE)) {
+    if (styleSet->AsGecko()->HasStateDependentStyle(e, NS_EVENT_STATE_ACTIVE)) {
       AEM_LOG("Element %p's style is dependent on the active state\n", e);
       return true;
     }

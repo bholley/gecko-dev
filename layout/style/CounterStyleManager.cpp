@@ -2014,7 +2014,9 @@ CounterStyleManager::BuildCounterStyle(const nsSubstring& aName)
   // It is intentional that the predefined names are case-insensitive
   // but the user-defined names case-sensitive.
   nsCSSCounterStyleRule* rule =
-    mPresContext->StyleSet()->CounterStyleRuleForName(aName);
+    mPresContext->StyleSet()->IsGecko() ?
+      mPresContext->StyleSet()->AsGecko()->CounterStyleRuleForName(aName) :
+      nullptr;
   if (rule) {
     data = new (mPresContext) CustomCounterStyle(this, rule);
   } else {
@@ -2066,8 +2068,10 @@ InvalidateOldStyle(const nsSubstring& aKey,
   InvalidateOldStyleData* data = static_cast<InvalidateOldStyleData*>(aArg);
   bool toBeUpdated = false;
   bool toBeRemoved = false;
-  nsCSSCounterStyleRule* newRule = data->mPresContext->
-    StyleSet()->CounterStyleRuleForName(aKey);
+  nsCSSCounterStyleRule* newRule =
+    data->mPresContext->StyleSet()->IsGecko() ?
+      data->mPresContext->StyleSet()->AsGecko()->CounterStyleRuleForName(aKey) :
+      nullptr;
   if (!newRule) {
     if (aStyle->IsCustomStyle()) {
       toBeRemoved = true;

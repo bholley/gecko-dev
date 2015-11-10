@@ -540,7 +540,7 @@ inline
 void nsRuleNode::AddRef()
 {
   if (mRefCnt++ == 0 && !IsRoot()) {
-    mPresContext->StyleSet()->RuleNodeInUse();
+    mPresContext->StyleSet()->AsGecko()->RuleNodeInUse();
   }
 }
 
@@ -548,7 +548,7 @@ inline
 void nsRuleNode::Release()
 {
   if (--mRefCnt == 0 && !IsRoot()) {
-    mPresContext->StyleSet()->RuleNodeUnused();
+    mPresContext->StyleSet()->AsGecko()->RuleNodeUnused();
   }
 }
 #endif

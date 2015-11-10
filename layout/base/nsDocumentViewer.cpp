@@ -624,7 +624,7 @@ nsDocumentViewer::InitPresentationStuff(bool aDoInitialReflow)
                "Someone should have destroyed the presshell!");
 
   // Create the style set...
-  nsStyleSet *styleSet;
+  StyleSet* styleSet;
   nsresult rv = CreateStyleSet(mDocument, &styleSet);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -2138,13 +2138,15 @@ nsDocumentViewer::RequestWindowClose(bool* aCanClose)
 
 nsresult
 nsDocumentViewer::CreateStyleSet(nsIDocument* aDocument,
-                                   nsStyleSet** aStyleSet)
+                                 StyleSet** aStyleSet)
 {
   // Make sure this does the same thing as PresShell::AddSheet wrt ordering.
 
   // this should eventually get expanded to allow for creating
   // different sets for different media
-  nsStyleSet *styleSet = new nsStyleSet();
+
+  // XXX Create a Servo style set for certain domains.
+  StyleSet* styleSet = new nsStyleSet();
 
   styleSet->BeginUpdate();
   

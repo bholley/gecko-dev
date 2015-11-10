@@ -93,6 +93,7 @@ class CSSStyleSheet;
 class ErrorResult;
 class EventStates;
 class PendingAnimationTracker;
+class StyleSet;
 class SVGAttrAnimationRuleProcessor;
 template<typename> class OwningNonNull;
 
@@ -667,7 +668,7 @@ public:
    */
   virtual already_AddRefed<nsIPresShell> CreateShell(nsPresContext* aContext,
                                                      nsViewManager* aViewManager,
-                                                     nsStyleSet* aStyleSet) = 0;
+                                                     mozilla::StyleSet* aStyleSet) = 0;
   virtual void DeleteShell() = 0;
 
   nsIPresShell* GetShell() const
