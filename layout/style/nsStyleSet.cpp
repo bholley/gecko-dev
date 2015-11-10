@@ -250,8 +250,8 @@ nsStyleSet::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
   return n;
 }
 
-void
-nsStyleSet::Init(nsPresContext *aPresContext)
+/* virtual */ void
+nsStyleSet::Init(nsPresContext* aPresContext)
 {
   mFirstLineRule = new nsEmptyStyleRule;
   mFirstLetterRule = new nsEmptyStyleRule;
@@ -580,7 +580,7 @@ nsStyleSet::GatherRuleProcessors(SheetType aType)
   return NS_OK;
 }
 
-nsresult
+/* virtual */ nsresult
 nsStyleSet::AppendStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
 {
   NS_PRECONDITION(aSheet, "null arg");
@@ -596,7 +596,7 @@ nsStyleSet::AppendStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
   return DirtyRuleProcessors(aType);
 }
 
-nsresult
+/* virtual */ nsresult
 nsStyleSet::PrependStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
 {
   NS_PRECONDITION(aSheet, "null arg");
@@ -612,7 +612,7 @@ nsStyleSet::PrependStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
   return DirtyRuleProcessors(aType);
 }
 
-nsresult
+/* virtual */ nsresult
 nsStyleSet::RemoveStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
 {
   NS_PRECONDITION(aSheet, "null arg");
@@ -627,7 +627,7 @@ nsStyleSet::RemoveStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
   return DirtyRuleProcessors(aType);
 }
 
-nsresult
+/* virtual */ nsresult
 nsStyleSet::ReplaceSheets(SheetType aType,
                           const nsTArray<RefPtr<CSSStyleSheet>>& aNewSheets)
 {
@@ -650,7 +650,7 @@ nsStyleSet::ReplaceSheets(SheetType aType,
   return DirtyRuleProcessors(aType);
 }
 
-nsresult
+/* virtual */ nsresult
 nsStyleSet::InsertStyleSheetBefore(SheetType aType, CSSStyleSheet* aNewSheet,
                                    CSSStyleSheet* aReferenceSheet)
 {
@@ -688,13 +688,13 @@ nsStyleSet::DirtyRuleProcessors(SheetType aType)
   return NS_OK;
 }
 
-bool
+/* virtual */ bool
 nsStyleSet::GetAuthorStyleDisabled()
 {
   return mAuthorStyleDisabled;
 }
 
-nsresult
+/* virtual */ nsresult
 nsStyleSet::SetAuthorStyleDisabled(bool aStyleDisabled)
 {
   if (aStyleDisabled == !mAuthorStyleDisabled) {
@@ -771,13 +771,13 @@ nsStyleSet::RemoveDocStyleSheet(CSSStyleSheet* aSheet)
 }
 
 // Batching
-void
+/* virtual */ void
 nsStyleSet::BeginUpdate()
 {
   ++mBatching;
 }
 
-nsresult
+/* virtual */ nsresult
 nsStyleSet::EndUpdate()
 {
   NS_ASSERTION(mBatching > 0, "Unbalanced EndUpdate");
@@ -1332,7 +1332,7 @@ InitStyleScopes(TreeMatchContext& aTreeContext, Element* aElement)
   }
 }
 
-already_AddRefed<nsStyleContext>
+/* virtual */ already_AddRefed<nsStyleContext>
 nsStyleSet::ResolveStyleFor(Element* aElement,
                             nsStyleContext* aParentContext)
 {
@@ -1342,7 +1342,7 @@ nsStyleSet::ResolveStyleFor(Element* aElement,
   return ResolveStyleFor(aElement, aParentContext, treeContext);
 }
 
-already_AddRefed<nsStyleContext>
+/* virtual */ already_AddRefed<nsStyleContext>
 nsStyleSet::ResolveStyleFor(Element* aElement,
                             nsStyleContext* aParentContext,
                             TreeMatchContext& aTreeMatchContext)
@@ -1756,7 +1756,7 @@ nsStyleSet::ResolveStyleWithoutAnimation(dom::Element* aTarget,
   return result.forget();
 }
 
-already_AddRefed<nsStyleContext>
+/* virtual */ already_AddRefed<nsStyleContext>
 nsStyleSet::ResolveStyleForNonElement(nsStyleContext* aParentContext)
 {
   return GetContext(aParentContext, mRuleTree, nullptr,
@@ -1787,7 +1787,7 @@ nsStyleSet::WalkDisableTextZoomRule(Element* aElement, nsRuleWalker* aRuleWalker
     aRuleWalker->Forward(mDisableTextZoomStyleRule);
 }
 
-already_AddRefed<nsStyleContext>
+/* virtual */ already_AddRefed<nsStyleContext>
 nsStyleSet::ResolvePseudoElementStyle(Element* aParentElement,
                                       nsCSSPseudoElements::Type aType,
                                       nsStyleContext* aParentContext,
@@ -1841,7 +1841,7 @@ nsStyleSet::ResolvePseudoElementStyle(Element* aParentElement,
                     aParentElement, flags);
 }
 
-already_AddRefed<nsStyleContext>
+/* virtual */ already_AddRefed<nsStyleContext>
 nsStyleSet::ProbePseudoElementStyle(Element* aParentElement,
                                     nsCSSPseudoElements::Type aType,
                                     nsStyleContext* aParentContext)
@@ -1853,7 +1853,7 @@ nsStyleSet::ProbePseudoElementStyle(Element* aParentElement,
                                  treeContext);
 }
 
-already_AddRefed<nsStyleContext>
+/* virtual */ already_AddRefed<nsStyleContext>
 nsStyleSet::ProbePseudoElementStyle(Element* aParentElement,
                                     nsCSSPseudoElements::Type aType,
                                     nsStyleContext* aParentContext,
@@ -1931,7 +1931,7 @@ nsStyleSet::ProbePseudoElementStyle(Element* aParentElement,
   return result.forget();
 }
 
-already_AddRefed<nsStyleContext>
+/* virtual */ already_AddRefed<nsStyleContext>
 nsStyleSet::ResolveAnonymousBoxStyle(nsIAtom* aPseudoTag,
                                      nsStyleContext* aParentContext,
                                      uint32_t aFlags)
@@ -2152,14 +2152,14 @@ nsStyleSet::AppendPageRules(nsTArray<nsCSSPageRule*>& aArray)
   return true;
 }
 
-void
+/* virtual */ void
 nsStyleSet::BeginShutdown()
 {
   mInShutdown = 1;
   mRoots.Clear(); // no longer valid, since we won't keep it up to date
 }
 
-void
+/* virtual */ void
 nsStyleSet::Shutdown()
 {
   mRuleTree->Destroy();
