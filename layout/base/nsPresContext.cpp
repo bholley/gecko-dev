@@ -1378,7 +1378,7 @@ nsPresContext::CompatibilityModeChanged()
     return;
   }
 
-  nsStyleSet* styleSet = mShell->StyleSet();
+  auto styleSet = mShell->StyleSet();
   CSSStyleSheet* sheet = nsLayoutStylesheetCache::QuirkSheet();
 
   if (needsQuirkSheet) {
@@ -1642,7 +1642,7 @@ GetPropagatedScrollbarStylesForViewport(nsPresContext* aPresContext,
   }
 
   // Check the style on the document root element
-  nsStyleSet *styleSet = aPresContext->StyleSet();
+  StyleSet* styleSet = aPresContext->StyleSet();
   RefPtr<nsStyleContext> rootStyle;
   rootStyle = styleSet->ResolveStyleFor(docElement, nullptr);
   if (CheckOverflow(rootStyle->StyleDisplay(), aStyles)) {
@@ -2095,7 +2095,9 @@ nsPresContext::MediaFeatureValuesChanged(nsRestyleHint aRestyleHint,
   mPendingMediaFeatureValuesChanged = false;
 
   // MediumFeaturesChanged updates the applied rules, so it always gets called.
-  if (mShell && mShell->StyleSet()->MediumFeaturesChanged()) {
+  if (mShell &&
+      mShell->StyleSet()->IsGecko() &&
+      mShell->StyleSet()->AsGecko()->MediumFeaturesChanged()) {
     aRestyleHint |= eRestyle_Subtree;
   }
 
@@ -2358,7 +2360,11 @@ nsPresContext::NotifyMissingFonts()
 void
 nsPresContext::EnsureSafeToHandOutCSSRules()
 {
-  if (!mShell->StyleSet()->EnsureUniqueInnerOnCSSSheets()) {
+  if (mShell->StyleSet()->IsServo()) {
+    return;
+  }
+
+  if (!mShell->StyleSet()->AsGecko()->EnsureUniqueInnerOnCSSSheets()) {
     // Nothing to do.
     return;
   }
@@ -2673,7 +2679,10 @@ nsPresContext::NotifyDidPaintForSubtree(uint32_t aFlags)
 bool
 nsPresContext::HasCachedStyleData()
 {
-  return mShell && mShell->StyleSet()->HasCachedStyleData();
+  if (mShell && mShell->StyleSet()->IsServo()) {
+    return true;
+  }
+  return mShell && mShell->StyleSet()->AsGecko()->HasCachedStyleData();
 }
 
 already_AddRefed<nsITimer>

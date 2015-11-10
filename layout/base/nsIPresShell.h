@@ -51,7 +51,6 @@ class nsDocShell;
 class nsIDocument;
 class nsIFrame;
 class nsPresContext;
-class nsStyleSet;
 class nsViewManager;
 class nsView;
 class nsRenderingContext;
@@ -62,6 +61,7 @@ class nsCaret;
 namespace mozilla {
 class AccessibleCaretEventHub;
 class CSSStyleSheet;
+class StyleSet;
 } // namespace mozilla
 class nsFrameSelection;
 class nsFrameManager;
@@ -331,7 +331,7 @@ public:
 #endif
 
 #ifdef MOZILLA_INTERNAL_API
-  nsStyleSet* StyleSet() const { return mStyleSet; }
+  mozilla::StyleSet* StyleSet() const { return mStyleSet; }
 
   nsCSSFrameConstructor* FrameConstructor() const { return mFrameConstructor; }
 
@@ -1675,7 +1675,7 @@ protected:
   // we must share ownership.
   nsCOMPtr<nsIDocument>     mDocument;
   RefPtr<nsPresContext>   mPresContext;
-  nsStyleSet*               mStyleSet;      // [OWNS]
+  mozilla::StyleSet*        mStyleSet;      // [OWNS]
   nsCSSFrameConstructor*    mFrameConstructor; // [OWNS]
   nsViewManager*           mViewManager;   // [WEAK] docViewer owns it so I don't have to
   nsPresArena               mFrameArena;

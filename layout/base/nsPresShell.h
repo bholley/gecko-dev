@@ -36,6 +36,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/StyleSet.h"
 #include "MobileViewportManager.h"
 #include "ZoomConstraintsClient.h"
 
@@ -79,7 +80,7 @@ public:
   static bool BeforeAfterKeyboardEventEnabled();
 
   void Init(nsIDocument* aDocument, nsPresContext* aPresContext,
-            nsViewManager* aViewManager, nsStyleSet* aStyleSet);
+            nsViewManager* aViewManager, mozilla::StyleSet* aStyleSet);
   virtual void Destroy() override;
   virtual void MakeZombie() override;
 

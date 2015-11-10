@@ -1755,7 +1755,7 @@ nsCSSFrameConstructor::CreateGeneratedContentItem(nsFrameConstructorState& aStat
     return;
   }
 
-  nsStyleSet *styleSet = mPresShell->StyleSet();
+  StyleSet* styleSet = mPresShell->StyleSet();
 
   // Probe for the existence of the pseudo-element
   RefPtr<nsStyleContext> pseudoStyleContext;
@@ -2586,12 +2586,12 @@ nsCSSFrameConstructor::ConstructRootFrame()
 {
   AUTO_LAYOUT_PHASE_ENTRY_POINT(mPresShell->GetPresContext(), FrameC);
 
-  nsStyleSet *styleSet = mPresShell->StyleSet();
+  StyleSet* styleSet = mPresShell->StyleSet();
 
   // Set up our style rule observer.
   // XXXbz wouldn't this make more sense as part of presshell init?
-  {
-    styleSet->SetBindingManager(mDocument->BindingManager());
+  if (styleSet->IsGecko()) {
+    styleSet->AsGecko()->SetBindingManager(mDocument->BindingManager());
   }
 
   // --------- BUILD VIEWPORT -----------
@@ -2756,7 +2756,7 @@ nsCSSFrameConstructor::SetUpDocElementContainingBlock(nsIContent* aDocElement)
   // Start off with the viewport as parent; we'll adjust it as needed.
   nsContainerFrame* parentFrame = viewportFrame;
 
-  nsStyleSet* styleSet = mPresShell->StyleSet();
+  StyleSet* styleSet = mPresShell->StyleSet();
   // If paginated, make sure we don't put scrollbars in
   if (!isScrollable) {
     rootPseudoStyle = styleSet->ResolveAnonymousBoxStyle(rootPseudo,
@@ -2857,7 +2857,7 @@ nsCSSFrameConstructor::ConstructPageFrame(nsIPresShell*  aPresShell,
                                           nsContainerFrame*& aCanvasFrame)
 {
   nsStyleContext* parentStyleContext = aParentFrame->StyleContext();
-  nsStyleSet *styleSet = aPresShell->StyleSet();
+  StyleSet* styleSet = aPresShell->StyleSet();
 
   RefPtr<nsStyleContext> pagePseudoStyle;
   pagePseudoStyle = styleSet->ResolveAnonymousBoxStyle(nsCSSAnonBoxes::page,
@@ -4392,7 +4392,7 @@ nsCSSFrameConstructor::BeginBuildingScrollFrame(nsFrameConstructorState& aState,
   aNewFrame = gfxScrollFrame;
 
   // we used the style that was passed in. So resolve another one.
-  nsStyleSet *styleSet = mPresShell->StyleSet();
+  StyleSet* styleSet = mPresShell->StyleSet();
   RefPtr<nsStyleContext> scrolledChildStyle =
     styleSet->ResolveAnonymousBoxStyle(aScrolledPseudo, contentStyle);
 
@@ -4788,7 +4788,7 @@ nsCSSFrameConstructor::ResolveStyleContext(nsStyleContext* aParentStyleContext,
                                            nsIContent* aContent,
                                            nsFrameConstructorState* aState)
 {
-  nsStyleSet *styleSet = mPresShell->StyleSet();
+  StyleSet* styleSet = mPresShell->StyleSet();
   aContent->OwnerDoc()->FlushPendingLinkUpdates();
 
   RefPtr<nsStyleContext> result;
@@ -4845,7 +4845,7 @@ nsCSSFrameConstructor::FlushAccumulatedBlock(nsFrameConstructorState& aState,
   nsStyleContext* parentContext =
     nsFrame::CorrectStyleParentFrame(aParentFrame,
                                      anonPseudo)->StyleContext();
-  nsStyleSet* styleSet = mPresShell->StyleSet();
+  StyleSet* styleSet = mPresShell->StyleSet();
   RefPtr<nsStyleContext> blockContext;
   blockContext = styleSet->
     ResolveAnonymousBoxStyle(anonPseudo, parentContext);
@@ -10835,7 +10835,7 @@ nsCSSFrameConstructor::CreateFloatingLetterFrame(
   // letter frame and will have the float property set on it; the text
   // frame shouldn't have that set).
   RefPtr<nsStyleContext> textSC;
-  nsStyleSet* styleSet = mPresShell->StyleSet();
+  StyleSet* styleSet = mPresShell->StyleSet();
   textSC = styleSet->ResolveStyleForNonElement(aStyleContext);
   aTextFrame->SetStyleContextWithoutNotification(textSC);
   InitAndRestoreFrame(aState, aTextContent, letterFrame, aTextFrame);

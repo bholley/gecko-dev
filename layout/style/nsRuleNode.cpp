@@ -1534,7 +1534,7 @@ nsRuleNode::nsRuleNode(nsPresContext* aContext, nsRuleNode* aParent,
      unused.  */
   if (!IsRoot()) {
     mParent->AddRef();
-    aContext->StyleSet()->RuleNodeUnused();
+    aContext->StyleSet()->AsGecko()->RuleNodeUnused();
   }
 
   // nsStyleSet::GetContext depends on there being only one animation
@@ -3686,7 +3686,7 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
     if (variantAlternates & NS_FONT_VARIANT_ALTERNATES_FUNCTIONAL_MASK) {
       // fetch the feature lookup object from the styleset
       aFont->mFont.featureValueLookup =
-        aPresContext->StyleSet()->GetFontFeatureValuesLookup();
+        aPresContext->StyleSet()->AsGecko()->GetFontFeatureValuesLookup();
 
       NS_ASSERTION(variantAlternatesValue->GetPairValue().mYValue.GetUnit() ==
                    eCSSUnit_List, "function list not a list value");
@@ -9796,7 +9796,7 @@ nsRuleNode::DestroyIfNotMarked()
   // rule walker if the root node is deleted.
   if (!(mDependentBits & NS_RULE_NODE_GC_MARK) &&
       // Skip this only if we're the *current* root and not an old one.
-      !(IsRoot() && mPresContext->StyleSet()->GetRuleTree() == this)) {
+      !(IsRoot() && mPresContext->StyleSet()->AsGecko()->GetRuleTree() == this)) {
     Destroy();
     return true;
   }

@@ -2625,7 +2625,10 @@ StyleAnimationValue::ComputeValues(
   if (!styleContext) {
     return false;
   }
-  nsStyleSet* styleSet = styleContext->PresContext()->StyleSet();
+  if (styleContext->PresContext()->StyleSet()->IsServo()) {
+    return false;
+  }
+  nsStyleSet* styleSet = styleContext->PresContext()->StyleSet()->AsGecko();
 
   RefPtr<nsStyleContext> tmpStyleContext;
   if (aIsContextSensitive) {

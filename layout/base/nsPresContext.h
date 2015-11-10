@@ -39,6 +39,7 @@
 #include "nsIMessageManager.h"
 #include "mozilla/RestyleLogging.h"
 #include "Units.h"
+#include "mozilla/StyleSet.h"
 
 class nsAString;
 class nsIPrintSettings;
@@ -219,7 +220,7 @@ public:
   }
 
 #ifdef MOZILLA_INTERNAL_API
-  nsStyleSet* StyleSet() { return GetPresShell()->StyleSet(); }
+  mozilla::StyleSet* StyleSet() { return PresShell()->StyleSet(); }
 
   nsFrameManager* FrameManager()
     { return PresShell()->FrameManager(); }

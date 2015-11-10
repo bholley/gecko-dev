@@ -382,6 +382,10 @@ nsAnimationManager::CheckAnimationRule(nsStyleContext* aStyleContext,
     return nullptr;
   }
 
+  if (mPresContext->StyleSet()->IsServo()) {
+    return nullptr;
+  }
+
   // Everything that causes our animation data to change triggers a
   // style change, which in turn triggers a non-animation restyle.
   // Likewise, when we initially construct frames, we're not in a
@@ -627,7 +631,7 @@ ResolvedStyleCache::Get(nsPresContext *aPresContext,
 
     nsCOMArray<nsIStyleRule> rules;
     rules.AppendObject(aKeyframeDeclaration);
-    RefPtr<nsStyleContext> resultStrong = aPresContext->StyleSet()->
+    RefPtr<nsStyleContext> resultStrong = aPresContext->StyleSet()->AsGecko()->
       ResolveStyleByAddingRules(aParentStyleContext, rules);
     mCache.Put(aKeyframeDeclaration, resultStrong);
     result = resultStrong;
@@ -661,7 +665,7 @@ nsAnimationManager::BuildAnimations(nsStyleContext* aStyleContext,
     nsCSSKeyframesRule* rule =
       src.GetName().IsEmpty()
       ? nullptr
-      : mPresContext->StyleSet()->KeyframesRuleForName(src.GetName());
+      : mPresContext->StyleSet()->AsGecko()->KeyframesRuleForName(src.GetName());
     if (!rule) {
       continue;
     }
@@ -805,7 +809,7 @@ nsAnimationManager::BuildAnimations(nsStyleContext* aStyleContext,
             // There's no data for this property at 0%, so use the
             // cascaded value above us.
             if (!styleWithoutAnimation) {
-              styleWithoutAnimation = mPresContext->StyleSet()->
+              styleWithoutAnimation = mPresContext->StyleSet()->AsGecko()->
                 ResolveStyleWithoutAnimation(aTarget, aStyleContext,
                                              eRestyle_AllHintsWithAnimations);
             }
@@ -824,7 +828,7 @@ nsAnimationManager::BuildAnimations(nsStyleContext* aStyleContext,
         // There's no data for this property at 100%, so use the
         // cascaded value above us.
         if (!styleWithoutAnimation) {
-          styleWithoutAnimation = mPresContext->StyleSet()->
+          styleWithoutAnimation = mPresContext->StyleSet()->AsGecko()->
             ResolveStyleWithoutAnimation(aTarget, aStyleContext,
                                          eRestyle_AllHintsWithAnimations);
         }
