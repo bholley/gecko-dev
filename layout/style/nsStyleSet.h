@@ -17,6 +17,7 @@
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/SheetType.h"
+#include "mozilla/StyleSet.h"
 
 #include "nsIStyleRuleProcessor.h"
 #include "nsBindingManager.h"
@@ -86,27 +87,29 @@ public:
 // then handed off to the PresShell.  Only the PresShell should delete a
 // style set.
 
-class nsStyleSet final
+class nsStyleSet final : public mozilla::StyleSet
 {
  public:
   nsStyleSet();
   ~nsStyleSet();
 
+  virtual mozilla::StyleImplementation Implementation() const override { return mozilla::StyleImplementation::Gecko; }
+
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
 
-  void Init(nsPresContext *aPresContext);
+  virtual void Init(nsPresContext* aPresContext) override;
 
   nsRuleNode* GetRuleTree() { return mRuleTree; }
 
   // get a style context for a non-pseudo frame.
-  already_AddRefed<nsStyleContext>
+  virtual already_AddRefed<nsStyleContext>
   ResolveStyleFor(mozilla::dom::Element* aElement,
-                  nsStyleContext* aParentContext);
+                  nsStyleContext* aParentContext) override;
 
-  already_AddRefed<nsStyleContext>
+  virtual already_AddRefed<nsStyleContext>
   ResolveStyleFor(mozilla::dom::Element* aElement,
                   nsStyleContext* aParentContext,
-                  TreeMatchContext& aTreeMatchContext);
+                  TreeMatchContext& aTreeMatchContext) override;
 
   // Get a style context (with the given parent) for the
   // sequence of style rules in the |aRules| array.
@@ -165,33 +168,33 @@ class nsStyleSet final
   // Perhaps this should go away and we shouldn't even create style
   // contexts for such content nodes.  However, not doing any rule
   // matching for them is a first step.
-  already_AddRefed<nsStyleContext>
-  ResolveStyleForNonElement(nsStyleContext* aParentContext);
+  virtual already_AddRefed<nsStyleContext>
+  ResolveStyleForNonElement(nsStyleContext* aParentContext) override;
 
   // Get a style context for a pseudo-element.  aParentElement must be
   // non-null.  aPseudoID is the nsCSSPseudoElements::Type for the
   // pseudo-element.  aPseudoElement must be non-null if the pseudo-element
   // type is one that allows user action pseudo-classes after it or allows
   // style attributes; otherwise, it is ignored.
-  already_AddRefed<nsStyleContext>
+  virtual already_AddRefed<nsStyleContext>
   ResolvePseudoElementStyle(mozilla::dom::Element* aParentElement,
                             nsCSSPseudoElements::Type aType,
                             nsStyleContext* aParentContext,
-                            mozilla::dom::Element* aPseudoElement);
+                            mozilla::dom::Element* aPseudoElement) override;
 
   // This functions just like ResolvePseudoElementStyle except that it will
   // return nullptr if there are no explicit style rules for that
   // pseudo element.
-  already_AddRefed<nsStyleContext>
+  virtual already_AddRefed<nsStyleContext>
   ProbePseudoElementStyle(mozilla::dom::Element* aParentElement,
                           nsCSSPseudoElements::Type aType,
-                          nsStyleContext* aParentContext);
-  already_AddRefed<nsStyleContext>
+                          nsStyleContext* aParentContext) override;
+  virtual already_AddRefed<nsStyleContext>
   ProbePseudoElementStyle(mozilla::dom::Element* aParentElement,
                           nsCSSPseudoElements::Type aType,
                           nsStyleContext* aParentContext,
                           TreeMatchContext& aTreeMatchContext,
-                          mozilla::dom::Element* aPseudoElement = nullptr);
+                          mozilla::dom::Element* aPseudoElement = nullptr) override;
 
   /**
    * Bit-flags that can be passed to ResolveAnonymousBoxStyle and GetContext
@@ -214,9 +217,9 @@ class nsStyleSet final
   // Get a style context for an anonymous box.  aPseudoTag is the
   // pseudo-tag to use and must be non-null.  aFlags will be forwarded
   // to a GetContext call internally.
-  already_AddRefed<nsStyleContext>
+  virtual already_AddRefed<nsStyleContext>
   ResolveAnonymousBoxStyle(nsIAtom* aPseudoTag, nsStyleContext* aParentContext,
-                           uint32_t aFlags = eNoFlags);
+                           uint32_t aFlags = eNoFlags) override;
 
 #ifdef MOZ_XUL
   // Get a style context for a XUL tree pseudo.  aPseudoTag is the
@@ -253,10 +256,10 @@ class nsStyleSet final
 
   // Begin ignoring style context destruction, to avoid lots of unnecessary
   // work on document teardown.
-  void BeginShutdown();
+  virtual void BeginShutdown() override;
 
   // Free all of the data associated with this style set.
-  void Shutdown();
+  virtual void Shutdown() override;
 
   // Notification that a style context is being destroyed.
   void NotifyStyleContextDestroyed(nsStyleContext* aStyleContext);
@@ -309,28 +312,28 @@ class nsStyleSet final
 
   // APIs to manipulate the style sheet lists.  The sheets in each
   // list are stored with the most significant sheet last.
-  nsresult AppendStyleSheet(mozilla::SheetType aType,
-                            mozilla::CSSStyleSheet* aSheet);
-  nsresult PrependStyleSheet(mozilla::SheetType aType,
-                             mozilla::CSSStyleSheet* aSheet);
-  nsresult RemoveStyleSheet(mozilla::SheetType aType,
-                            mozilla::CSSStyleSheet* aSheet);
-  nsresult ReplaceSheets(mozilla::SheetType aType,
-                         const nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aNewSheets);
-  nsresult InsertStyleSheetBefore(mozilla::SheetType aType,
-                                  mozilla::CSSStyleSheet* aNewSheet,
-                                  mozilla::CSSStyleSheet* aReferenceSheet);
+  virtual nsresult AppendStyleSheet(mozilla::SheetType aType,
+                                    mozilla::CSSStyleSheet* aSheet) override;
+  virtual nsresult PrependStyleSheet(mozilla::SheetType aType,
+                                     mozilla::CSSStyleSheet* aSheet) override;
+  virtual nsresult RemoveStyleSheet(mozilla::SheetType aType,
+                                    mozilla::CSSStyleSheet* aSheet) override;
+  virtual nsresult ReplaceSheets(mozilla::SheetType aType,
+                                 const nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aNewSheets) override;
+  virtual nsresult InsertStyleSheetBefore(mozilla::SheetType aType,
+                                          mozilla::CSSStyleSheet* aNewSheet,
+                                          mozilla::CSSStyleSheet* aReferenceSheet) override;
 
   // Enable/Disable entire author style level (Doc, ScopedDoc & PresHint levels)
-  bool GetAuthorStyleDisabled();
-  nsresult SetAuthorStyleDisabled(bool aStyleDisabled);
+  virtual bool GetAuthorStyleDisabled() override;
+  virtual nsresult SetAuthorStyleDisabled(bool aStyleDisabled) override;
 
-  int32_t SheetCount(mozilla::SheetType aType) const {
+  virtual int32_t SheetCount(mozilla::SheetType aType) const override {
     return mSheets[aType].Length();
   }
 
-  mozilla::CSSStyleSheet* StyleSheetAt(mozilla::SheetType aType,
-                                       int32_t aIndex) const {
+  virtual mozilla::CSSStyleSheet* StyleSheetAt(mozilla::SheetType aType,
+                                               int32_t aIndex) const override {
     return mSheets[aType][aIndex];
   }
 
@@ -340,12 +343,12 @@ class nsStyleSet final
     }
   }
 
-  nsresult RemoveDocStyleSheet(mozilla::CSSStyleSheet* aSheet);
-  nsresult AddDocStyleSheet(mozilla::CSSStyleSheet* aSheet,
-                            nsIDocument* aDocument);
+  virtual nsresult RemoveDocStyleSheet(mozilla::CSSStyleSheet* aSheet) override;
+  virtual nsresult AddDocStyleSheet(mozilla::CSSStyleSheet* aSheet,
+                                    nsIDocument* aDocument) override;
 
-  void     BeginUpdate();
-  nsresult EndUpdate();
+  virtual void BeginUpdate();
+  virtual nsresult EndUpdate();
 
   // Methods for reconstructing the tree; BeginReconstruct basically moves the
   // old rule tree root and style context roots out of the way,
@@ -524,6 +527,13 @@ private:
   // whether font feature values lookup object needs initialization
   RefPtr<gfxFontFeatureValueSet> mFontFeatureValuesLookup;
 };
+
+inline nsStyleSet*
+mozilla::StyleSet::AsGecko()
+{
+  MOZ_ASSERT(IsGecko());
+  return static_cast<nsStyleSet*>(this);
+}
 
 #ifdef MOZILLA_INTERNAL_API
 inline
