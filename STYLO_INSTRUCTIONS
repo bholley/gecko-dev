@@ -1,0 +1,16 @@
+Total hacky prototype at the moment. YYMV.
+
+Steps:
+* Clone m-c, check out the stylo branch (this one).
+* Add this to your .mozconfig:
+  ac_add_options --disable-rust
+  ac_add_options --enable-macos-target=10.7
+  CPPFLAGS=-DMOZ_STYLO
+* Clone servo, check out the stylo branch.
+* Clone https://github.com/bholley/rust-selectors, check out the stylo branch.
+* Set up a .cargo/config override for rust-selectors.
+* Build servo as release-mode geckolib (./mach build-geckolib -r). Debug also works, you'll just need
+  to modify the path in moz.build a bit more.
+* Set up the absolute path in m-c's |toolkit/library/moz.build| to point to your servo build directory.
+* Set up the absolute path in servo/ports/geckolib/glue.rs to point to the appropriate resources directory.
+* Build m-c.
