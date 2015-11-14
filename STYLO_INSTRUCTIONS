@@ -1,0 +1,16 @@
+Total hacky prototype at the moment. YYMV.
+
+Currently only builds on mac. For other platforms, the rust-mozjs surgery will need to be duplicated on the appropriate file.
+
+Steps:
+* Clone m-c, check out the stylo branch (this one).
+* Add this to your .mozconfig:
+  ac_add_options --disable-rust
+  ac_add_options --enable-macos-target=10.7
+* Clone servo, check out the stylo branch.
+* Clone https://github.com/bholley/rust-azure, check out the stylo branch.
+* Clone https://github.com/bholley/rust-mozjs, check out the stylo branch.
+* Set up a .cargo/config override for rust-azure and rust-mozjs.
+* Build servo as CEF (./mach build-cef).
+* Set up the absolute path in m-c's |toolkit/library/moz.build| to point to your servo build directory.
+* Build m-c.
