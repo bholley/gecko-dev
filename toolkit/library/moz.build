@@ -27,6 +27,8 @@ def Libxul(name):
         'winspool.drv'
     ]
 
+    OS_LIBS += ['-L/files/mozilla/stylo/servo/target/debug', '-lembedding', '-lz', '-lssl', '-lcrypto', '-framework CoreFoundation', '-framework IOSurface']
+
     if CONFIG['ACCESSIBILITY']:
         DELAYLOAD_DLLS += ['oleacc.dll']
 
