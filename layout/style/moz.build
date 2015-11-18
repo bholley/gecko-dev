@@ -91,6 +91,7 @@ EXPORTS.mozilla += [
     'StyleAnimationValue.h',
     'StyleImplementation.h',
     'StyleSet.h',
+    'StyleSheet.h',
 ]
 
 EXPORTS.mozilla.dom += [

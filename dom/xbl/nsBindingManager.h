@@ -32,7 +32,7 @@ class nsIPrincipal;
 class nsITimer;
 
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 } // namespace mozilla
 
 class nsBindingManager final : public nsStubMutationObserver
@@ -120,7 +120,7 @@ public:
   nsresult MediumFeaturesChanged(nsPresContext* aPresContext,
                                  bool* aRulesChanged);
 
-  void AppendAllSheets(nsTArray<mozilla::CSSStyleSheet*>& aArray);
+  void AppendAllSheets(nsTArray<mozilla::StyleSheet*>& aArray);
 
   void Traverse(nsIContent *aContent,
                             nsCycleCollectionTraversalCallback &cb);

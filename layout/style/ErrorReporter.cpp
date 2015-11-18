@@ -7,7 +7,7 @@
 
 #include "mozilla/css/ErrorReporter.h"
 
-#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/css/Loader.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
@@ -133,7 +133,7 @@ ErrorReporter::ReleaseGlobals()
 }
 
 ErrorReporter::ErrorReporter(const nsCSSScanner& aScanner,
-                             const CSSStyleSheet* aSheet,
+                             const StyleSheet* aSheet,
                              const Loader* aLoader,
                              nsIURI* aURI)
   : mScanner(&aScanner), mSheet(aSheet), mLoader(aLoader), mURI(aURI),
@@ -169,8 +169,8 @@ ErrorReporter::OutputError()
   }
 
   if (mInnerWindowID == 0 && (mSheet || mLoader)) {
-    if (mSheet) {
-      mInnerWindowID = mSheet->FindOwningWindowInnerID();
+    if (mSheet && mSheet->IsGecko()) {
+      mInnerWindowID = mSheet->AsGecko()->FindOwningWindowInnerID();
     }
     if (mInnerWindowID == 0 && mLoader) {
       nsIDocument* doc = mLoader->GetDocument();

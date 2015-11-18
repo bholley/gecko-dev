@@ -1273,7 +1273,8 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(CSSStyleSheet)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMCSSStyleSheet)
   if (aIID.Equals(NS_GET_IID(CSSStyleSheet)))
     foundInterface = reinterpret_cast<nsISupports*>(this);
-  else
+  else if (aIID.Equals(NS_GET_IID(StyleSheet)))
+    foundInterface = NS_ISUPPORTS_CAST(StyleSheet*, this);
 NS_INTERFACE_MAP_END
 
 
@@ -1343,7 +1344,7 @@ CSSStyleSheet::DropStyleSet(nsStyleSet* aStyleSet)
   NS_ASSERTION(found, "didn't find style set");
 }
 
-void
+/* virtual */ void
 CSSStyleSheet::SetURIs(nsIURI* aSheetURI, nsIURI* aOriginalSheetURI,
                        nsIURI* aBaseURI)
 {
@@ -1357,7 +1358,7 @@ CSSStyleSheet::SetURIs(nsIURI* aSheetURI, nsIURI* aOriginalSheetURI,
   mInner->mBaseURI = aBaseURI;
 }
 
-void
+/* virtual */ void
 CSSStyleSheet::SetPrincipal(nsIPrincipal* aPrincipal)
 {
   NS_PRECONDITION(!mInner->mPrincipalSet,
@@ -1370,13 +1371,13 @@ CSSStyleSheet::SetPrincipal(nsIPrincipal* aPrincipal)
   }
 }
 
-nsIURI*
+/* virtual */ nsIURI*
 CSSStyleSheet::GetSheetURI() const
 {
   return mInner->mSheetURI;
 }
 
-nsIURI*
+/* virtual */ nsIURI*
 CSSStyleSheet::GetBaseURI() const
 {
   return mInner->mBaseURI;
@@ -1405,13 +1406,13 @@ CSSStyleSheet::SetMedia(nsMediaList* aMedia)
   mMedia = aMedia;
 }
 
-bool
+/* virtual */ bool
 CSSStyleSheet::HasRules() const
 {
   return StyleRuleCount() != 0;
 }
 
-bool
+/* virtual */ bool
 CSSStyleSheet::IsApplicable() const
 {
   return !mDisabled && mInner->mComplete;
@@ -1439,7 +1440,7 @@ CSSStyleSheet::IsComplete() const
   return mInner->mComplete;
 }
 
-void
+/* virtual */ void
 CSSStyleSheet::SetComplete()
 {
   NS_ASSERTION(!mDirty, "Can't set a dirty sheet complete!");
@@ -1459,19 +1460,19 @@ CSSStyleSheet::SetComplete()
   }
 }
 
-CSSStyleSheet*
+/* virtual */ StyleSheet*
 CSSStyleSheet::GetParentSheet() const
 {
   return mParent;
 }
 
-nsIDocument*
+/* virtual */ nsIDocument*
 CSSStyleSheet::GetOwningDocument() const
 {
   return mDocument;
 }
 
-void
+/* virtual */ void
 CSSStyleSheet::SetOwningDocument(nsIDocument* aDocument)
 { // not ref counted
   mDocument = aDocument;
@@ -1512,22 +1513,24 @@ CSSStyleSheet::FindOwningWindowInnerID() const
   return windowID;
 }
 
-void
-CSSStyleSheet::AppendStyleSheet(CSSStyleSheet* aSheet)
+/* virtual */ void
+CSSStyleSheet::AppendStyleSheet(StyleSheet* aSheet)
 {
   NS_PRECONDITION(nullptr != aSheet, "null arg");
+
+  CSSStyleSheet* sheet = aSheet->AsGecko();
 
   WillDirty();
   RefPtr<CSSStyleSheet>* tail = &mInner->mFirstChild;
   while (*tail) {
     tail = &(*tail)->mNext;
   }
-  *tail = aSheet;
+  *tail = sheet;
 
   // This is not reference counted. Our parent tells us when
   // it's going away.
-  aSheet->mParent = this;
-  aSheet->mDocument = mDocument;
+  sheet->mParent = this;
+  sheet->mDocument = mDocument;
   DidDirty();
 }
 
@@ -1593,7 +1596,7 @@ CSSStyleSheet::EnsureUniqueInner()
 }
 
 void
-CSSStyleSheet::AppendAllChildSheets(nsTArray<CSSStyleSheet*>& aArray)
+CSSStyleSheet::AppendAllChildSheets(nsTArray<StyleSheet*>& aArray)
 {
   for (CSSStyleSheet* child = mInner->mFirstChild; child;
        child = child->mNext) {
@@ -2182,14 +2185,16 @@ CSSStyleSheet::InsertRuleIntoGroup(const nsAString & aRule,
 
 // nsICSSLoaderObserver implementation
 NS_IMETHODIMP
-CSSStyleSheet::StyleSheetLoaded(CSSStyleSheet* aSheet,
+CSSStyleSheet::StyleSheetLoaded(StyleSheet* aSheet,
                                 bool aWasAlternate,
                                 nsresult aStatus)
 {
-  if (aSheet->GetParentSheet() == nullptr) {
+  CSSStyleSheet* sheet = aSheet->AsGecko();
+
+  if (sheet->GetParentSheet() == nullptr) {
     return NS_OK; // ignore if sheet has been detached already (see parseSheet)
   }
-  NS_ASSERTION(this == aSheet->GetParentSheet(),
+  NS_ASSERTION(this == sheet->GetParentSheet(),
                "We are being notified of a sheet load for a sheet that is not our child!");
 
   if (mDocument && NS_SUCCEEDED(aStatus)) {
@@ -2197,7 +2202,7 @@ CSSStyleSheet::StyleSheetLoaded(CSSStyleSheet* aSheet,
 
     // XXXldb @import rules shouldn't even implement nsIStyleRule (but
     // they do)!
-    mDocument->StyleRuleAdded(this, aSheet->GetOwnerRule());
+    mDocument->StyleRuleAdded(this, sheet->GetOwnerRule());
   }
 
   return NS_OK;
@@ -2218,7 +2223,7 @@ CSSStyleSheet::ReparseSheet(const nsAString& aInput)
     loader = mDocument->CSSLoader();
     NS_ASSERTION(loader, "Document with no CSS loader!");
   } else {
-    loader = new css::Loader();
+    loader = new css::Loader(StyleImplementation::Gecko);
   }
 
   mozAutoDocUpdate updateBatch(mDocument, UPDATE_STYLE, true);

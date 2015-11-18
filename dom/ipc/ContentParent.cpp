@@ -2656,19 +2656,21 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
         // This looks like a lot of work, but in a normal browser session we just
         // send two loads.
 
-        for (CSSStyleSheet* sheet : *sheetService->AgentStyleSheets()) {
+        // Doesn't matter that we always use the Gecko arrays; we'll have the
+        // same set of sheet URIs to send.
+        for (StyleSheet* sheet : *sheetService->AgentStyleSheets(StyleImplementation::Gecko)) {
             URIParams uri;
             SerializeURI(sheet->GetSheetURI(), uri);
             Unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::AGENT_SHEET);
         }
 
-        for (CSSStyleSheet* sheet : *sheetService->UserStyleSheets()) {
+        for (StyleSheet* sheet : *sheetService->UserStyleSheets(StyleImplementation::Gecko)) {
             URIParams uri;
             SerializeURI(sheet->GetSheetURI(), uri);
             Unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::USER_SHEET);
         }
 
-        for (CSSStyleSheet* sheet : *sheetService->AuthorStyleSheets()) {
+        for (StyleSheet* sheet : *sheetService->AuthorStyleSheets(StyleImplementation::Gecko)) {
             URIParams uri;
             SerializeURI(sheet->GetSheetURI(), uri);
             Unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::AUTHOR_SHEET);

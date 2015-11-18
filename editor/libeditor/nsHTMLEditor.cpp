@@ -37,7 +37,7 @@
 #include "nsILinkHandler.h"
 #include "nsIInlineSpellChecker.h"
 
-#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/css/Loader.h"
 #include "nsIDOMStyleSheet.h"
 
@@ -2800,7 +2800,7 @@ nsHTMLEditor::ReplaceStyleSheet(const nsAString& aURL)
 NS_IMETHODIMP
 nsHTMLEditor::RemoveStyleSheet(const nsAString &aURL)
 {
-  RefPtr<CSSStyleSheet> sheet;
+  RefPtr<StyleSheet> sheet;
   nsresult rv = GetStyleSheetForURL(aURL, getter_AddRefs(sheet));
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ENSURE_TRUE(sheet, NS_ERROR_UNEXPECTED);
@@ -2840,7 +2840,7 @@ nsHTMLEditor::AddOverrideStyleSheet(const nsAString& aURL)
   // We MUST ONLY load synchronous local files (no @import)
   // XXXbz Except this will actually try to load remote files
   // synchronously, of course..
-  RefPtr<CSSStyleSheet> sheet;
+  RefPtr<StyleSheet> sheet;
   // Editor override style sheets may want to style Gecko anonymous boxes
   rv = ps->GetDocument()->CSSLoader()->
     LoadSheetSync(uaURI, mozilla::css::eAgentSheetFeatures, true,
@@ -2885,7 +2885,7 @@ nsHTMLEditor::ReplaceOverrideStyleSheet(const nsAString& aURL)
 NS_IMETHODIMP
 nsHTMLEditor::RemoveOverrideStyleSheet(const nsAString &aURL)
 {
-  RefPtr<CSSStyleSheet> sheet;
+  RefPtr<StyleSheet> sheet;
   GetStyleSheetForURL(aURL, getter_AddRefs(sheet));
 
   // Make sure we remove the stylesheet from our internal list in all
@@ -2908,7 +2908,7 @@ nsHTMLEditor::RemoveOverrideStyleSheet(const nsAString &aURL)
 NS_IMETHODIMP
 nsHTMLEditor::EnableStyleSheet(const nsAString &aURL, bool aEnable)
 {
-  RefPtr<CSSStyleSheet> sheet;
+  RefPtr<StyleSheet> sheet;
   nsresult rv = GetStyleSheetForURL(aURL, getter_AddRefs(sheet));
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ENSURE_TRUE(sheet, NS_OK); // Don't fail if sheet not found
@@ -2917,13 +2917,16 @@ nsHTMLEditor::EnableStyleSheet(const nsAString &aURL, bool aEnable)
   nsCOMPtr<nsIDocument> doc = do_QueryReferent(mDocWeak);
   sheet->SetOwningDocument(doc);
 
-  return sheet->SetDisabled(!aEnable);
+  if (sheet->IsServo()) {
+    return NS_ERROR_FAILURE;
+  }
+  return sheet->AsGecko()->SetDisabled(!aEnable);
 }
 
 bool
 nsHTMLEditor::EnableExistingStyleSheet(const nsAString &aURL)
 {
-  RefPtr<CSSStyleSheet> sheet;
+  RefPtr<StyleSheet> sheet;
   nsresult rv = GetStyleSheetForURL(aURL, getter_AddRefs(sheet));
   NS_ENSURE_SUCCESS(rv, false);
 
@@ -2934,7 +2937,10 @@ nsHTMLEditor::EnableExistingStyleSheet(const nsAString &aURL)
     nsCOMPtr<nsIDocument> doc = do_QueryReferent(mDocWeak);
     sheet->SetOwningDocument(doc);
 
-    sheet->SetDisabled(false);
+    if (sheet->IsServo()) {
+      return true;
+    }
+    sheet->AsGecko()->SetDisabled(false);
     return true;
   }
   return false;
@@ -2942,7 +2948,7 @@ nsHTMLEditor::EnableExistingStyleSheet(const nsAString &aURL)
 
 nsresult
 nsHTMLEditor::AddNewStyleSheetToList(const nsAString &aURL,
-                                     CSSStyleSheet* aStyleSheet)
+                                     StyleSheet* aStyleSheet)
 {
   uint32_t countSS = mStyleSheets.Length();
   uint32_t countU = mStyleSheetURLs.Length();
@@ -2974,7 +2980,7 @@ nsHTMLEditor::RemoveStyleSheetFromList(const nsAString &aURL)
 
 NS_IMETHODIMP
 nsHTMLEditor::GetStyleSheetForURL(const nsAString &aURL,
-                                  CSSStyleSheet** aStyleSheet)
+                                  StyleSheet** aStyleSheet)
 {
   NS_ENSURE_ARG_POINTER(aStyleSheet);
   *aStyleSheet = 0;
@@ -2994,7 +3000,7 @@ nsHTMLEditor::GetStyleSheetForURL(const nsAString &aURL,
 }
 
 NS_IMETHODIMP
-nsHTMLEditor::GetURLForStyleSheet(CSSStyleSheet* aStyleSheet,
+nsHTMLEditor::GetURLForStyleSheet(StyleSheet* aStyleSheet,
                                   nsAString &aURL)
 {
   // is it already in the list?
@@ -3370,7 +3376,7 @@ nsHTMLEditor::DebugUnitTests(int32_t *outNumTests, int32_t *outNumTestsFailed)
 
 
 NS_IMETHODIMP
-nsHTMLEditor::StyleSheetLoaded(CSSStyleSheet* aSheet, bool aWasAlternate,
+nsHTMLEditor::StyleSheetLoaded(StyleSheet* aSheet, bool aWasAlternate,
                                nsresult aStatus)
 {
   nsresult rv = NS_OK;

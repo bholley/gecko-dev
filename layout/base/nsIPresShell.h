@@ -61,7 +61,7 @@ class nsAString;
 class nsCaret;
 namespace mozilla {
 class AccessibleCaretEventHub;
-class CSSStyleSheet;
+class StyleSheet;
 class TouchCaret;
 class SelectionCarets;
 class StyleSet;
@@ -959,23 +959,23 @@ public:
    * Get the set of agent style sheets for this presentation
    */
   virtual nsresult GetAgentStyleSheets(
-      nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aSheets) = 0;
+      nsTArray<RefPtr<mozilla::StyleSheet>>& aSheets) = 0;
 
   /**
    * Replace the set of agent style sheets
    */
   virtual nsresult SetAgentStyleSheets(
-      const nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aSheets) = 0;
+      const nsTArray<RefPtr<mozilla::StyleSheet>>& aSheets) = 0;
 
   /**
    * Add an override style sheet for this presentation
    */
-  virtual nsresult AddOverrideStyleSheet(mozilla::CSSStyleSheet* aSheet) = 0;
+  virtual nsresult AddOverrideStyleSheet(mozilla::StyleSheet* aSheet) = 0;
 
   /**
    * Remove an override style sheet
    */
-  virtual nsresult RemoveOverrideStyleSheet(mozilla::CSSStyleSheet* aSheet) = 0;
+  virtual nsresult RemoveOverrideStyleSheet(mozilla::StyleSheet* aSheet) = 0;
 
   /**
    * Reconstruct frames for all elements in the document

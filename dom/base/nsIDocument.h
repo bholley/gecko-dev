@@ -34,6 +34,7 @@
 #include "prclist.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/CORSMode.h"
+#include "mozilla/StyleImplementation.h"
 #include <bitset>                        // for member
 
 class gfxUserFontSet;
@@ -89,7 +90,7 @@ class nsIGlobalObject;
 struct nsCSSSelectorList;
 
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 class ErrorResult;
 class EventStates;
 class PendingAnimationTracker;
@@ -155,9 +156,10 @@ typedef CallbackObjectHolder<NodeFilter, nsIDOMNodeFilter> NodeFilterHolder;
 } // namespace dom
 } // namespace mozilla
 
+// becd9e9c-b369-4607-a3a7-881a426918f5
 #define NS_IDOCUMENT_IID \
-{ 0xce1f7627, 0x7109, 0x4977, \
-  { 0xba, 0x77, 0x49, 0x0f, 0xfd, 0xe0, 0x7a, 0xaa } }
+{ 0xbecd9e9c, 0xb369, 0x4607, \
+  { 0xa3, 0xa7, 0x88, 0x1a, 0x42, 0x69, 0x18, 0xf5 } }
 
 // Enum for requesting a particular type of document when creating a doc
 enum DocumentFlavor {
@@ -911,7 +913,7 @@ public:
    * TODO We can get rid of the whole concept of delayed loading if we fix
    * bug 77999.
    */
-  virtual void EnsureOnDemandBuiltInUASheet(mozilla::CSSStyleSheet* aSheet) = 0;
+  virtual void EnsureOnDemandBuiltInUASheet(mozilla::StyleSheet* aSheet) = 0;
 
   /**
    * Get the number of (document) stylesheets
@@ -927,7 +929,7 @@ public:
    * @return the stylesheet at aIndex.  Null if aIndex is out of range.
    * @throws no exceptions
    */
-  virtual mozilla::CSSStyleSheet* GetStyleSheetAt(int32_t aIndex) const = 0;
+  virtual mozilla::StyleSheet* GetStyleSheetAt(int32_t aIndex) const = 0;
 
   /**
    * Insert a sheet at a particular spot in the stylesheet list (zero-based)
@@ -936,7 +938,7 @@ public:
    *   adjusted for the "special" sheets.
    * @throws no exceptions
    */
-  virtual void InsertStyleSheetAt(mozilla::CSSStyleSheet* aSheet,
+  virtual void InsertStyleSheetAt(mozilla::StyleSheet* aSheet,
                                   int32_t aIndex) = 0;
 
   /**
@@ -945,7 +947,7 @@ public:
    * @param aSheet the sheet to get the index of
    * @return aIndex the index of the sheet in the full list
    */
-  virtual int32_t GetIndexOfStyleSheet(mozilla::CSSStyleSheet* aSheet) const = 0;
+  virtual int32_t GetIndexOfStyleSheet(mozilla::StyleSheet* aSheet) const = 0;
 
   /**
    * Replace the stylesheets in aOldSheets with the stylesheets in
@@ -956,24 +958,24 @@ public:
    * will simply be removed.
    */
   virtual void UpdateStyleSheets(
-      nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aOldSheets,
-      nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aNewSheets) = 0;
+      nsTArray<RefPtr<mozilla::StyleSheet>>& aOldSheets,
+      nsTArray<RefPtr<mozilla::StyleSheet>>& aNewSheets) = 0;
 
   /**
    * Add a stylesheet to the document
    */
-  virtual void AddStyleSheet(mozilla::CSSStyleSheet* aSheet) = 0;
+  virtual void AddStyleSheet(mozilla::StyleSheet* aSheet) = 0;
 
   /**
    * Remove a stylesheet from the document
    */
-  virtual void RemoveStyleSheet(mozilla::CSSStyleSheet* aSheet) = 0;
+  virtual void RemoveStyleSheet(mozilla::StyleSheet* aSheet) = 0;
 
   /**
    * Notify the document that the applicable state of the sheet changed
    * and that observers should be notified and style sets updated
    */
-  virtual void SetStyleSheetApplicableState(mozilla::CSSStyleSheet* aSheet,
+  virtual void SetStyleSheetApplicableState(mozilla::StyleSheet* aSheet,
                                             bool aApplicable) = 0;
 
   enum additionalSheetType {
@@ -986,10 +988,10 @@ public:
   virtual nsresult LoadAdditionalStyleSheet(additionalSheetType aType,
                                             nsIURI* aSheetURI) = 0;
   virtual nsresult AddAdditionalStyleSheet(additionalSheetType aType,
-                                           mozilla::CSSStyleSheet* aSheet) = 0;
+                                           mozilla::StyleSheet* aSheet) = 0;
   virtual void RemoveAdditionalStyleSheet(additionalSheetType aType,
                                           nsIURI* sheetURI) = 0;
-  virtual mozilla::CSSStyleSheet* FirstAdditionalAuthorSheet() = 0;
+  virtual mozilla::StyleSheet* FirstAdditionalAuthorSheet() = 0;
 
   /**
    * Get this document's CSSLoader.  This is guaranteed to not return null.
@@ -997,6 +999,8 @@ public:
   mozilla::css::Loader* CSSLoader() const {
     return mCSSLoader;
   }
+
+  mozilla::StyleImplementation GetStyleImplementation() const;
 
   /**
    * Get this document's StyleImageLoader.  This is guaranteed to not return null.
@@ -1292,11 +1296,11 @@ public:
 
   // Observation hooks for style data to propagate notifications
   // to document observers
-  virtual void StyleRuleChanged(mozilla::CSSStyleSheet* aStyleSheet,
+  virtual void StyleRuleChanged(mozilla::StyleSheet* aStyleSheet,
                                 mozilla::css::Rule* aStyleRule) = 0;
-  virtual void StyleRuleAdded(mozilla::CSSStyleSheet* aStyleSheet,
+  virtual void StyleRuleAdded(mozilla::StyleSheet* aStyleSheet,
                               mozilla::css::Rule* aStyleRule) = 0;
-  virtual void StyleRuleRemoved(mozilla::CSSStyleSheet* aStyleSheet,
+  virtual void StyleRuleRemoved(mozilla::StyleSheet* aStyleSheet,
                                 mozilla::css::Rule* aStyleRule) = 0;
 
   /**
@@ -2081,7 +2085,7 @@ public:
    * DO NOT USE FOR UNTRUSTED CONTENT.
    */
   virtual nsresult LoadChromeSheetSync(nsIURI* aURI, bool aIsAgentSheet,
-                                       mozilla::CSSStyleSheet** aSheet) = 0;
+                                       mozilla::StyleSheet** aSheet) = 0;
 
   /**
    * Returns true if the locale used for the document specifies a direction of

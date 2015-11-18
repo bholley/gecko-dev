@@ -18,7 +18,7 @@ class nsCSSScanner;
 class nsIURI;
 
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 
 namespace css {
 
@@ -29,7 +29,7 @@ class Loader;
 class MOZ_STACK_CLASS ErrorReporter {
 public:
   ErrorReporter(const nsCSSScanner &aScanner,
-                const CSSStyleSheet *aSheet,
+                const StyleSheet *aSheet,
                 const Loader *aLoader,
                 nsIURI *aURI);
   ~ErrorReporter();
@@ -71,7 +71,7 @@ private:
   nsString mErrorLine;
   nsString mFileName;
   const nsCSSScanner *mScanner;
-  const CSSStyleSheet *mSheet;
+  const StyleSheet *mSheet;
   const Loader *mLoader;
   nsIURI *mURI;
   uint64_t mInnerWindowID;
@@ -83,7 +83,7 @@ private:
 
 #ifndef CSS_REPORT_PARSE_ERRORS
 inline ErrorReporter::ErrorReporter(const nsCSSScanner&,
-                                    const CSSStyleSheet*,
+                                    const StyleSheet*,
                                     const Loader*,
                                     nsIURI*) {}
 inline ErrorReporter::~ErrorReporter() {}

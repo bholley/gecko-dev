@@ -4252,7 +4252,7 @@ nsEditor::CreateTxnForIMEText(const nsAString& aStringToInsert)
 
 
 NS_IMETHODIMP
-nsEditor::CreateTxnForAddStyleSheet(CSSStyleSheet* aSheet, AddStyleSheetTxn* *aTxn)
+nsEditor::CreateTxnForAddStyleSheet(StyleSheet* aSheet, AddStyleSheetTxn* *aTxn)
 {
   RefPtr<AddStyleSheetTxn> txn = new AddStyleSheetTxn();
 
@@ -4268,7 +4268,7 @@ nsEditor::CreateTxnForAddStyleSheet(CSSStyleSheet* aSheet, AddStyleSheetTxn* *aT
 
 
 NS_IMETHODIMP
-nsEditor::CreateTxnForRemoveStyleSheet(CSSStyleSheet* aSheet, RemoveStyleSheetTxn* *aTxn)
+nsEditor::CreateTxnForRemoveStyleSheet(StyleSheet* aSheet, RemoveStyleSheetTxn* *aTxn)
 {
   RefPtr<RemoveStyleSheetTxn> txn = new RemoveStyleSheetTxn();
 

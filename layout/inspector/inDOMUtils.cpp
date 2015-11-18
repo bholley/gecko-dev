@@ -33,7 +33,7 @@
 #include "nsIAtom.h"
 #include "nsRange.h"
 #include "nsContentList.h"
-#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/dom/Element.h"
 #include "nsRuleWalker.h"
 #include "nsRuleProcessorData.h"
@@ -74,7 +74,7 @@ inDOMUtils::GetAllStyleSheets(nsIDOMDocument *aDocument, uint32_t *aLength,
 {
   NS_ENSURE_ARG_POINTER(aDocument);
 
-  nsTArray<RefPtr<CSSStyleSheet>> sheets;
+  nsTArray<RefPtr<StyleSheet>> sheets;
 
   nsCOMPtr<nsIDocument> document = do_QueryInterface(aDocument);
   MOZ_ASSERT(document);
@@ -91,12 +91,12 @@ inDOMUtils::GetAllStyleSheets(nsIDOMDocument *aDocument, uint32_t *aLength,
     for (int32_t i = 0; i < styleSet->SheetCount(sheetType); i++) {
       sheets.AppendElement(styleSet->StyleSheetAt(sheetType, i));
     }
-    nsAutoTArray<CSSStyleSheet*, 32> xblSheetArray;
+    nsAutoTArray<StyleSheet*, 32> xblSheetArray;
     styleSet->AppendAllXBLStyleSheets(xblSheetArray);
 
     // The XBL stylesheet array will quite often be full of duplicates. Cope:
-    nsTHashtable<nsPtrHashKey<CSSStyleSheet>> sheetSet;
-    for (CSSStyleSheet* sheet : xblSheetArray) {
+    nsTHashtable<nsPtrHashKey<StyleSheet>> sheetSet;
+    for (StyleSheet* sheet : xblSheetArray) {
       if (!sheetSet.Contains(sheet)) {
         sheetSet.PutEntry(sheet);
         sheets.AppendElement(sheet);
@@ -113,7 +113,9 @@ inDOMUtils::GetAllStyleSheets(nsIDOMDocument *aDocument, uint32_t *aLength,
                                                  sizeof(nsISupports*)));
 
   for (size_t i = 0; i < sheets.Length(); i++) {
-    NS_ADDREF(ret[i] = NS_ISUPPORTS_CAST(nsIDOMCSSStyleSheet*, sheets[i]));
+    if (sheets[i]->IsGecko()) {
+      NS_ADDREF(ret[i] = sheets[i]);
+    }
   }
 
   *aLength = sheets.Length();
@@ -317,9 +319,9 @@ inDOMUtils::GetRelativeRuleLine(nsIDOMCSSRule* aRule, uint32_t* _retval)
   }
 
   uint32_t lineNumber = rule->GetLineNumber();
-  CSSStyleSheet* sheet = rule->GetStyleSheet();
+  StyleSheet* sheet = rule->GetStyleSheet();
   if (sheet && lineNumber != 0) {
-    nsINode* owningNode = sheet->GetOwnerNode();
+    nsINode* owningNode = sheet->AsGecko()->GetOwnerNode();
     if (owningNode) {
       nsCOMPtr<nsIStyleSheetLinkingElement> link =
         do_QueryInterface(owningNode);

@@ -98,6 +98,11 @@ nsXBLResourceLoader::LoadResources(bool* aResult)
   nsCOMPtr<nsIDocument> doc = mBinding->XBLDocumentInfo()->GetDocument();
 
   mozilla::css::Loader* cssLoader = doc->CSSLoader();
+  // The document doesn't have a pres shell, so it doesn't have a
+  // StyleImplementation value to give the Loader.  Since XBL sheets shouldn't
+  // be in content, just override the Loader's idea of what StyleImplementation
+  // to use.
+  cssLoader->SetStyleImplementation(StyleImplementation::Gecko);
   nsIURI *docURL = doc->GetDocumentURI();
   nsIPrincipal* docPrincipal = doc->NodePrincipal();
 
@@ -139,7 +144,7 @@ nsXBLResourceLoader::LoadResources(bool* aResult)
           CheckLoadURIWithPrincipal(docPrincipal, url,
                                     nsIScriptSecurityManager::ALLOW_CHROME);
         if (NS_SUCCEEDED(rv)) {
-          RefPtr<CSSStyleSheet> sheet;
+          RefPtr<StyleSheet> sheet;
           rv = cssLoader->LoadSheetSync(url, getter_AddRefs(sheet));
           NS_ASSERTION(NS_SUCCEEDED(rv), "Load failed!!!");
           if (NS_SUCCEEDED(rv))
@@ -168,7 +173,7 @@ nsXBLResourceLoader::LoadResources(bool* aResult)
 
 // nsICSSLoaderObserver
 NS_IMETHODIMP
-nsXBLResourceLoader::StyleSheetLoaded(CSSStyleSheet* aSheet,
+nsXBLResourceLoader::StyleSheetLoaded(StyleSheet* aSheet,
                                       bool aWasAlternate,
                                       nsresult aStatus)
 {

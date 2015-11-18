@@ -45,8 +45,8 @@ public:
 
   void AddToIdTable(Element* aElement, nsIAtom* aId);
   void RemoveFromIdTable(Element* aElement, nsIAtom* aId);
-  void InsertSheet(CSSStyleSheet* aSheet, nsIContent* aLinkingContent);
-  void RemoveSheet(CSSStyleSheet* aSheet);
+  void InsertSheet(StyleSheet* aSheet, nsIContent* aLinkingContent);
+  void RemoveSheet(StyleSheet* aSheet);
   bool ApplyAuthorStyles();
   void SetApplyAuthorStyles(bool aApplyAuthorStyles);
   StyleSheetList* StyleSheets();

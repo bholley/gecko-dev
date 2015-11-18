@@ -7,7 +7,7 @@
 /* implementation of interface for managing user and user-agent style sheets */
 
 #include "nsStyleSheetService.h"
-#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/unused.h"
 #include "mozilla/css/Loader.h"
@@ -78,7 +78,7 @@ nsStyleSheetService::RegisterFromEnumerator(nsICategoryManager  *aManager,
 }
 
 int32_t
-nsStyleSheetService::FindSheetByURI(const nsTArray<RefPtr<CSSStyleSheet>>& aSheets,
+nsStyleSheetService::FindSheetByURI(const nsTArray<RefPtr<StyleSheet>>& aSheets,
                                     nsIURI* aSheetURI)
 {
   for (int32_t i = aSheets.Length() - 1; i >= 0; i-- ) {
@@ -152,9 +152,8 @@ nsStyleSheetService::LoadAndRegisterSheet(nsIURI *aSheetURI,
     if (serv) {
       // We're guaranteed that the new sheet is the last sheet in
       // mSheets[aSheetType]
-      CSSStyleSheet* sheet = mSheets[aSheetType].LastElement();
-      serv->NotifyObservers(NS_ISUPPORTS_CAST(nsIDOMCSSStyleSheet*, sheet),
-                            message, nullptr);
+      StyleSheet* sheet = mSheets_Gecko[aSheetType].LastElement();
+      serv->NotifyObservers(sheet, message, nullptr);
     }
 
     if (XRE_IsParentProcess()) {
@@ -201,16 +200,29 @@ nsStyleSheetService::LoadAndRegisterSheetInternal(nsIURI *aSheetURI,
       return NS_ERROR_INVALID_ARG;
   }
 
-  RefPtr<css::Loader> loader = new css::Loader();
+  // Load and register both a Gecko and a Servo style sheet.
+  {
+    RefPtr<css::Loader> loader = new css::Loader(StyleImplementation::Gecko);
 
-  RefPtr<CSSStyleSheet> sheet;
-  nsresult rv = loader->LoadSheetSync(aSheetURI, parsingMode, true,
-                                      getter_AddRefs(sheet));
-  NS_ENSURE_SUCCESS(rv, rv);
+    RefPtr<StyleSheet> sheet;
+    nsresult rv = loader->LoadSheetSync(aSheetURI, parsingMode, true,
+                                        getter_AddRefs(sheet));
+    NS_ENSURE_SUCCESS(rv, rv);
 
-  mSheets[aSheetType].AppendElement(sheet);
+    mSheets_Gecko[aSheetType].AppendElement(sheet);
+  }
+//   {
+//     RefPtr<css::Loader> loader = new css::Loader(StyleImplementation::Servo);
+// 
+//     RefPtr<StyleSheet> sheet;
+//     nsresult rv = loader->LoadSheetSync(aSheetURI, parsingMode, true,
+//                                         getter_AddRefs(sheet));
+//     NS_ENSURE_SUCCESS(rv, rv);
+// 
+//     mSheets_Servo[aSheetType].AppendElement(sheet);
+//   }
 
-  return rv;
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -223,7 +235,8 @@ nsStyleSheetService::SheetRegistered(nsIURI *sheetURI,
   NS_ENSURE_ARG_POINTER(sheetURI);
   NS_PRECONDITION(_retval, "Null out param");
 
-  *_retval = (FindSheetByURI(mSheets[aSheetType], sheetURI) >= 0);
+  // mSheets_Servo will contain the same set of sheets.
+  *_retval = (FindSheetByURI(mSheets_Gecko[aSheetType], sheetURI) >= 0);
 
   return NS_OK;
 }
@@ -232,6 +245,7 @@ NS_IMETHODIMP
 nsStyleSheetService::PreloadSheet(nsIURI *aSheetURI, uint32_t aSheetType,
                                   nsIDOMStyleSheet **aSheet)
 {
+  /*
   NS_PRECONDITION(aSheet, "Null out param");
   NS_ENSURE_ARG_POINTER(aSheetURI);
   css::SheetParsingMode parsingMode;
@@ -254,13 +268,22 @@ nsStyleSheetService::PreloadSheet(nsIURI *aSheetURI, uint32_t aSheetType,
   }
 
   RefPtr<css::Loader> loader = new css::Loader();
+  // XXX Need to tell the Loader what StyleImplementation to use.
 
-  RefPtr<CSSStyleSheet> sheet;
+  RefPtr<StyleSheet> sheet;
   nsresult rv = loader->LoadSheetSync(aSheetURI, parsingMode, true,
                                       getter_AddRefs(sheet));
   NS_ENSURE_SUCCESS(rv, rv);
-  sheet.forget(aSheet);
-  return NS_OK;
+  if (sheet->IsGecko()) {
+    StyleSheet* result;
+    sheet.forget(&result);
+    *aSheet = result->AsGecko();
+    return NS_OK;
+  }
+  // XXX It's a ServoStyleSheet and we don't implement nsIDOMStyleSheet...
+  */
+  *aSheet = nullptr;
+  return NS_ERROR_FAILURE;
 }
 
 NS_IMETHODIMP
@@ -271,10 +294,15 @@ nsStyleSheetService::UnregisterSheet(nsIURI *aSheetURI, uint32_t aSheetType)
                 aSheetType == AUTHOR_SHEET);
   NS_ENSURE_ARG_POINTER(aSheetURI);
 
-  int32_t foundIndex = FindSheetByURI(mSheets[aSheetType], aSheetURI);
+  int32_t foundIndex = FindSheetByURI(mSheets_Gecko[aSheetType], aSheetURI);
   NS_ENSURE_TRUE(foundIndex >= 0, NS_ERROR_INVALID_ARG);
-  RefPtr<CSSStyleSheet> sheet = mSheets[aSheetType][foundIndex];
-  mSheets[aSheetType].RemoveElementAt(foundIndex);
+  RefPtr<StyleSheet> sheet = mSheets_Gecko[aSheetType][foundIndex];
+  mSheets_Gecko[aSheetType].RemoveElementAt(foundIndex);
+
+  foundIndex = FindSheetByURI(mSheets_Servo[aSheetType], aSheetURI);
+  if (foundIndex >= 0) {
+    mSheets_Servo[aSheetType].RemoveElementAt(foundIndex);
+  }
 
   const char* message;
   switch (aSheetType) {
@@ -291,8 +319,7 @@ nsStyleSheetService::UnregisterSheet(nsIURI *aSheetURI, uint32_t aSheetType)
 
   nsCOMPtr<nsIObserverService> serv = services::GetObserverService();
   if (serv) {
-    serv->NotifyObservers(NS_ISUPPORTS_CAST(nsIDOMCSSStyleSheet*, sheet),
-                          message, nullptr);
+    serv->NotifyObservers(sheet, message, nullptr);
   }
 
   if (XRE_IsParentProcess()) {
@@ -345,10 +372,10 @@ size_t
 nsStyleSheetService::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
-  for (auto& sheetArray : mSheets) {
+  for (auto& sheetArray : mSheets_Gecko) {
     n += sheetArray.ShallowSizeOfExcludingThis(aMallocSizeOf);
-    for (CSSStyleSheet* sheet : sheetArray) {
-      n += sheet->SizeOfIncludingThis(aMallocSizeOf);
+    for (StyleSheet* sheet : sheetArray) {
+      n += sheet->AsGecko()->SizeOfIncludingThis(aMallocSizeOf);
     }
   }
   return n;

@@ -55,7 +55,7 @@ class nsTransactionManager;
 struct DOMPoint;
 
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 class ErrorResult;
 class TextComposition;
 
@@ -311,12 +311,12 @@ protected:
 
   /** create a transaction for adding a style sheet
     */
-  NS_IMETHOD CreateTxnForAddStyleSheet(mozilla::CSSStyleSheet* aSheet,
+  NS_IMETHOD CreateTxnForAddStyleSheet(mozilla::StyleSheet* aSheet,
                                        AddStyleSheetTxn* *aTxn);
 
   /** create a transaction for removing a style sheet
     */
-  NS_IMETHOD CreateTxnForRemoveStyleSheet(mozilla::CSSStyleSheet* aSheet,
+  NS_IMETHOD CreateTxnForRemoveStyleSheet(mozilla::StyleSheet* aSheet,
                                           RemoveStyleSheetTxn* *aTxn);
 
   nsresult DeleteText(nsGenericDOMDataNode& aElement,

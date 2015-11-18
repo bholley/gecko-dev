@@ -37,11 +37,14 @@ public:
 
   NS_IMETHOD QueryInterface(REFNSIID aIID, void** aInstancePtr) override = 0;
 
-  mozilla::CSSStyleSheet* GetSheet() const { return mStyleSheet; }
+  mozilla::CSSStyleSheet* GetSheet() const {
+    return mStyleSheet->IsGecko() ? mStyleSheet->AsGecko() : nullptr;
+  }
+  mozilla::StyleSheet* GetStyleSheet() const { return mStyleSheet; }
 
   // nsIStyleSheetLinkingElement  
-  NS_IMETHOD SetStyleSheet(mozilla::CSSStyleSheet* aStyleSheet) override;
-  NS_IMETHOD_(mozilla::CSSStyleSheet*) GetStyleSheet() override;
+  NS_IMETHOD SetStyleSheet(mozilla::StyleSheet* aStyleSheet) override;
+  NS_IMETHOD_(mozilla::StyleSheet*) GetStyleSheet() override;
   NS_IMETHOD InitStyleLinkElement(bool aDontLoadStyle) override;
   NS_IMETHOD UpdateStyleSheet(nsICSSLoaderObserver* aObserver,
                               bool* aWillNotify,
@@ -128,7 +131,7 @@ private:
                               bool* aIsAlternate,
                               bool aForceUpdate);
 
-  RefPtr<mozilla::CSSStyleSheet> mStyleSheet;
+  RefPtr<mozilla::StyleSheet> mStyleSheet;
 protected:
   bool mDontLoadStyle;
   bool mUpdatesEnabled;

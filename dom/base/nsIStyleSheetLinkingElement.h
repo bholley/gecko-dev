@@ -12,12 +12,13 @@
 class nsICSSLoaderObserver;
 class nsIURI;
 
-#define NS_ISTYLESHEETLINKINGELEMENT_IID          \
-{ 0xa8b79f3b, 0x9d18, 0x4f9c, \
-  { 0xb1, 0xaa, 0x8c, 0x9b, 0x1b, 0xaa, 0xac, 0xad } }
+// ecb66d7d-de93-4c20-93be-3ebe19d2bfca
+#define NS_ISTYLESHEETLINKINGELEMENT_IID \
+{ 0xecb66d7d, 0xde93, 0x4c20, \
+  { 0x93, 0xbe, 0x3e, 0xbe, 0x19, 0xd2, 0xbf, 0xca } }
 
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 } // namespace mozilla
 
 class nsIStyleSheetLinkingElement : public nsISupports {
@@ -31,14 +32,14 @@ public:
    * @param aStyleSheet the style sheet associated with this
    *                    element.
    */
-  NS_IMETHOD SetStyleSheet(mozilla::CSSStyleSheet* aStyleSheet) = 0;
+  NS_IMETHOD SetStyleSheet(mozilla::StyleSheet* aStyleSheet) = 0;
 
   /**
    * Used to obtain the style sheet linked in by this element.
    *
    * @return the style sheet associated with this element.
    */
-  NS_IMETHOD_(mozilla::CSSStyleSheet*) GetStyleSheet() = 0;
+  NS_IMETHOD_(mozilla::StyleSheet*) GetStyleSheet() = 0;
 
   /**
    * Initialize the stylesheet linking element. If aDontLoadStyle is

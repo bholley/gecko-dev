@@ -93,8 +93,8 @@ NS_IMPL_ELEMENT_CLONE(HTMLLinkElement)
 bool
 HTMLLinkElement::Disabled()
 {
-  CSSStyleSheet* ss = GetSheet();
-  return ss && ss->Disabled();
+  StyleSheet* ss = GetStyleSheet();
+  return ss && ss->IsGecko() && ss->AsGecko()->Disabled();
 }
 
 NS_IMETHODIMP
@@ -107,9 +107,9 @@ HTMLLinkElement::GetMozDisabled(bool* aDisabled)
 void
 HTMLLinkElement::SetDisabled(bool aDisabled)
 {
-  CSSStyleSheet* ss = GetSheet();
-  if (ss) {
-    ss->SetDisabled(aDisabled);
+  StyleSheet* ss = GetStyleSheet();
+  if (ss && ss->IsGecko()) {
+    ss->AsGecko()->SetDisabled(aDisabled);
   }
 }
 
@@ -423,7 +423,7 @@ HTMLLinkElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
         aValue->ToString(value);
         uint32_t linkTypes = nsStyleLinkElement::ParseLinkTypes(value,
                                                                 NodePrincipal());
-        if (GetSheet()) {
+        if (GetStyleSheet()) {
           dropSheet = !(linkTypes & nsStyleLinkElement::eSTYLESHEET);
         } else if (linkTypes & eHTMLIMPORT) {
           UpdateImport();

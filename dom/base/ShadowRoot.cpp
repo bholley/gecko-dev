@@ -130,7 +130,7 @@ ShadowRoot::StyleSheetChanged()
 }
 
 void
-ShadowRoot::InsertSheet(CSSStyleSheet* aSheet,
+ShadowRoot::InsertSheet(StyleSheet* aSheet,
                         nsIContent* aLinkingContent)
 {
   nsCOMPtr<nsIStyleSheetLinkingElement>
@@ -148,7 +148,7 @@ ShadowRoot::InsertSheet(CSSStyleSheet* aSheet,
       break;
     }
 
-    nsINode* sheetOwnerNode = mProtoBinding->StyleSheetAt(i)->GetOwnerNode();
+    nsINode* sheetOwnerNode = mProtoBinding->StyleSheetAt(i)->GetOwningNode();
     if (nsContentUtils::PositionIsBefore(aLinkingContent, sheetOwnerNode)) {
       mProtoBinding->InsertStyleSheetAt(i, aSheet);
       break;
@@ -161,7 +161,7 @@ ShadowRoot::InsertSheet(CSSStyleSheet* aSheet,
 }
 
 void
-ShadowRoot::RemoveSheet(CSSStyleSheet* aSheet)
+ShadowRoot::RemoveSheet(StyleSheet* aSheet)
 {
   mProtoBinding->RemoveStyleSheet(aSheet);
 
@@ -752,7 +752,8 @@ ShadowRootStyleSheetList::IndexedGetter(uint32_t aIndex, bool& aFound)
     return nullptr;
   }
 
-  return mShadowRoot->mProtoBinding->StyleSheetAt(aIndex);
+  StyleSheet* sheet = mShadowRoot->mProtoBinding->StyleSheetAt(aIndex);
+  return sheet->IsGecko() ? sheet->AsGecko() : nullptr;
 }
 
 uint32_t

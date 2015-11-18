@@ -752,7 +752,12 @@ SVGSVGElement::BindToTree(nsIDocument* aDocument,
     // Setup the style sheet during binding, not element construction,
     // because we could move the root SVG element from the document
     // that created it to another document.
-    doc->EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::SVGSheet());
+    //
+    // XXX We might be an <svg> element in an HTML document that
+    // does not yet have a pres shell, and without a pres shell we
+    // don't yet know whether to get a Gecko or Servo style sheet
+    // here.
+    doc->EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::SVGSheet(StyleImplementation::Gecko));
   }
 
   if (mTimedDocumentRoot && smilController) {

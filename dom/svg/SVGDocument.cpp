@@ -155,7 +155,7 @@ SVGDocument::EnsureNonSVGUserAgentStyleSheetsLoaded()
             nsCOMPtr<nsIURI> uri;
             NS_NewURI(getter_AddRefs(uri), spec);
             if (uri) {
-              RefPtr<CSSStyleSheet> cssSheet;
+              RefPtr<StyleSheet> cssSheet;
               cssLoader->LoadSheetSync(uri,
                                        mozilla::css::eAgentSheetFeatures,
                                        true, getter_AddRefs(cssSheet));
@@ -169,21 +169,21 @@ SVGDocument::EnsureNonSVGUserAgentStyleSheetsLoaded()
     }
   }
 
-  CSSStyleSheet* sheet = nsLayoutStylesheetCache::NumberControlSheet();
+  StyleSheet* sheet = nsLayoutStylesheetCache::NumberControlSheet(GetStyleImplementation());
   if (sheet) {
     // number-control.css can be behind a pref
     EnsureOnDemandBuiltInUASheet(sheet);
   }
-  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::FormsSheet());
-  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::CounterStylesSheet());
-  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::HTMLSheet());
+  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::FormsSheet(GetStyleImplementation()));
+  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::CounterStylesSheet(GetStyleImplementation()));
+  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::HTMLSheet(GetStyleImplementation()));
   if (nsLayoutUtils::ShouldUseNoFramesSheet(this)) {
-    EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::NoFramesSheet());
+    EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::NoFramesSheet(GetStyleImplementation()));
   }
   if (nsLayoutUtils::ShouldUseNoScriptSheet(this)) {
-    EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::NoScriptSheet());
+    EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::NoScriptSheet(GetStyleImplementation()));
   }
-  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::UASheet());
+  EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::UASheet(GetStyleImplementation()));
 
   EndUpdate(UPDATE_STYLE);
 }

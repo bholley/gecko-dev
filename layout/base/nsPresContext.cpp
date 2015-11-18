@@ -1377,7 +1377,7 @@ nsPresContext::CompatibilityModeChanged()
   }
 
   auto styleSet = mShell->StyleSet();
-  CSSStyleSheet* sheet = nsLayoutStylesheetCache::QuirkSheet();
+  StyleSheet* sheet = nsLayoutStylesheetCache::QuirkSheet(styleSet->Implementation());
 
   if (needsQuirkSheet) {
     // quirk.css needs to come after html.css; we just keep it at the end.
