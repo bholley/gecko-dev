@@ -113,7 +113,7 @@ nsMathMLElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
       // that created it to another document.
       doc->SetMathMLEnabled();
       doc->
-        EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::MathMLSheet());
+        EnsureOnDemandBuiltInUASheet(nsLayoutStylesheetCache::MathMLSheet(doc->GetStyleImplementation()));
 
       // Rebuild style data for the presshell, because style system
       // optimizations may have taken place assuming MathML was disabled.

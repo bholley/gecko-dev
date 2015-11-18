@@ -731,10 +731,10 @@ nsDOMStyleSheetList::IndexedGetter(uint32_t aIndex, bool& aFound)
   }
 
   aFound = true;
-  CSSStyleSheet* sheet = mDocument->GetStyleSheetAt(aIndex);
+  StyleSheet* sheet = mDocument->GetStyleSheetAt(aIndex);
   NS_ASSERTION(sheet, "Must have a sheet");
 
-  return static_cast<CSSStyleSheet*>(sheet);
+  return sheet->IsGecko() ? sheet->AsGecko() : nullptr;
 }
 
 void
@@ -744,7 +744,7 @@ nsDOMStyleSheetList::NodeWillBeDestroyed(const nsINode *aNode)
 }
 
 void
-nsDOMStyleSheetList::StyleSheetAdded(CSSStyleSheet* aStyleSheet,
+nsDOMStyleSheetList::StyleSheetAdded(StyleSheet* aStyleSheet,
                                      bool aDocumentSheet)
 {
   if (aDocumentSheet && -1 != mLength) {
@@ -753,7 +753,7 @@ nsDOMStyleSheetList::StyleSheetAdded(CSSStyleSheet* aStyleSheet,
 }
 
 void
-nsDOMStyleSheetList::StyleSheetRemoved(CSSStyleSheet* aStyleSheet,
+nsDOMStyleSheetList::StyleSheetRemoved(StyleSheet* aStyleSheet,
                                        bool aDocumentSheet)
 {
   if (aDocumentSheet && -1 != mLength) {
@@ -1320,9 +1320,9 @@ nsDOMStyleSheetSetList::EnsureFresh()
   int32_t count = mDocument->GetNumberOfStyleSheets();
   nsAutoString title;
   for (int32_t index = 0; index < count; index++) {
-    CSSStyleSheet* sheet = mDocument->GetStyleSheetAt(index);
+    StyleSheet* sheet = mDocument->GetStyleSheetAt(index);
     NS_ASSERTION(sheet, "Null sheet in sheet list!");
-    sheet->GetTitle(title);
+    sheet->AsGecko()->GetTitle(title);
     if (!title.IsEmpty() && !mNames.Contains(title) && !Add(title)) {
       return;
     }
@@ -1602,7 +1602,7 @@ nsDocument::~nsDocument()
   mCachedRootElement = nullptr;
 
   // Let the stylesheets know we're going away
-  for (CSSStyleSheet* sheet : mStyleSheets) {
+  for (StyleSheet* sheet : mStyleSheets) {
     sheet->SetOwningDocument(nullptr);
   }
   if (mAttrStyleSheet) {
@@ -2281,7 +2281,7 @@ void
 nsDocument::RemoveDocStyleSheetsFromStyleSets()
 {
   // The stylesheets should forget us
-  for (CSSStyleSheet* sheet : Reversed(mStyleSheets)) {
+  for (StyleSheet* sheet : Reversed(mStyleSheets)) {
     sheet->SetOwningDocument(nullptr);
 
     if (sheet->IsApplicable()) {
@@ -2296,11 +2296,11 @@ nsDocument::RemoveDocStyleSheetsFromStyleSets()
 
 void
 nsDocument::RemoveStyleSheetsFromStyleSets(
-    nsTArray<RefPtr<CSSStyleSheet>>& aSheets,
+    nsTArray<RefPtr<StyleSheet>>& aSheets,
     SheetType aType)
 {
   // The stylesheets should forget us
-  for (CSSStyleSheet* sheet : Reversed(aSheets)) {
+  for (StyleSheet* sheet : Reversed(aSheets)) {
     sheet->SetOwningDocument(nullptr);
 
     if (sheet->IsApplicable()) {
@@ -2374,10 +2374,10 @@ nsDocument::ResetStylesheetsToURI(nsIURI* aURI)
 
 static void
 AppendSheetsToStyleSet(StyleSet* aStyleSet,
-                       const nsTArray<RefPtr<CSSStyleSheet>>& aSheets,
+                       const nsTArray<RefPtr<StyleSheet>>& aSheets,
                        SheetType aType)
 {
-  for (CSSStyleSheet* sheet : Reversed(aSheets)) {
+  for (StyleSheet* sheet : Reversed(aSheets)) {
     aStyleSet->AppendStyleSheet(aType, sheet);
   }
 }
@@ -2392,7 +2392,7 @@ nsDocument::FillStyleSet(StyleSet* aStyleSet)
 
   MOZ_ASSERT(!mStyleSetFilled);
 
-  for (CSSStyleSheet* sheet : Reversed(mStyleSheets)) {
+  for (StyleSheet* sheet : Reversed(mStyleSheets)) {
     if (sheet->IsApplicable()) {
       aStyleSet->AddDocStyleSheet(sheet, this);
     }
@@ -2400,13 +2400,13 @@ nsDocument::FillStyleSet(StyleSet* aStyleSet)
 
   nsStyleSheetService *sheetService = nsStyleSheetService::GetInstance();
   if (sheetService) {
-    for (CSSStyleSheet* sheet : *sheetService->AuthorStyleSheets()) {
+    for (StyleSheet* sheet : *sheetService->AuthorStyleSheets(aStyleSet->Implementation())) {
       aStyleSet->AppendStyleSheet(SheetType::Doc, sheet);
     }
   }
 
   // Iterate backwards to maintain order
-  for (CSSStyleSheet* sheet : Reversed(mOnDemandBuiltInUASheets)) {
+  for (StyleSheet* sheet : Reversed(mOnDemandBuiltInUASheets)) {
     if (sheet->IsApplicable()) {
       aStyleSet->PrependStyleSheet(SheetType::Agent, sheet);
     }
@@ -4028,7 +4028,7 @@ nsDocument::RemoveChildAt(uint32_t aIndex, bool aNotify)
 }
 
 void
-nsDocument::EnsureOnDemandBuiltInUASheet(CSSStyleSheet* aSheet)
+nsDocument::EnsureOnDemandBuiltInUASheet(StyleSheet* aSheet)
 {
   if (mOnDemandBuiltInUASheets.Contains(aSheet)) {
     return;
@@ -4039,7 +4039,7 @@ nsDocument::EnsureOnDemandBuiltInUASheet(CSSStyleSheet* aSheet)
 }
 
 void
-nsDocument::AddOnDemandBuiltInUASheet(CSSStyleSheet* aSheet)
+nsDocument::AddOnDemandBuiltInUASheet(StyleSheet* aSheet)
 {
   MOZ_ASSERT(!mOnDemandBuiltInUASheets.Contains(aSheet));
 
@@ -4068,20 +4068,20 @@ nsDocument::GetNumberOfStyleSheets() const
   return mStyleSheets.Length();
 }
 
-CSSStyleSheet*
+StyleSheet*
 nsDocument::GetStyleSheetAt(int32_t aIndex) const
 {
   return mStyleSheets.SafeElementAt(aIndex, nullptr);
 }
 
 int32_t
-nsDocument::GetIndexOfStyleSheet(CSSStyleSheet* aSheet) const
+nsDocument::GetIndexOfStyleSheet(StyleSheet* aSheet) const
 {
   return mStyleSheets.IndexOf(aSheet);
 }
 
 void
-nsDocument::AddStyleSheetToStyleSets(CSSStyleSheet* aSheet)
+nsDocument::AddStyleSheetToStyleSets(StyleSheet* aSheet)
 {
   nsCOMPtr<nsIPresShell> shell = GetShell();
   if (shell) {
@@ -4094,7 +4094,7 @@ nsDocument::AddStyleSheetToStyleSets(CSSStyleSheet* aSheet)
     className##Init init;                                                     \
     init.mBubbles = true;                                                     \
     init.mCancelable = true;                                                  \
-    init.mStylesheet = aSheet;                                                \
+    init.mStylesheet = aSheet->IsGecko() ? aSheet->AsGecko() : nullptr;       \
     init.memberName = argName;                                                \
                                                                               \
     RefPtr<className> event =                                               \
@@ -4108,7 +4108,7 @@ nsDocument::AddStyleSheetToStyleSets(CSSStyleSheet* aSheet)
   } while (0);
 
 void
-nsDocument::NotifyStyleSheetAdded(CSSStyleSheet* aSheet, bool aDocumentSheet)
+nsDocument::NotifyStyleSheetAdded(StyleSheet* aSheet, bool aDocumentSheet)
 {
   NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetAdded, (aSheet, aDocumentSheet));
 
@@ -4121,7 +4121,7 @@ nsDocument::NotifyStyleSheetAdded(CSSStyleSheet* aSheet, bool aDocumentSheet)
 }
 
 void
-nsDocument::NotifyStyleSheetRemoved(CSSStyleSheet* aSheet, bool aDocumentSheet)
+nsDocument::NotifyStyleSheetRemoved(StyleSheet* aSheet, bool aDocumentSheet)
 {
   NS_DOCUMENT_NOTIFY_OBSERVERS(StyleSheetRemoved, (aSheet, aDocumentSheet));
 
@@ -4134,7 +4134,7 @@ nsDocument::NotifyStyleSheetRemoved(CSSStyleSheet* aSheet, bool aDocumentSheet)
 }
 
 void
-nsDocument::AddStyleSheet(CSSStyleSheet* aSheet)
+nsDocument::AddStyleSheet(StyleSheet* aSheet)
 {
   NS_PRECONDITION(aSheet, "null arg");
   mStyleSheets.AppendElement(aSheet);
@@ -4148,7 +4148,7 @@ nsDocument::AddStyleSheet(CSSStyleSheet* aSheet)
 }
 
 void
-nsDocument::RemoveStyleSheetFromStyleSets(CSSStyleSheet* aSheet)
+nsDocument::RemoveStyleSheetFromStyleSets(StyleSheet* aSheet)
 {
   nsCOMPtr<nsIPresShell> shell = GetShell();
   if (shell) {
@@ -4157,10 +4157,10 @@ nsDocument::RemoveStyleSheetFromStyleSets(CSSStyleSheet* aSheet)
 }
 
 void
-nsDocument::RemoveStyleSheet(CSSStyleSheet* aSheet)
+nsDocument::RemoveStyleSheet(StyleSheet* aSheet)
 {
   NS_PRECONDITION(aSheet, "null arg");
-  RefPtr<CSSStyleSheet> sheet = aSheet; // hold ref so it won't die too soon
+  RefPtr<StyleSheet> sheet = aSheet; // hold ref so it won't die too soon
 
   if (!mStyleSheets.RemoveElement(aSheet)) {
     NS_ASSERTION(mInUnlinkOrDeletion, "stylesheet not found");
@@ -4179,8 +4179,8 @@ nsDocument::RemoveStyleSheet(CSSStyleSheet* aSheet)
 }
 
 void
-nsDocument::UpdateStyleSheets(nsTArray<RefPtr<CSSStyleSheet>>& aOldSheets,
-                              nsTArray<RefPtr<CSSStyleSheet>>& aNewSheets)
+nsDocument::UpdateStyleSheets(nsTArray<RefPtr<StyleSheet>>& aOldSheets,
+                              nsTArray<RefPtr<StyleSheet>>& aNewSheets)
 {
   BeginUpdate(UPDATE_STYLE);
 
@@ -4189,7 +4189,7 @@ nsDocument::UpdateStyleSheets(nsTArray<RefPtr<CSSStyleSheet>>& aOldSheets,
                   "The lists must be the same length!");
   int32_t count = aOldSheets.Length();
 
-  RefPtr<CSSStyleSheet> oldSheet;
+  RefPtr<StyleSheet> oldSheet;
   int32_t i;
   for (i = 0; i < count; ++i) {
     oldSheet = aOldSheets[i];
@@ -4200,7 +4200,7 @@ nsDocument::UpdateStyleSheets(nsTArray<RefPtr<CSSStyleSheet>>& aOldSheets,
     RemoveStyleSheet(oldSheet);  // This does the right notifications
 
     // Now put the new one in its place.  If it's null, just ignore it.
-    CSSStyleSheet* newSheet = aNewSheets[i];
+    StyleSheet* newSheet = aNewSheets[i];
     if (newSheet) {
       mStyleSheets.InsertElementAt(oldIndex, newSheet);
       newSheet->SetOwningDocument(this);
@@ -4216,7 +4216,7 @@ nsDocument::UpdateStyleSheets(nsTArray<RefPtr<CSSStyleSheet>>& aOldSheets,
 }
 
 void
-nsDocument::InsertStyleSheetAt(CSSStyleSheet* aSheet, int32_t aIndex)
+nsDocument::InsertStyleSheetAt(StyleSheet* aSheet, int32_t aIndex)
 {
   NS_PRECONDITION(aSheet, "null ptr");
 
@@ -4233,7 +4233,7 @@ nsDocument::InsertStyleSheetAt(CSSStyleSheet* aSheet, int32_t aIndex)
 
 
 void
-nsDocument::SetStyleSheetApplicableState(CSSStyleSheet* aSheet,
+nsDocument::SetStyleSheetApplicableState(StyleSheet* aSheet,
                                          bool aApplicable)
 {
   NS_PRECONDITION(aSheet, "null arg");
@@ -4299,7 +4299,7 @@ ConvertAdditionalSheetType(nsIDocument::additionalSheetType aType)
 }
 
 static int32_t
-FindSheet(const nsTArray<RefPtr<CSSStyleSheet>>& aSheets, nsIURI* aSheetURI)
+FindSheet(const nsTArray<RefPtr<StyleSheet>>& aSheets, nsIURI* aSheetURI)
 {
   for (int32_t i = aSheets.Length() - 1; i >= 0; i-- ) {
     bool bEqual;
@@ -4323,7 +4323,7 @@ nsDocument::LoadAdditionalStyleSheet(additionalSheetType aType,
     return NS_ERROR_INVALID_ARG;
 
   // Loading the sheet sync.
-  RefPtr<css::Loader> loader = new css::Loader();
+  RefPtr<css::Loader> loader = new css::Loader(GetStyleImplementation());
 
   css::SheetParsingMode parsingMode;
   switch (aType) {
@@ -4343,7 +4343,7 @@ nsDocument::LoadAdditionalStyleSheet(additionalSheetType aType,
       MOZ_CRASH("impossible value for aType");
   }
 
-  RefPtr<CSSStyleSheet> sheet;
+  RefPtr<StyleSheet> sheet;
   nsresult rv = loader->LoadSheetSync(aSheetURI, parsingMode, true,
                                       getter_AddRefs(sheet));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -4355,7 +4355,7 @@ nsDocument::LoadAdditionalStyleSheet(additionalSheetType aType,
 }
 
 nsresult
-nsDocument::AddAdditionalStyleSheet(additionalSheetType aType, CSSStyleSheet* aSheet)
+nsDocument::AddAdditionalStyleSheet(additionalSheetType aType, StyleSheet* aSheet)
 {
   if (mAdditionalSheets[aType].Contains(aSheet))
     return NS_ERROR_INVALID_ARG;
@@ -4384,11 +4384,11 @@ nsDocument::RemoveAdditionalStyleSheet(additionalSheetType aType, nsIURI* aSheet
 {
   MOZ_ASSERT(aSheetURI);
 
-  nsTArray<RefPtr<CSSStyleSheet>>& sheets = mAdditionalSheets[aType];
+  nsTArray<RefPtr<StyleSheet>>& sheets = mAdditionalSheets[aType];
 
   int32_t i = FindSheet(mAdditionalSheets[aType], aSheetURI);
   if (i >= 0) {
-    RefPtr<CSSStyleSheet> sheetRef = sheets[i];
+    RefPtr<StyleSheet> sheetRef = sheets[i];
     sheets.RemoveElementAt(i);
 
     BeginUpdate(UPDATE_STYLE);
@@ -4410,7 +4410,7 @@ nsDocument::RemoveAdditionalStyleSheet(additionalSheetType aType, nsIURI* aSheet
   }
 }
 
-CSSStyleSheet*
+StyleSheet*
 nsDocument::FirstAdditionalAuthorSheet()
 {
   return mAdditionalSheets[eAuthorSheet].SafeElementAt(0, nullptr);
@@ -5171,7 +5171,7 @@ nsDocument::DocumentStatesChanged(EventStates aStateMask)
 }
 
 void
-nsDocument::StyleRuleChanged(CSSStyleSheet* aSheet,
+nsDocument::StyleRuleChanged(StyleSheet* aSheet,
                              css::Rule* aStyleRule)
 {
   NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleChanged, (aSheet));
@@ -5185,7 +5185,7 @@ nsDocument::StyleRuleChanged(CSSStyleSheet* aSheet,
 }
 
 void
-nsDocument::StyleRuleAdded(CSSStyleSheet* aSheet,
+nsDocument::StyleRuleAdded(StyleSheet* aSheet,
                            css::Rule* aStyleRule)
 {
   NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleAdded, (aSheet));
@@ -5200,7 +5200,7 @@ nsDocument::StyleRuleAdded(CSSStyleSheet* aSheet,
 }
 
 void
-nsDocument::StyleRuleRemoved(CSSStyleSheet* aSheet,
+nsDocument::StyleRuleRemoved(StyleSheet* aSheet,
                              css::Rule* aStyleRule)
 {
   NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleRemoved, (aSheet));
@@ -6441,17 +6441,21 @@ nsIDocument::GetSelectedStyleSheetSet(nsAString& aSheetSet)
   int32_t count = GetNumberOfStyleSheets();
   nsAutoString title;
   for (int32_t index = 0; index < count; index++) {
-    CSSStyleSheet* sheet = GetStyleSheetAt(index);
+    StyleSheet* sheet = GetStyleSheetAt(index);
     NS_ASSERTION(sheet, "Null sheet in sheet list!");
 
+    if (sheet->IsServo()) {
+      continue;
+    }
+
     bool disabled;
-    sheet->GetDisabled(&disabled);
+    sheet->AsGecko()->GetDisabled(&disabled);
     if (disabled) {
       // Disabled sheets don't affect the currently selected set
       continue;
     }
 
-    sheet->GetTitle(title);
+    sheet->AsGecko()->GetTitle(title);
 
     if (aSheetSet.IsEmpty()) {
       aSheetSet = title;
@@ -6551,11 +6555,15 @@ void
 nsDocument::EnableStyleSheetsForSetInternal(const nsAString& aSheetSet,
                                             bool aUpdateCSSLoader)
 {
+  if (!mPresShell || GetStyleImplementation() == StyleImplementation::Servo) {
+    return;
+  }
+
   BeginUpdate(UPDATE_STYLE);
   int32_t count = GetNumberOfStyleSheets();
   nsAutoString title;
   for (int32_t index = 0; index < count; index++) {
-    CSSStyleSheet* sheet = GetStyleSheetAt(index);
+    CSSStyleSheet* sheet = GetStyleSheetAt(index)->AsGecko();
     NS_ASSERTION(sheet, "Null sheet in sheet list!");
     sheet->GetTitle(title);
     if (!title.IsEmpty()) {
@@ -9829,7 +9837,7 @@ class StubCSSLoaderObserver final : public nsICSSLoaderObserver {
   ~StubCSSLoaderObserver() {}
 public:
   NS_IMETHOD
-  StyleSheetLoaded(CSSStyleSheet*, bool, nsresult) override
+  StyleSheetLoaded(StyleSheet*, bool, nsresult) override
   {
     return NS_OK;
   }
@@ -9858,7 +9866,7 @@ nsDocument::PreloadStyle(nsIURI* uri, const nsAString& charset,
 
 nsresult
 nsDocument::LoadChromeSheetSync(nsIURI* uri, bool isAgentSheet,
-                                CSSStyleSheet** sheet)
+                                StyleSheet** sheet)
 {
   css::SheetParsingMode mode =
     isAgentSheet ? css::eAgentSheetFeatures
@@ -10189,11 +10197,11 @@ nsIDocument::CreateStaticClone(nsIDocShell* aCloneContainer)
 
       int32_t sheetsCount = GetNumberOfStyleSheets();
       for (int32_t i = 0; i < sheetsCount; ++i) {
-        RefPtr<CSSStyleSheet> sheet = GetStyleSheetAt(i);
+        RefPtr<StyleSheet> sheet = GetStyleSheetAt(i);
         if (sheet) {
-          if (sheet->IsApplicable()) {
+          if (sheet->IsApplicable() && sheet->IsGecko()) {
             RefPtr<CSSStyleSheet> clonedSheet =
-              sheet->Clone(nullptr, nullptr, clonedDoc, nullptr);
+              sheet->AsGecko()->Clone(nullptr, nullptr, clonedDoc, nullptr);
             NS_WARN_IF_FALSE(clonedSheet, "Cloning a stylesheet didn't work!");
             if (clonedSheet) {
               clonedDoc->AddStyleSheet(clonedSheet);
@@ -10203,11 +10211,11 @@ nsIDocument::CreateStaticClone(nsIDocShell* aCloneContainer)
       }
 
       // Iterate backwards to maintain order
-      for (CSSStyleSheet* sheet : Reversed(thisAsDoc->mOnDemandBuiltInUASheets)) {
+      for (StyleSheet* sheet : Reversed(thisAsDoc->mOnDemandBuiltInUASheets)) {
         if (sheet) {
-          if (sheet->IsApplicable()) {
+          if (sheet->IsApplicable() && sheet->IsGecko()) {
             RefPtr<CSSStyleSheet> clonedSheet =
-              sheet->Clone(nullptr, nullptr, clonedDoc, nullptr);
+              sheet->AsGecko()->Clone(nullptr, nullptr, clonedDoc, nullptr);
             NS_WARN_IF_FALSE(clonedSheet, "Cloning a stylesheet didn't work!");
             if (clonedSheet) {
               clonedDoc->AddOnDemandBuiltInUASheet(clonedSheet);
@@ -12301,12 +12309,12 @@ nsDocument::OnAppThemeChanged()
   }
 
   for (int32_t i = 0; i < GetNumberOfStyleSheets(); i++) {
-    RefPtr<CSSStyleSheet> sheet = GetStyleSheetAt(i);
+    RefPtr<StyleSheet> sheet = GetStyleSheetAt(i);
     if (!sheet) {
       continue;
     }
 
-    nsINode* owningNode = sheet->GetOwnerNode();
+    nsINode* owningNode = sheet->GetOwningNode();
     if (!owningNode) {
       continue;
     }
@@ -12668,17 +12676,19 @@ nsIDocument::DocAddSizeOfIncludingThis(nsWindowSizes* aWindowSizes) const
 }
 
 static size_t
-SizeOfOwnedSheetArrayExcludingThis(const nsTArray<RefPtr<CSSStyleSheet>>& aSheets,
+SizeOfOwnedSheetArrayExcludingThis(const nsTArray<RefPtr<StyleSheet>>& aSheets,
                                    MallocSizeOf aMallocSizeOf)
 {
   size_t n = 0;
   n += aSheets.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  for (CSSStyleSheet* sheet : aSheets) {
+  for (StyleSheet* sheet : aSheets) {
     if (!sheet->GetOwningDocument()) {
       // Avoid over-reporting shared sheets.
       continue;
     }
-    n += sheet->SizeOfIncludingThis(aMallocSizeOf);
+    if (sheet->IsGecko()) {
+      n += sheet->AsGecko()->SizeOfIncludingThis(aMallocSizeOf);
+    }
   }
   return n;
 }
@@ -13335,6 +13345,15 @@ nsIDocument::Fonts()
     GetUserFontSet();  // this will cause the user font set to be created/updated
   }
   return mFontFaceSet;
+}
+
+mozilla::StyleImplementation
+nsIDocument::GetStyleImplementation() const {
+  if (!mPresShell) {
+    NS_WARNING("GetStyleImplementation() called on document without a pres shell");
+    return StyleImplementation::Gecko;
+  }
+  return mPresShell->StyleSet()->Implementation();
 }
 
 void

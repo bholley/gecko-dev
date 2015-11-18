@@ -581,46 +581,55 @@ nsStyleSet::GatherRuleProcessors(SheetType aType)
 }
 
 /* virtual */ nsresult
-nsStyleSet::AppendStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
+nsStyleSet::AppendStyleSheet(SheetType aType, StyleSheet* aSheet)
 {
-  NS_PRECONDITION(aSheet, "null arg");
-  NS_ASSERTION(aSheet->IsApplicable(),
+  CSSStyleSheet* sheet = aSheet->AsGecko();
+
+  NS_PRECONDITION(sheet, "null arg");
+  NS_ASSERTION(sheet->IsApplicable(),
                "Inapplicable sheet being placed in style set");
-  bool present = mSheets[aType].RemoveElement(aSheet);
-  mSheets[aType].AppendElement(aSheet);
+
+  bool present = mSheets[aType].RemoveElement(sheet);
+  mSheets[aType].AppendElement(sheet);
 
   if (!present && IsCSSSheetType(aType)) {
-    aSheet->AddStyleSet(this);
+    sheet->AddStyleSet(this);
   }
 
   return DirtyRuleProcessors(aType);
 }
 
 /* virtual */ nsresult
-nsStyleSet::PrependStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
+nsStyleSet::PrependStyleSheet(SheetType aType, StyleSheet* aSheet)
 {
-  NS_PRECONDITION(aSheet, "null arg");
-  NS_ASSERTION(aSheet->IsApplicable(),
+  CSSStyleSheet* sheet = aSheet->AsGecko();
+
+  NS_PRECONDITION(sheet, "null arg");
+  NS_ASSERTION(sheet->IsApplicable(),
                "Inapplicable sheet being placed in style set");
-  bool present = mSheets[aType].RemoveElement(aSheet);
-  mSheets[aType].InsertElementAt(0, aSheet);
+
+  bool present = mSheets[aType].RemoveElement(sheet);
+  mSheets[aType].InsertElementAt(0, sheet);
 
   if (!present && IsCSSSheetType(aType)) {
-    aSheet->AddStyleSet(this);
+    sheet->AddStyleSet(this);
   }
 
   return DirtyRuleProcessors(aType);
 }
 
 /* virtual */ nsresult
-nsStyleSet::RemoveStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
+nsStyleSet::RemoveStyleSheet(SheetType aType, StyleSheet* aSheet)
 {
-  NS_PRECONDITION(aSheet, "null arg");
-  NS_ASSERTION(aSheet->IsComplete(),
+  CSSStyleSheet* sheet = aSheet->AsGecko();
+
+  NS_PRECONDITION(sheet, "null arg");
+  NS_ASSERTION(sheet->IsComplete(),
                "Incomplete sheet being removed from style set");
-  if (mSheets[aType].RemoveElement(aSheet)) {
+
+  if (mSheets[aType].RemoveElement(sheet)) {
     if (IsCSSSheetType(aType)) {
-      aSheet->DropStyleSet(this);
+      sheet->DropStyleSet(this);
     }
   }
 
@@ -629,7 +638,7 @@ nsStyleSet::RemoveStyleSheet(SheetType aType, CSSStyleSheet* aSheet)
 
 /* virtual */ nsresult
 nsStyleSet::ReplaceSheets(SheetType aType,
-                          const nsTArray<RefPtr<CSSStyleSheet>>& aNewSheets)
+                          const nsTArray<RefPtr<StyleSheet>>& aNewSheets)
 {
   bool cssSheetType = IsCSSSheetType(aType);
   if (cssSheetType) {
@@ -639,11 +648,13 @@ nsStyleSet::ReplaceSheets(SheetType aType,
   }
 
   mSheets[aType].Clear();
-  mSheets[aType].AppendElements(aNewSheets);
+  for (StyleSheet* sheet : aNewSheets) {
+    mSheets[aType].AppendElement(sheet->AsGecko());
+  }
 
   if (cssSheetType) {
-    for (CSSStyleSheet* sheet : mSheets[aType]) {
-      sheet->AddStyleSet(this);
+    for (StyleSheet* sheet : mSheets[aType]) {
+      sheet->AsGecko()->AddStyleSet(this);
     }
   }
 
@@ -651,22 +662,25 @@ nsStyleSet::ReplaceSheets(SheetType aType,
 }
 
 /* virtual */ nsresult
-nsStyleSet::InsertStyleSheetBefore(SheetType aType, CSSStyleSheet* aNewSheet,
-                                   CSSStyleSheet* aReferenceSheet)
+nsStyleSet::InsertStyleSheetBefore(SheetType aType, StyleSheet* aNewSheet,
+                                   StyleSheet* aReferenceSheet)
 {
   NS_PRECONDITION(aNewSheet && aReferenceSheet, "null arg");
   NS_ASSERTION(aNewSheet->IsApplicable(),
                "Inapplicable sheet being placed in style set");
 
-  bool present = mSheets[aType].RemoveElement(aNewSheet);
-  int32_t idx = mSheets[aType].IndexOf(aReferenceSheet);
+  CSSStyleSheet* newSheet = aNewSheet->AsGecko();
+  CSSStyleSheet* refSheet = aReferenceSheet->AsGecko();
+
+  bool present = mSheets[aType].RemoveElement(newSheet);
+  int32_t idx = mSheets[aType].IndexOf(refSheet);
   if (idx < 0)
     return NS_ERROR_INVALID_ARG;
 
-  mSheets[aType].InsertElementAt(idx, aNewSheet);
+  mSheets[aType].InsertElementAt(idx, newSheet);
 
   if (!present && IsCSSSheetType(aType)) {
-    aNewSheet->AddStyleSet(this);
+    newSheet->AddStyleSet(this);
   }
 
   return DirtyRuleProcessors(aType);
@@ -711,22 +725,24 @@ nsStyleSet::SetAuthorStyleDisabled(bool aStyleDisabled)
 // -------- Doc Sheets
 
 nsresult
-nsStyleSet::AddDocStyleSheet(CSSStyleSheet* aSheet, nsIDocument* aDocument)
+nsStyleSet::AddDocStyleSheet(StyleSheet* aSheet, nsIDocument* aDocument)
 {
-  NS_PRECONDITION(aSheet && aDocument, "null arg");
-  NS_ASSERTION(aSheet->IsApplicable(),
+  CSSStyleSheet* newSheet = aSheet->AsGecko();
+
+  NS_PRECONDITION(newSheet && aDocument, "null arg");
+  NS_ASSERTION(newSheet->IsApplicable(),
                "Inapplicable sheet being placed in style set");
 
-  SheetType type = aSheet->GetScopeElement() ?
+  SheetType type = newSheet->GetScopeElement() ?
                      SheetType::ScopedDoc :
                      SheetType::Doc;
   nsTArray<RefPtr<CSSStyleSheet>>& sheets = mSheets[type];
 
-  bool present = sheets.RemoveElement(aSheet);
+  bool present = sheets.RemoveElement(newSheet);
   nsStyleSheetService *sheetService = nsStyleSheetService::GetInstance();
 
   // lowest index first
-  int32_t newDocIndex = aDocument->GetIndexOfStyleSheet(aSheet);
+  int32_t newDocIndex = aDocument->GetIndexOfStyleSheet(newSheet);
 
   int32_t count = sheets.Length();
   int32_t index;
@@ -742,7 +758,7 @@ nsStyleSet::AddDocStyleSheet(CSSStyleSheet* aSheet, nsIDocument* aDocument)
     // doc sheet should end up before it.
     if (sheetDocIndex < 0) {
       if (sheetService) {
-        auto& authorSheets = *sheetService->AuthorStyleSheets();
+        auto& authorSheets = *sheetService->AuthorStyleSheets(StyleImplementation::Gecko);
         if (authorSheets.IndexOf(sheet) != authorSheets.NoIndex) {
           break;
         }
@@ -753,21 +769,23 @@ nsStyleSet::AddDocStyleSheet(CSSStyleSheet* aSheet, nsIDocument* aDocument)
     }
   }
 
-  sheets.InsertElementAt(index, aSheet);
+  sheets.InsertElementAt(index, newSheet);
 
   if (!present) {
-    aSheet->AddStyleSet(this);
+    newSheet->AddStyleSet(this);
   }
 
   return DirtyRuleProcessors(type);
 }
 
 nsresult
-nsStyleSet::RemoveDocStyleSheet(CSSStyleSheet* aSheet)
+nsStyleSet::RemoveDocStyleSheet(StyleSheet* aSheet)
 {
-  bool isScoped = aSheet->GetScopeElement();
+  CSSStyleSheet* sheet = aSheet->AsGecko();
+
+  bool isScoped = sheet->GetScopeElement();
   return RemoveStyleSheet(isScoped ? SheetType::ScopedDoc : SheetType::Doc,
-                          aSheet);
+                          sheet);
 }
 
 // Batching
@@ -2468,7 +2486,7 @@ nsStyleSet::MediumFeaturesChanged()
 bool
 nsStyleSet::EnsureUniqueInnerOnCSSSheets()
 {
-  nsAutoTArray<CSSStyleSheet*, 32> queue;
+  nsAutoTArray<StyleSheet*, 32> queue;
   for (SheetType type : gCSSSheetTypes) {
     for (CSSStyleSheet* sheet : mSheets[type]) {
       queue.AppendElement(sheet);
@@ -2481,7 +2499,7 @@ nsStyleSet::EnsureUniqueInnerOnCSSSheets()
 
   while (!queue.IsEmpty()) {
     uint32_t idx = queue.Length() - 1;
-    CSSStyleSheet* sheet = queue[idx];
+    CSSStyleSheet* sheet = queue[idx]->AsGecko();
     queue.RemoveElementAt(idx);
 
     sheet->EnsureUniqueInner();

@@ -9,14 +9,13 @@
 #include "nsTArray.h"
 
 // TODO:
-//   * change CSSStyleSheets to a generic StyleSheet type
 //   * change nsStyleContext to a generic StyleContext type
 
 namespace mozilla {
 namespace dom {
 class Element;
 }
-class CSSStyleSheet;
+class StyleSheet;
 }
 class nsStyleContext;
 class nsPresContext;
@@ -29,6 +28,7 @@ class StyleSet
 public:
   virtual ~StyleSet() {}
 
+  virtual StyleImplementation Implementation() const = 0;
   bool IsGecko() const { return Implementation() == StyleImplementation::Gecko; }
   bool IsServo() const { return Implementation() == StyleImplementation::Servo; }
   inline nsStyleSet* AsGecko();
@@ -69,23 +69,23 @@ public:
 
   // manage the set of style sheets in the style set
   virtual nsresult AppendStyleSheet(mozilla::SheetType aType,
-                                    mozilla::CSSStyleSheet* aSheet) = 0;
+                                    mozilla::StyleSheet* aSheet) = 0;
   virtual nsresult PrependStyleSheet(mozilla::SheetType aType,
-                                     mozilla::CSSStyleSheet* aSheet) = 0;
+                                     mozilla::StyleSheet* aSheet) = 0;
   virtual nsresult RemoveStyleSheet(mozilla::SheetType aType,
-                                    mozilla::CSSStyleSheet* aSheet) = 0;
+                                    mozilla::StyleSheet* aSheet) = 0;
   virtual nsresult ReplaceSheets(mozilla::SheetType aType,
-                                 const nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aNewSheets) = 0;
+                                 const nsTArray<RefPtr<mozilla::StyleSheet>>& aNewSheets) = 0;
   virtual nsresult InsertStyleSheetBefore(mozilla::SheetType aType,
-                                          mozilla::CSSStyleSheet* aNewSheet,
-                                          mozilla::CSSStyleSheet* aReferenceSheet) = 0;
+                                          mozilla::StyleSheet* aNewSheet,
+                                          mozilla::StyleSheet* aReferenceSheet) = 0;
 
   virtual int32_t SheetCount(mozilla::SheetType aType) const = 0;
-  virtual mozilla::CSSStyleSheet* StyleSheetAt(mozilla::SheetType aType,
+  virtual mozilla::StyleSheet* StyleSheetAt(mozilla::SheetType aType,
                                                int32_t aIndex) const = 0;
 
-  virtual nsresult RemoveDocStyleSheet(mozilla::CSSStyleSheet* aSheet) = 0;
-  virtual nsresult AddDocStyleSheet(mozilla::CSSStyleSheet* aSheet,
+  virtual nsresult RemoveDocStyleSheet(mozilla::StyleSheet* aSheet) = 0;
+  virtual nsresult AddDocStyleSheet(mozilla::StyleSheet* aSheet,
                                     nsIDocument* aDocument) = 0;
 
   // check whether there is ::before/::after style for an element
@@ -100,10 +100,6 @@ public:
                           nsStyleContext* aParentContext,
                           TreeMatchContext& aTreeMatchContext,
                           mozilla::dom::Element* aPseudoElement = nullptr) = 0;
-
-
-protected:
-  virtual StyleImplementation Implementation() const = 0;
 };
 
 } // namespace mozilla

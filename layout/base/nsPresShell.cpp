@@ -21,7 +21,7 @@
 #include "mozilla/Logging.h"
 
 #include "mozilla/ArrayUtils.h"
-#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/EventStates.h"
@@ -1352,10 +1352,11 @@ PresShell::UpdatePreferenceStyles()
   // matter which pres context we pass in when it does need to be recreated.
   // (See nsPresContext::GetDocumentColorPreferences for how whether we
   // are a chrome origin image affects some pref styling information.)
-  RefPtr<CSSStyleSheet> newPrefSheet =
+  StyleImplementation styleImplementation = mStyleSet->Implementation();
+  RefPtr<StyleSheet> newPrefSheet =
     mPresContext->IsChromeOriginImage() ?
-      nsLayoutStylesheetCache::ChromePreferenceSheet(mPresContext) :
-      nsLayoutStylesheetCache::ContentPreferenceSheet(mPresContext);
+      nsLayoutStylesheetCache::ChromePreferenceSheet(styleImplementation, mPresContext) :
+      nsLayoutStylesheetCache::ContentPreferenceSheet(styleImplementation, mPresContext);
 
   if (mPrefStyleSheet == newPrefSheet) {
     return;
@@ -1394,16 +1395,16 @@ PresShell::AddUserSheet(nsISupports* aSheet)
   mStyleSet->BeginUpdate();
 
   nsStyleSheetService* sheetService = nsStyleSheetService::gInstance;
-  nsTArray<RefPtr<CSSStyleSheet>>& userSheets = *sheetService->UserStyleSheets();
+  nsTArray<RefPtr<StyleSheet>>& userSheets = *sheetService->UserStyleSheets(mStyleSet->Implementation());
   // Iterate forwards when removing so the searches for RemoveStyleSheet are as
   // short as possible.
-  for (CSSStyleSheet* sheet : userSheets) {
+  for (StyleSheet* sheet : userSheets) {
     mStyleSet->RemoveStyleSheet(SheetType::User, sheet);
   }
 
   // Now iterate backwards, so that the order of userSheets will be the same as
   // the order of sheets from it in the style set.
-  for (CSSStyleSheet* sheet : Reversed(userSheets)) {
+  for (StyleSheet* sheet : Reversed(userSheets)) {
     mStyleSet->PrependStyleSheet(SheetType::User, sheet);
   }
 
@@ -1417,7 +1418,7 @@ PresShell::AddAgentSheet(nsISupports* aSheet)
 {
   // Make sure this does what nsDocumentViewer::CreateStyleSet does
   // wrt ordering.
-  RefPtr<CSSStyleSheet> sheet = do_QueryObject(aSheet);
+  RefPtr<StyleSheet> sheet = do_QueryObject(aSheet);
   if (!sheet) {
     return;
   }
@@ -1429,14 +1430,14 @@ PresShell::AddAgentSheet(nsISupports* aSheet)
 void
 PresShell::AddAuthorSheet(nsISupports* aSheet)
 {
-  RefPtr<CSSStyleSheet> sheet = do_QueryObject(aSheet);
+  RefPtr<StyleSheet> sheet = do_QueryObject(aSheet);
   if (!sheet) {
     return;
   }
 
   // Document specific "additional" Author sheets should be stronger than the ones
   // added with the StyleSheetService.
-  CSSStyleSheet* firstAuthorSheet = mDocument->FirstAdditionalAuthorSheet();
+  StyleSheet* firstAuthorSheet = mDocument->FirstAdditionalAuthorSheet();
   if (firstAuthorSheet) {
     mStyleSet->InsertStyleSheetBefore(SheetType::Doc, sheet, firstAuthorSheet);
   } else {
@@ -1449,7 +1450,7 @@ PresShell::AddAuthorSheet(nsISupports* aSheet)
 void
 PresShell::RemoveSheet(SheetType aType, nsISupports* aSheet)
 {
-  RefPtr<CSSStyleSheet> sheet = do_QueryObject(aSheet);
+  RefPtr<StyleSheet> sheet = do_QueryObject(aSheet);
   if (!sheet) {
     return;
   }
@@ -4408,7 +4409,7 @@ nsIPresShell::ReconstructStyleDataExternal()
 }
 
 void
-PresShell::RecordStyleSheetChange(CSSStyleSheet* aStyleSheet)
+PresShell::RecordStyleSheetChange(StyleSheet* aStyleSheet)
 {
   // too bad we can't check that the update is UPDATE_STYLE
   NS_ASSERTION(mUpdateCount != 0, "must be in an update");
@@ -4429,7 +4430,7 @@ PresShell::RecordStyleSheetChange(CSSStyleSheet* aStyleSheet)
 }
 
 void
-PresShell::StyleSheetAdded(CSSStyleSheet* aStyleSheet,
+PresShell::StyleSheetAdded(StyleSheet* aStyleSheet,
                            bool aDocumentSheet)
 {
   // We only care when enabled sheets are added
@@ -4441,7 +4442,7 @@ PresShell::StyleSheetAdded(CSSStyleSheet* aStyleSheet,
 }
 
 void
-PresShell::StyleSheetRemoved(CSSStyleSheet* aStyleSheet,
+PresShell::StyleSheetRemoved(StyleSheet* aStyleSheet,
                              bool aDocumentSheet)
 {
   // We only care when enabled sheets are removed
@@ -4453,7 +4454,7 @@ PresShell::StyleSheetRemoved(CSSStyleSheet* aStyleSheet,
 }
 
 void
-PresShell::StyleSheetApplicableStateChanged(CSSStyleSheet* aStyleSheet)
+PresShell::StyleSheetApplicableStateChanged(StyleSheet* aStyleSheet)
 {
   if (aStyleSheet->HasRules()) {
     RecordStyleSheetChange(aStyleSheet);
@@ -4461,19 +4462,19 @@ PresShell::StyleSheetApplicableStateChanged(CSSStyleSheet* aStyleSheet)
 }
 
 void
-PresShell::StyleRuleChanged(CSSStyleSheet* aStyleSheet)
+PresShell::StyleRuleChanged(StyleSheet* aStyleSheet)
 {
   RecordStyleSheetChange(aStyleSheet);
 }
 
 void
-PresShell::StyleRuleAdded(CSSStyleSheet* aStyleSheet)
+PresShell::StyleRuleAdded(StyleSheet* aStyleSheet)
 {
   RecordStyleSheetChange(aStyleSheet);
 }
 
 void
-PresShell::StyleRuleRemoved(CSSStyleSheet* aStyleSheet)
+PresShell::StyleRuleRemoved(StyleSheet* aStyleSheet)
 {
   RecordStyleSheetChange(aStyleSheet);
 }
@@ -8479,7 +8480,7 @@ PresShell::IsVisible()
 }
 
 nsresult
-PresShell::GetAgentStyleSheets(nsTArray<RefPtr<CSSStyleSheet>>& aSheets)
+PresShell::GetAgentStyleSheets(nsTArray<RefPtr<StyleSheet>>& aSheets)
 {
   aSheets.Clear();
   int32_t sheetCount = mStyleSet->SheetCount(SheetType::Agent);
@@ -8489,7 +8490,7 @@ PresShell::GetAgentStyleSheets(nsTArray<RefPtr<CSSStyleSheet>>& aSheets)
   }
 
   for (int32_t i = 0; i < sheetCount; ++i) {
-    CSSStyleSheet* sheet = mStyleSet->StyleSheetAt(SheetType::Agent, i);
+    StyleSheet* sheet = mStyleSet->StyleSheetAt(SheetType::Agent, i);
     aSheets.AppendElement(sheet);
   }
 
@@ -8497,19 +8498,19 @@ PresShell::GetAgentStyleSheets(nsTArray<RefPtr<CSSStyleSheet>>& aSheets)
 }
 
 nsresult
-PresShell::SetAgentStyleSheets(const nsTArray<RefPtr<CSSStyleSheet>>& aSheets)
+PresShell::SetAgentStyleSheets(const nsTArray<RefPtr<StyleSheet>>& aSheets)
 {
   return mStyleSet->ReplaceSheets(SheetType::Agent, aSheets);
 }
 
 nsresult
-PresShell::AddOverrideStyleSheet(CSSStyleSheet* aSheet)
+PresShell::AddOverrideStyleSheet(StyleSheet* aSheet)
 {
   return mStyleSet->PrependStyleSheet(SheetType::Override, aSheet);
 }
 
 nsresult
-PresShell::RemoveOverrideStyleSheet(CSSStyleSheet* aSheet)
+PresShell::RemoveOverrideStyleSheet(StyleSheet* aSheet)
 {
   return mStyleSet->RemoveStyleSheet(SheetType::Override, aSheet);
 }
@@ -9609,7 +9610,7 @@ PresShell::CloneStyleSet(nsStyleSet* aSet)
 
   int32_t i, n = aSet->SheetCount(SheetType::Override);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::Override, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::Override, i);
     if (ss)
       clone->AppendStyleSheet(SheetType::Override, ss);
   }
@@ -9618,7 +9619,7 @@ PresShell::CloneStyleSet(nsStyleSet* aSet)
 #if 0
   n = aSet->SheetCount(SheetType::Doc);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::Doc, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::Doc, i);
     if (ss)
       clone->AddDocStyleSheet(ss, mDocument);
   }
@@ -9626,14 +9627,14 @@ PresShell::CloneStyleSet(nsStyleSet* aSet)
 
   n = aSet->SheetCount(SheetType::User);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::User, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::User, i);
     if (ss)
       clone->AppendStyleSheet(SheetType::User, ss);
   }
 
   n = aSet->SheetCount(SheetType::Agent);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::Agent, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::Agent, i);
     if (ss)
       clone->AppendStyleSheet(SheetType::Agent, ss);
   }
@@ -9766,8 +9767,11 @@ PresShell::ListStyleSheets(FILE *out, int32_t aIndent)
 {
   int32_t sheetCount = mStyleSet->SheetCount(SheetType::Doc);
   for (int32_t i = 0; i < sheetCount; ++i) {
-    mStyleSet->StyleSheetAt(SheetType::Doc, i)->List(out, aIndent);
-    fputs("\n", out);
+    StyleSheet* sheet = mStyleSet->StyleSheetAt(SheetType::Doc, i);
+    if (sheet->IsGecko()) {
+      sheet->AsGecko()->List(out, aIndent);
+      fputs("\n", out);
+    }
   }
 }
 

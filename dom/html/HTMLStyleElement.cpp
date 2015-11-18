@@ -68,8 +68,8 @@ HTMLStyleElement::GetMozDisabled(bool* aDisabled)
 bool
 HTMLStyleElement::Disabled()
 {
-  CSSStyleSheet* ss = GetSheet();
-  return ss && ss->Disabled();
+  StyleSheet* ss = GetStyleSheet();
+  return ss && ss->IsGecko() && ss->AsGecko()->Disabled();
 }
 
 NS_IMETHODIMP
@@ -82,9 +82,9 @@ HTMLStyleElement::SetMozDisabled(bool aDisabled)
 void
 HTMLStyleElement::SetDisabled(bool aDisabled)
 {
-  CSSStyleSheet* ss = GetSheet();
-  if (ss) {
-    ss->SetDisabled(aDisabled);
+  StyleSheet* ss = GetStyleSheet();
+  if (ss && ss->IsGecko()) {
+    ss->AsGecko()->SetDisabled(aDisabled);
   }
 }
 

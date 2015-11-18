@@ -2559,7 +2559,7 @@ static void
 PreloadSlowThings()
 {
   // This fetches and creates all the built-in stylesheets.
-  nsLayoutStylesheetCache::UserContentSheet();
+  nsLayoutStylesheetCache::UserContentSheet(StyleImplementation::Gecko);
 
   TabChild::PreloadSlowThings();
 

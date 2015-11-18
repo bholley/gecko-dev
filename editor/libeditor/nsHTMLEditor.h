@@ -333,7 +333,7 @@ public:
   NS_IMETHOD GetRootElement(nsIDOMElement **aRootElement) override;
 
   /* ------------ nsICSSLoaderObserver -------------- */
-  NS_IMETHOD StyleSheetLoaded(mozilla::CSSStyleSheet* aSheet,
+  NS_IMETHOD StyleSheetLoaded(mozilla::StyleSheet* aSheet,
                               bool aWasAlternate, nsresult aStatus) override;
 
   /* ------------ Utility Routines, not part of public API -------------- */
@@ -379,13 +379,13 @@ public:
 
   // Dealing with the internal style sheet lists:
   NS_IMETHOD GetStyleSheetForURL(const nsAString &aURL,
-                                 mozilla::CSSStyleSheet** _retval) override;
-  NS_IMETHOD GetURLForStyleSheet(mozilla::CSSStyleSheet* aStyleSheet,
+                                 mozilla::StyleSheet** _retval) override;
+  NS_IMETHOD GetURLForStyleSheet(mozilla::StyleSheet* aStyleSheet,
                                  nsAString& aURL) override;
 
   // Add a url + known style sheet to the internal lists:
   nsresult AddNewStyleSheetToList(const nsAString &aURL,
-                                  mozilla::CSSStyleSheet* aStyleSheet);
+                                  mozilla::StyleSheet* aStyleSheet);
 
   nsresult RemoveStyleSheetFromList(const nsAString &aURL);
 
@@ -782,7 +782,7 @@ protected:
 
   // Maintain a list of associated style sheets and their urls.
   nsTArray<nsString> mStyleSheetURLs;
-  nsTArray<RefPtr<mozilla::CSSStyleSheet>> mStyleSheets;
+  nsTArray<RefPtr<mozilla::StyleSheet>> mStyleSheets;
 
   // an array for holding default style settings
   nsTArray<PropItem*> mDefaultStyles;

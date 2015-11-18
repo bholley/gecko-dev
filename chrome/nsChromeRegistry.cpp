@@ -35,6 +35,7 @@ nsChromeRegistry* nsChromeRegistry::gChromeRegistry;
 
 // DO NOT use namespace mozilla; it'll break due to a naming conflict between
 // mozilla::TextRange and a TextRange in OSX headers.
+using mozilla::StyleSheet;
 using mozilla::CSSStyleSheet;
 using mozilla::dom::IsChromeURI;
 
@@ -401,17 +402,17 @@ nsresult nsChromeRegistry::RefreshWindow(nsPIDOMWindow* aWindow)
   nsCOMPtr<nsIPresShell> shell = document->GetShell();
   if (shell) {
     // Reload only the chrome URL agent style sheets.
-    nsTArray<RefPtr<CSSStyleSheet>> agentSheets;
+    nsTArray<RefPtr<StyleSheet>> agentSheets;
     rv = shell->GetAgentStyleSheets(agentSheets);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsTArray<RefPtr<CSSStyleSheet>> newAgentSheets;
-    for (CSSStyleSheet* sheet : agentSheets) {
+    nsTArray<RefPtr<StyleSheet>> newAgentSheets;
+    for (StyleSheet* sheet : agentSheets) {
       nsIURI* uri = sheet->GetSheetURI();
 
       if (IsChromeURI(uri)) {
         // Reload the sheet.
-        RefPtr<CSSStyleSheet> newSheet;
+        RefPtr<StyleSheet> newSheet;
         rv = document->LoadChromeSheetSync(uri, true,
                                            getter_AddRefs(newSheet));
         if (NS_FAILED(rv)) return rv;
@@ -433,24 +434,24 @@ nsresult nsChromeRegistry::RefreshWindow(nsPIDOMWindow* aWindow)
   int32_t count = document->GetNumberOfStyleSheets();
 
   // Build an array of style sheets we need to reload.
-  nsTArray<RefPtr<CSSStyleSheet>> oldSheets(count);
-  nsTArray<RefPtr<CSSStyleSheet>> newSheets(count);
+  nsTArray<RefPtr<StyleSheet>> oldSheets(count);
+  nsTArray<RefPtr<StyleSheet>> newSheets(count);
 
   // Iterate over the style sheets.
   for (int32_t i = 0; i < count; i++) {
     // Get the style sheet
-    CSSStyleSheet* styleSheet = document->GetStyleSheetAt(i);
+    StyleSheet* styleSheet = document->GetStyleSheetAt(i);
     oldSheets.AppendElement(styleSheet);
   }
 
   // Iterate over our old sheets and kick off a sync load of the new
   // sheet if and only if it's a chrome URL.
-  for (CSSStyleSheet* sheet : oldSheets) {
+  for (StyleSheet* sheet : oldSheets) {
     nsIURI* uri = sheet ? sheet->GetOriginalURI() : nullptr;
 
     if (uri && IsChromeURI(uri)) {
       // Reload the sheet.
-      RefPtr<CSSStyleSheet> newSheet;
+      RefPtr<StyleSheet> newSheet;
       // XXX what about chrome sheets that have a title or are disabled?  This
       // only works by sheer dumb luck.
       document->LoadChromeSheetSync(uri, false, getter_AddRefs(newSheet));

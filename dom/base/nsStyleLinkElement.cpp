@@ -12,7 +12,7 @@
 
 #include "nsStyleLinkElement.h"
 
-#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/css/Loader.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/FragmentOrElement.h"
@@ -67,7 +67,7 @@ nsStyleLinkElement::Traverse(nsCycleCollectionTraversalCallback &cb)
 }
 
 NS_IMETHODIMP 
-nsStyleLinkElement::SetStyleSheet(CSSStyleSheet* aStyleSheet)
+nsStyleLinkElement::SetStyleSheet(StyleSheet* aStyleSheet)
 {
   if (mStyleSheet) {
     mStyleSheet->SetOwningNode(nullptr);
@@ -84,7 +84,7 @@ nsStyleLinkElement::SetStyleSheet(CSSStyleSheet* aStyleSheet)
   return NS_OK;
 }
 
-NS_IMETHODIMP_(CSSStyleSheet*)
+NS_IMETHODIMP_(StyleSheet*)
 nsStyleLinkElement::GetStyleSheet()
 {
   return mStyleSheet;
@@ -316,8 +316,8 @@ nsStyleLinkElement::DoUpdateStyleSheet(nsIDocument* aOldDocument,
     return NS_OK;
   }
 
-  Element* oldScopeElement =
-    mStyleSheet ? mStyleSheet->GetScopeElement() : nullptr;
+  Element* oldScopeElement = mStyleSheet && mStyleSheet->IsGecko() ?
+    mStyleSheet->AsGecko()->GetScopeElement() : nullptr;
 
   if (mStyleSheet && (aOldDocument || aOldShadowRoot)) {
     MOZ_ASSERT(!(aOldDocument && aOldShadowRoot),
@@ -461,14 +461,16 @@ nsStyleLinkElement::DoUpdateStyleSheet(nsIDocument* aOldDocument,
 void
 nsStyleLinkElement::UpdateStyleSheetScopedness(bool aIsNowScoped)
 {
-  if (!mStyleSheet) {
+  if (!mStyleSheet || mStyleSheet->IsServo()) {
     return;
   }
+
+  CSSStyleSheet* sheet = mStyleSheet->AsGecko();
 
   nsCOMPtr<nsIContent> thisContent;
   CallQueryInterface(this, getter_AddRefs(thisContent));
 
-  Element* oldScopeElement = mStyleSheet->GetScopeElement();
+  Element* oldScopeElement = sheet->GetScopeElement();
   Element* newScopeElement = aIsNowScoped ?
                                thisContent->GetParentElement() :
                                nullptr;
@@ -481,18 +483,18 @@ nsStyleLinkElement::UpdateStyleSheetScopedness(bool aIsNowScoped)
 
   if (thisContent->IsInShadowTree()) {
     ShadowRoot* containingShadow = thisContent->GetContainingShadow();
-    containingShadow->RemoveSheet(mStyleSheet);
+    containingShadow->RemoveSheet(sheet);
 
-    mStyleSheet->SetScopeElement(newScopeElement);
+    sheet->SetScopeElement(newScopeElement);
 
-    containingShadow->InsertSheet(mStyleSheet, thisContent);
+    containingShadow->InsertSheet(sheet, thisContent);
   } else {
     document->BeginUpdate(UPDATE_STYLE);
-    document->RemoveStyleSheet(mStyleSheet);
+    document->RemoveStyleSheet(sheet);
 
-    mStyleSheet->SetScopeElement(newScopeElement);
+    sheet->SetScopeElement(newScopeElement);
 
-    document->AddStyleSheet(mStyleSheet);
+    document->AddStyleSheet(sheet);
     document->EndUpdate(UPDATE_STYLE);
   }
 

@@ -7,13 +7,13 @@
 
 %{C++
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 } // namespace mozilla
 %}
 
-[ptr] native CSSStyleSheet(mozilla::CSSStyleSheet);
+[ptr] native StyleSheet(mozilla::StyleSheet);
 
-[scriptable, uuid(4805e682-49b9-11d3-9ce4-ed60bd6cb5bc)]
+[scriptable, uuid(75499226-4453-4af4-95c6-70bd9021611e)]
 
 interface nsIEditorStyleSheets : nsISupports
 {
@@ -77,17 +77,17 @@ interface nsIEditorStyleSheets : nsISupports
     */
   void enableStyleSheet(in AString aURL, in boolean aEnable);
 
-  /** Get the CSSStyleSheet associated with the given URL.
+  /** Get the StyleSheet associated with the given URL.
     *
     * @param aURL         The style sheet's URL
     * @return             the style sheet
     */
-  [noscript] CSSStyleSheet getStyleSheetForURL(in AString aURL);
+  [noscript] StyleSheet getStyleSheetForURL(in AString aURL);
 
-  /** Get the URL associated with the given CSSStyleSheet.
+  /** Get the URL associated with the given StyleSheet.
     *
     * @param aStyleSheet  The style sheet
     * @return             the style sheet's URL
     */
-  [noscript] AString getURLForStyleSheet(in CSSStyleSheet aStyleSheet);
+  [noscript] AString getURLForStyleSheet(in StyleSheet aStyleSheet);
 };

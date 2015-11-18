@@ -19,7 +19,7 @@ class nsIFile;
 class nsIURI;
 
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 } // namespace mozilla
 
 class nsLayoutStylesheetCache final
@@ -30,27 +30,27 @@ class nsLayoutStylesheetCache final
   NS_DECL_NSIOBSERVER
   NS_DECL_NSIMEMORYREPORTER
 
-  static mozilla::CSSStyleSheet* ScrollbarsSheet();
-  static mozilla::CSSStyleSheet* FormsSheet();
+  static mozilla::StyleSheet* ScrollbarsSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* FormsSheet(mozilla::StyleImplementation aImpl);
   // This function is expected to return nullptr when the dom.forms.number
   // pref is disabled.
-  static mozilla::CSSStyleSheet* NumberControlSheet();
-  static mozilla::CSSStyleSheet* UserContentSheet();
-  static mozilla::CSSStyleSheet* UserChromeSheet();
-  static mozilla::CSSStyleSheet* UASheet();
-  static mozilla::CSSStyleSheet* HTMLSheet();
-  static mozilla::CSSStyleSheet* MinimalXULSheet();
-  static mozilla::CSSStyleSheet* XULSheet();
-  static mozilla::CSSStyleSheet* QuirkSheet();
-  static mozilla::CSSStyleSheet* SVGSheet();
-  static mozilla::CSSStyleSheet* MathMLSheet();
-  static mozilla::CSSStyleSheet* CounterStylesSheet();
-  static mozilla::CSSStyleSheet* NoScriptSheet();
-  static mozilla::CSSStyleSheet* NoFramesSheet();
-  static mozilla::CSSStyleSheet* ChromePreferenceSheet(nsPresContext* aPresContext);
-  static mozilla::CSSStyleSheet* ContentPreferenceSheet(nsPresContext* aPresContext);
-  static mozilla::CSSStyleSheet* ContentEditableSheet();
-  static mozilla::CSSStyleSheet* DesignModeSheet();
+  static mozilla::StyleSheet* NumberControlSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* UserContentSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* UserChromeSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* UASheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* HTMLSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* MinimalXULSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* XULSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* QuirkSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* SVGSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* MathMLSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* CounterStylesSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* NoScriptSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* NoFramesSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* ChromePreferenceSheet(mozilla::StyleImplementation aImpl, nsPresContext* aPresContext);
+  static mozilla::StyleSheet* ContentPreferenceSheet(mozilla::StyleImplementation aImpl, nsPresContext* aPresContext);
+  static mozilla::StyleSheet* ContentEditableSheet(mozilla::StyleImplementation aImpl);
+  static mozilla::StyleSheet* DesignModeSheet(mozilla::StyleImplementation aImpl);
 
   static void InvalidatePreferenceSheets();
 
@@ -59,46 +59,50 @@ class nsLayoutStylesheetCache final
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
 
 private:
-  nsLayoutStylesheetCache();
+  nsLayoutStylesheetCache(mozilla::StyleImplementation aImpl);
   ~nsLayoutStylesheetCache();
 
-  static void EnsureGlobal();
+  static nsLayoutStylesheetCache* EnsureGlobal(mozilla::StyleImplementation aImpl);
   void InitFromProfile();
   void InitMemoryReporter();
-  static void LoadSheetURL(const char* aURL,
-                           RefPtr<mozilla::CSSStyleSheet>& aSheet,
-                           mozilla::css::SheetParsingMode aParsingMode);
-  static void LoadSheetFile(nsIFile* aFile,
-                            RefPtr<mozilla::CSSStyleSheet>& aSheet,
-                            mozilla::css::SheetParsingMode aParsingMode);
-  static void LoadSheet(nsIURI* aURI, RefPtr<mozilla::CSSStyleSheet>& aSheet,
-                        mozilla::css::SheetParsingMode aParsingMode);
-  static void InvalidateSheet(RefPtr<mozilla::CSSStyleSheet>& aSheet);
+  void LoadSheetURL(const char* aURL,
+                    RefPtr<mozilla::StyleSheet>& aSheet,
+                    mozilla::css::SheetParsingMode aParsingMode);
+  void LoadSheetFile(nsIFile* aFile,
+                     RefPtr<mozilla::StyleSheet>& aSheet,
+                     mozilla::css::SheetParsingMode aParsingMode);
+  void LoadSheet(nsIURI* aURI, RefPtr<mozilla::StyleSheet>& aSheet,
+                 mozilla::css::SheetParsingMode aParsingMode);
+  static void InvalidateSheet(RefPtr<mozilla::StyleSheet>& aSheet);
   static void DependentPrefChanged(const char* aPref, void* aData);
-  void BuildPreferenceSheet(RefPtr<mozilla::CSSStyleSheet>& aSheet,
+  void BuildPreferenceSheet(RefPtr<mozilla::StyleSheet>& aSheet,
                             nsPresContext* aPresContext);
 
-  static mozilla::StaticRefPtr<nsLayoutStylesheetCache> gStyleCache;
-  static mozilla::css::Loader* gCSSLoader;
-  RefPtr<mozilla::CSSStyleSheet> mChromePreferenceSheet;
-  RefPtr<mozilla::CSSStyleSheet> mContentEditableSheet;
-  RefPtr<mozilla::CSSStyleSheet> mContentPreferenceSheet;
-  RefPtr<mozilla::CSSStyleSheet> mCounterStylesSheet;
-  RefPtr<mozilla::CSSStyleSheet> mDesignModeSheet;
-  RefPtr<mozilla::CSSStyleSheet> mFormsSheet;
-  RefPtr<mozilla::CSSStyleSheet> mHTMLSheet;
-  RefPtr<mozilla::CSSStyleSheet> mMathMLSheet;
-  RefPtr<mozilla::CSSStyleSheet> mMinimalXULSheet;
-  RefPtr<mozilla::CSSStyleSheet> mNoFramesSheet;
-  RefPtr<mozilla::CSSStyleSheet> mNoScriptSheet;
-  RefPtr<mozilla::CSSStyleSheet> mNumberControlSheet;
-  RefPtr<mozilla::CSSStyleSheet> mQuirkSheet;
-  RefPtr<mozilla::CSSStyleSheet> mSVGSheet;
-  RefPtr<mozilla::CSSStyleSheet> mScrollbarsSheet;
-  RefPtr<mozilla::CSSStyleSheet> mUASheet;
-  RefPtr<mozilla::CSSStyleSheet> mUserChromeSheet;
-  RefPtr<mozilla::CSSStyleSheet> mUserContentSheet;
-  RefPtr<mozilla::CSSStyleSheet> mXULSheet;
+  static mozilla::StaticRefPtr<nsLayoutStylesheetCache> gStyleCache_Gecko;
+  static mozilla::StaticRefPtr<nsLayoutStylesheetCache> gStyleCache_Servo;
+  static mozilla::css::Loader* gCSSLoader_Gecko;
+  static mozilla::css::Loader* gCSSLoader_Servo;
+  RefPtr<mozilla::StyleSheet> mChromePreferenceSheet;
+  RefPtr<mozilla::StyleSheet> mContentEditableSheet;
+  RefPtr<mozilla::StyleSheet> mContentPreferenceSheet;
+  RefPtr<mozilla::StyleSheet> mCounterStylesSheet;
+  RefPtr<mozilla::StyleSheet> mDesignModeSheet;
+  RefPtr<mozilla::StyleSheet> mFormsSheet;
+  RefPtr<mozilla::StyleSheet> mHTMLSheet;
+  RefPtr<mozilla::StyleSheet> mMathMLSheet;
+  RefPtr<mozilla::StyleSheet> mMinimalXULSheet;
+  RefPtr<mozilla::StyleSheet> mNoFramesSheet;
+  RefPtr<mozilla::StyleSheet> mNoScriptSheet;
+  RefPtr<mozilla::StyleSheet> mNumberControlSheet;
+  RefPtr<mozilla::StyleSheet> mQuirkSheet;
+  RefPtr<mozilla::StyleSheet> mSVGSheet;
+  RefPtr<mozilla::StyleSheet> mScrollbarsSheet;
+  RefPtr<mozilla::StyleSheet> mUASheet;
+  RefPtr<mozilla::StyleSheet> mUserChromeSheet;
+  RefPtr<mozilla::StyleSheet> mUserContentSheet;
+  RefPtr<mozilla::StyleSheet> mXULSheet;
+
+  mozilla::StyleImplementation mImplementation;
 };
 
 #endif

@@ -40,7 +40,6 @@ struct nsFontFaceRuleContainer;
 struct TreeMatchContext;
 
 namespace mozilla {
-class CSSStyleSheet;
 class EventStates;
 } // namespace mozilla
 
@@ -317,16 +316,16 @@ class nsStyleSet final : public mozilla::StyleSet
   // APIs to manipulate the style sheet lists.  The sheets in each
   // list are stored with the most significant sheet last.
   virtual nsresult AppendStyleSheet(mozilla::SheetType aType,
-                                    mozilla::CSSStyleSheet* aSheet) override;
+                                    mozilla::StyleSheet* aSheet) override;
   virtual nsresult PrependStyleSheet(mozilla::SheetType aType,
-                                     mozilla::CSSStyleSheet* aSheet) override;
+                                     mozilla::StyleSheet* aSheet) override;
   virtual nsresult RemoveStyleSheet(mozilla::SheetType aType,
-                                    mozilla::CSSStyleSheet* aSheet) override;
+                                    mozilla::StyleSheet* aSheet) override;
   virtual nsresult ReplaceSheets(mozilla::SheetType aType,
-                                 const nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aNewSheets) override;
+                                 const nsTArray<RefPtr<mozilla::StyleSheet>>& aNewSheets) override;
   virtual nsresult InsertStyleSheetBefore(mozilla::SheetType aType,
-                                          mozilla::CSSStyleSheet* aNewSheet,
-                                          mozilla::CSSStyleSheet* aReferenceSheet) override;
+                                          mozilla::StyleSheet* aNewSheet,
+                                          mozilla::StyleSheet* aReferenceSheet) override;
 
   // Enable/Disable entire author style level (Doc, ScopedDoc & PresHint levels)
   virtual bool GetAuthorStyleDisabled() override;
@@ -336,19 +335,19 @@ class nsStyleSet final : public mozilla::StyleSet
     return mSheets[aType].Length();
   }
 
-  virtual mozilla::CSSStyleSheet* StyleSheetAt(mozilla::SheetType aType,
-                                               int32_t aIndex) const override {
+  virtual mozilla::StyleSheet* StyleSheetAt(mozilla::SheetType aType,
+                                            int32_t aIndex) const override {
     return mSheets[aType][aIndex];
   }
 
-  void AppendAllXBLStyleSheets(nsTArray<mozilla::CSSStyleSheet*>& aArray) const {
+  void AppendAllXBLStyleSheets(nsTArray<mozilla::StyleSheet*>& aArray) const {
     if (mBindingManager) {
       mBindingManager->AppendAllSheets(aArray);
     }
   }
 
-  virtual nsresult RemoveDocStyleSheet(mozilla::CSSStyleSheet* aSheet) override;
-  virtual nsresult AddDocStyleSheet(mozilla::CSSStyleSheet* aSheet,
+  virtual nsresult RemoveDocStyleSheet(mozilla::StyleSheet* aSheet) override;
+  virtual nsresult AddDocStyleSheet(mozilla::StyleSheet* aSheet,
                                     nsIDocument* aDocument) override;
 
   virtual void BeginUpdate() override;

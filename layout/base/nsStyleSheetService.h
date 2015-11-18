@@ -14,18 +14,20 @@
 #include "nsIMemoryReporter.h"
 #include "nsIStyleSheetService.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/StyleImplementation.h"
 #include "mozilla/MemoryReporting.h"
 
 namespace mozilla {
-class CSSStyleSheet;
+class StyleSheet;
 }
 class nsICategoryManager;
 class nsIMemoryReporter;
 class nsISimpleEnumerator;
 
+// 98d6c191-d285-414d-b646-e9198b0f584c
 #define NS_STYLESHEETSERVICE_CID \
-{ 0x3b55e72e, 0xab7e, 0x431b, \
-  { 0x89, 0xc0, 0x3b, 0x06, 0xa8, 0xb1, 0x40, 0x16 } }
+{ 0x98d6c191, 0xd285, 0x414d, \
+  { 0xb6, 0x46, 0xe9, 0x19, 0x8b, 0x0f, 0x58, 0x4c } }
 
 #define NS_STYLESHEETSERVICE_CONTRACTID \
   "@mozilla.org/content/style-sheet-service;1"
@@ -43,17 +45,17 @@ class nsStyleSheetService final
 
   nsresult Init();
 
-  nsTArray<RefPtr<mozilla::CSSStyleSheet>>* AgentStyleSheets()
+  nsTArray<RefPtr<mozilla::StyleSheet>>* AgentStyleSheets(mozilla::StyleImplementation aImpl)
   {
-    return &mSheets[AGENT_SHEET];
+    return &Sheets(aImpl)[AGENT_SHEET];
   }
-  nsTArray<RefPtr<mozilla::CSSStyleSheet>>* UserStyleSheets()
+  nsTArray<RefPtr<mozilla::StyleSheet>>* UserStyleSheets(mozilla::StyleImplementation aImpl)
   {
-    return &mSheets[USER_SHEET];
+    return &Sheets(aImpl)[USER_SHEET];
   }
-  nsTArray<RefPtr<mozilla::CSSStyleSheet>>* AuthorStyleSheets()
+  nsTArray<RefPtr<mozilla::StyleSheet>>* AuthorStyleSheets(mozilla::StyleImplementation aImpl)
   {
-    return &mSheets[AUTHOR_SHEET];
+    return &Sheets(aImpl)[AUTHOR_SHEET];
   }
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
@@ -61,15 +63,20 @@ class nsStyleSheetService final
   static nsStyleSheetService *GetInstance();
   static nsStyleSheetService *gInstance;
 
- private:
+private:
   ~nsStyleSheetService();
+
+  nsTArray<RefPtr<mozilla::StyleSheet>> (& Sheets(mozilla::StyleImplementation aImpl))[3]
+  {
+    return aImpl == mozilla::StyleImplementation::Gecko ? mSheets_Gecko : mSheets_Servo;
+  }
 
   void RegisterFromEnumerator(nsICategoryManager  *aManager,
                                           const char          *aCategory,
                                           nsISimpleEnumerator *aEnumerator,
                                           uint32_t             aSheetType);
 
-  int32_t FindSheetByURI(const nsTArray<RefPtr<mozilla::CSSStyleSheet>>& aSheets,
+  int32_t FindSheetByURI(const nsTArray<RefPtr<mozilla::StyleSheet>>& aSheets,
                          nsIURI* aSheetURI);
 
   // Like LoadAndRegisterSheet, but doesn't notify.  If successful, the
@@ -77,7 +84,8 @@ class nsStyleSheetService final
   nsresult LoadAndRegisterSheetInternal(nsIURI *aSheetURI,
                                         uint32_t aSheetType);
 
-  nsTArray<RefPtr<mozilla::CSSStyleSheet>> mSheets[3];
+  nsTArray<RefPtr<mozilla::StyleSheet>> mSheets_Gecko[3];
+  nsTArray<RefPtr<mozilla::StyleSheet>> mSheets_Servo[3];
 };
 
 #endif

@@ -22,7 +22,7 @@
 
 #include "js/TracingAPI.h"
 
-#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/scache/StartupCache.h"
 #include "mozilla/scache/StartupCacheUtils.h"
@@ -187,7 +187,7 @@ nsXULPrototypeCache::PutPrototype(nsXULPrototypeDocument* aDocument)
 }
 
 nsresult
-nsXULPrototypeCache::PutStyleSheet(CSSStyleSheet* aStyleSheet)
+nsXULPrototypeCache::PutStyleSheet(StyleSheet* aStyleSheet)
 {
     nsIURI* uri = aStyleSheet->GetSheetURI();
 
@@ -254,7 +254,7 @@ FlushSkinXBL(nsIURI* aKey, RefPtr<nsXBLDocumentInfo>& aDocInfo, void* aClosure)
 }
 
 static PLDHashOperator
-FlushSkinSheets(nsIURI* aKey, RefPtr<CSSStyleSheet>& aSheet, void* aClosure)
+FlushSkinSheets(nsIURI* aKey, RefPtr<StyleSheet>& aSheet, void* aClosure)
 {
   nsAutoCString str;
   aSheet->GetSheetURI()->GetPath(str);

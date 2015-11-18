@@ -2641,12 +2641,12 @@ nsHTMLDocument::TearingDownEditor(nsIEditor *aEditor)
     if (!presShell)
       return;
 
-    nsTArray<RefPtr<CSSStyleSheet>> agentSheets;
+    nsTArray<RefPtr<StyleSheet>> agentSheets;
     presShell->GetAgentStyleSheets(agentSheets);
 
-    agentSheets.RemoveElement(nsLayoutStylesheetCache::ContentEditableSheet());
+    agentSheets.RemoveElement(nsLayoutStylesheetCache::ContentEditableSheet(GetStyleImplementation()));
     if (oldState == eDesignMode)
-      agentSheets.RemoveElement(nsLayoutStylesheetCache::DesignModeSheet());
+      agentSheets.RemoveElement(nsLayoutStylesheetCache::DesignModeSheet(GetStyleImplementation()));
 
     presShell->SetAgentStyleSheets(agentSheets);
 
@@ -2780,12 +2780,12 @@ nsHTMLDocument::EditingStateChanged()
     // Before making this window editable, we need to modify UA style sheet
     // because new style may change whether focused element will be focusable
     // or not.
-    nsTArray<RefPtr<CSSStyleSheet>> agentSheets;
+    nsTArray<RefPtr<StyleSheet>> agentSheets;
     rv = presShell->GetAgentStyleSheets(agentSheets);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    CSSStyleSheet* contentEditableSheet =
-      nsLayoutStylesheetCache::ContentEditableSheet();
+    StyleSheet* contentEditableSheet =
+      nsLayoutStylesheetCache::ContentEditableSheet(GetStyleImplementation());
 
     if (!agentSheets.Contains(contentEditableSheet)) {
       agentSheets.AppendElement(contentEditableSheet);
@@ -2796,8 +2796,8 @@ nsHTMLDocument::EditingStateChanged()
     // specific states on the elements.
     if (designMode) {
       // designMode is being turned on (overrides contentEditable).
-      CSSStyleSheet* designModeSheet =
-        nsLayoutStylesheetCache::DesignModeSheet();
+      StyleSheet* designModeSheet =
+        nsLayoutStylesheetCache::DesignModeSheet(GetStyleImplementation());
       if (!agentSheets.Contains(designModeSheet)) {
         agentSheets.AppendElement(designModeSheet);
       }
@@ -2807,7 +2807,7 @@ nsHTMLDocument::EditingStateChanged()
     }
     else if (oldState == eDesignMode) {
       // designMode is being turned off (contentEditable is still on).
-      agentSheets.RemoveElement(nsLayoutStylesheetCache::DesignModeSheet());
+      agentSheets.RemoveElement(nsLayoutStylesheetCache::DesignModeSheet(GetStyleImplementation()));
       updateState = true;
     }
 

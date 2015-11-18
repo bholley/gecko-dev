@@ -26,6 +26,7 @@
 #include "nsWrapperCache.h"
 #include "mozilla/net/ReferrerPolicy.h"
 #include "mozilla/dom/SRIMetadata.h"
+#include "mozilla/StyleSheet.h"
 
 class CSSRuleListImpl;
 class nsCSSRuleProcessor;
@@ -111,14 +112,15 @@ private:
 //
 
 // CID for the CSSStyleSheet class
-// 7985c7ac-9ddc-444d-9899-0c86ec122f54
+// 7fc9b8fd-ed92-4c09-8a4c-34f7f89ba0c9
 #define NS_CSS_STYLE_SHEET_IMPL_CID     \
-{ 0x7985c7ac, 0x9ddc, 0x444d, \
-  { 0x98, 0x99, 0x0c, 0x86, 0xec, 0x12, 0x2f, 0x54 } }
+{ 0x7fc9b8fd, 0xed92, 0x4c09, \
+  { 0x8a, 0x4c, 0x34, 0xf7, 0xf8, 0x9b, 0xa0, 0xc9 } }
 
 
 class CSSStyleSheet final : public nsIDOMCSSStyleSheet,
                             public nsICSSLoaderObserver,
+                            public StyleSheet,
                             public nsWrapperCache
 {
 public:
@@ -133,11 +135,13 @@ public:
 
   NS_DECLARE_STATIC_IID_ACCESSOR(NS_CSS_STYLE_SHEET_IMPL_CID)
 
-  nsIURI* GetSheetURI() const;
-  nsIURI* GetBaseURI() const;
+  virtual StyleImplementation Implementation() const override { return StyleImplementation::Gecko; }
+
+  virtual nsIURI* GetSheetURI() const override;
+  virtual nsIURI* GetBaseURI() const override;
   void GetTitle(nsString& aTitle) const;
   void GetType(nsString& aType) const;
-  bool HasRules() const;
+  virtual bool HasRules() const override;
 
   /**
    * Whether the sheet is applicable.  A sheet that is not applicable
@@ -145,7 +149,7 @@ public:
    * applicable for a variety of reasons including being disabled and
    * being incomplete.
    */
-  bool IsApplicable() const;
+  virtual bool IsApplicable() const override;
 
   /**
    * Set the stylesheet to be enabled.  This may or may not make it
@@ -162,12 +166,12 @@ public:
    * Whether the sheet is complete.
    */
   bool IsComplete() const;
-  void SetComplete();
+  virtual void SetComplete() override;
 
   // style sheet owner info
-  CSSStyleSheet* GetParentSheet() const;  // may be null
-  nsIDocument* GetOwningDocument() const;  // may be null
-  void SetOwningDocument(nsIDocument* aDocument);
+  virtual StyleSheet* GetParentSheet() const override;  // may be null
+  virtual nsIDocument* GetOwningDocument() const override;  // may be null
+  virtual void SetOwningDocument(nsIDocument* aDocument) override;
 
   // Find the ID of the owner inner window.
   uint64_t FindOwningWindowInnerID() const;
@@ -175,7 +179,7 @@ public:
   void List(FILE* out = stdout, int32_t aIndent = 0) const;
 #endif
 
-  void AppendStyleSheet(CSSStyleSheet* aSheet);
+  virtual void AppendStyleSheet(StyleSheet* aSheet) override;
 
   // XXX do these belong here or are they generic?
   void AppendStyleRule(css::Rule* aRule);
@@ -191,24 +195,25 @@ public:
    * SetURIs may only be called while the sheet is 1) incomplete and 2)
    * has no rules in it
    */
-  void SetURIs(nsIURI* aSheetURI, nsIURI* aOriginalSheetURI, nsIURI* aBaseURI);
+  virtual void SetURIs(nsIURI* aSheetURI, nsIURI* aOriginalSheetURI, nsIURI* aBaseURI) override;
 
   /**
    * SetPrincipal should be called on all sheets before parsing into them.
    * This can only be called once with a non-null principal.  Calling this with
    * a null pointer is allowed and is treated as a no-op.
    */
-  void SetPrincipal(nsIPrincipal* aPrincipal);
+  virtual void SetPrincipal(nsIPrincipal* aPrincipal) override;
 
   // Principal() never returns a null pointer.
-  nsIPrincipal* Principal() const { return mInner->mPrincipal; }
+  virtual nsIPrincipal* Principal() const override { return mInner->mPrincipal; }
 
   // The document this style sheet is associated with.  May be null
   nsIDocument* GetDocument() const { return mDocument; }
 
   void SetTitle(const nsAString& aTitle) { mTitle = aTitle; }
   void SetMedia(nsMediaList* aMedia);
-  void SetOwningNode(nsINode* aOwningNode) { mOwningNode = aOwningNode; /* Not ref counted */ }
+  virtual void SetOwningNode(nsINode* aOwningNode) override { mOwningNode = aOwningNode; /* Not ref counted */ }
+  virtual nsINode* GetOwningNode() const override { return mOwningNode; }
 
   void SetOwnerRule(css::ImportRule* aOwnerRule) { mOwnerRule = aOwnerRule; /* Not ref counted */ }
   css::ImportRule* GetOwnerRule() const { return mOwnerRule; }
@@ -242,16 +247,16 @@ public:
 
   /* Get the URI this sheet was originally loaded from, if any.  Can
      return null */
-  nsIURI* GetOriginalURI() const { return mInner->mOriginalSheetURI; }
+  virtual nsIURI* GetOriginalURI() const override { return mInner->mOriginalSheetURI; }
 
   // nsICSSLoaderObserver interface
-  NS_IMETHOD StyleSheetLoaded(CSSStyleSheet* aSheet, bool aWasAlternate,
+  NS_IMETHOD StyleSheetLoaded(StyleSheet* aSheet, bool aWasAlternate,
                               nsresult aStatus) override;
 
   void EnsureUniqueInner();
 
   // Append all of this sheet's child sheets to aArray.
-  void AppendAllChildSheets(nsTArray<CSSStyleSheet*>& aArray);
+  void AppendAllChildSheets(nsTArray<StyleSheet*>& aArray);
 
   bool UseForPresentation(nsPresContext* aPresContext,
                             nsMediaQueryResultCacheKey& aKey) const;
@@ -273,13 +278,13 @@ public:
   size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
 
   // Get this style sheet's CORS mode
-  CORSMode GetCORSMode() const { return mInner->mCORSMode; }
+  virtual CORSMode GetCORSMode() const override { return mInner->mCORSMode; }
 
   // Get this style sheet's Referrer Policy
-  ReferrerPolicy GetReferrerPolicy() const { return mInner->mReferrerPolicy; }
+  virtual ReferrerPolicy GetReferrerPolicy() const override { return mInner->mReferrerPolicy; }
 
   // Get this style sheet's integrity metadata
-  dom::SRIMetadata GetIntegrity() const { return mInner->mIntegrity; }
+  virtual dom::SRIMetadata GetIntegrity() const override { return mInner->mIntegrity; }
 
   dom::Element* GetScopeElement() const { return mScopeElement; }
   void SetScopeElement(dom::Element* aScopeElement)
@@ -336,6 +341,8 @@ public:
   // WillDirty and then make no change and skip the DidDirty call.
   void WillDirty();
   void DidDirty();
+
+  virtual nsICSSLoaderObserver* GetChildSheetLoadObserver() override { return this; }
 
 private:
   CSSStyleSheet(const CSSStyleSheet& aCopy,
@@ -398,6 +405,20 @@ protected:
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(CSSStyleSheet, NS_CSS_STYLE_SHEET_IMPL_CID)
+
+inline CSSStyleSheet*
+StyleSheet::AsGecko()
+{
+  MOZ_ASSERT(IsGecko());
+  return static_cast<CSSStyleSheet*>(this);
+}
+
+inline const CSSStyleSheet*
+StyleSheet::AsGecko() const
+{
+  MOZ_ASSERT(IsGecko());
+  return static_cast<const CSSStyleSheet*>(this);
+}
 
 } // namespace mozilla
 
