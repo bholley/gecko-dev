@@ -1759,7 +1759,7 @@ nsStyleSet::ResolveStyleWithoutAnimation(dom::Element* aTarget,
              pseudoType == nsCSSPseudoElements::ePseudo_before ||
              pseudoType == nsCSSPseudoElements::ePseudo_after,
              "unexpected type for animations");
-  RestyleManager* restyleManager = PresContext()->RestyleManager();
+  RestyleManager* restyleManager = PresContext()->RestyleManager()->AsGecko();
 
   bool oldSkipAnimationRules = restyleManager->SkipAnimationRules();
   restyleManager->SetSkipAnimationRules(true);
@@ -2265,7 +2265,7 @@ nsStyleSet::ReparentStyleContext(nsStyleContext* aStyleContext,
   nsCSSPseudoElements::Type pseudoType = aStyleContext->GetPseudoType();
   nsRuleNode* ruleNode = aStyleContext->RuleNode();
 
-  NS_ASSERTION(!PresContext()->RestyleManager()->SkipAnimationRules(),
+  NS_ASSERTION(!PresContext()->RestyleManager()->AsGecko()->SkipAnimationRules(),
                "we no longer handle SkipAnimationRules()");
 
   nsRuleNode* visitedRuleNode = nullptr;
@@ -2541,5 +2541,5 @@ nsStyleSet::ClearSelectors()
   if (!mRuleTree) {
     return;
   }
-  PresContext()->RestyleManager()->ClearSelectors();
+  PresContext()->RestyleManager()->AsGecko()->ClearSelectors();
 }

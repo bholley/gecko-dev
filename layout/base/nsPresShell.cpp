@@ -543,9 +543,9 @@ mozilla::LazyLogModule PresShell::gLog("PresShell");
 static void
 VerifyStyleTree(nsPresContext* aPresContext, nsFrameManager* aFrameManager)
 {
-  if (nsFrame::GetVerifyStyleTreeEnable()) {
+  if (nsFrame::GetVerifyStyleTreeEnable() && aPresContext->RestyleManager()->IsGecko()) {
     nsIFrame* rootFrame = aFrameManager->GetRootFrame();
-    aPresContext->RestyleManager()->DebugVerifyStyleTree(rootFrame);
+    aPresContext->RestyleManager()->AsGecko()->DebugVerifyStyleTree(rootFrame);
   }
 }
 #define VERIFY_STYLE_TREE ::VerifyStyleTree(mPresContext, mFrameConstructor)
@@ -2774,9 +2774,11 @@ PresShell::RecreateFramesFor(nsIContent* aContent)
 
   // Mark ourselves as not safe to flush while we're doing frame construction.
   ++mChangeNestCount;
-  RestyleManager* restyleManager = mPresContext->RestyleManager();
-  nsresult rv = restyleManager->ProcessRestyledFrames(changeList);
-  restyleManager->FlushOverflowChangedTracker();
+  Restyler* restyleManager = mPresContext->RestyleManager();
+  nsresult rv = restyleManager->ProcessFrameReconstructions(changeList);
+  if (restyleManager->IsGecko()) {
+    restyleManager->AsGecko()->FlushOverflowChangedTracker();
+  }
   --mChangeNestCount;
 
   return rv;
@@ -3554,8 +3556,11 @@ void
 PresShell::DispatchSynthMouseMove(WidgetGUIEvent* aEvent,
                                   bool aFlushOnHoverChange)
 {
-  RestyleManager* restyleManager = mPresContext->RestyleManager();
-  uint32_t hoverGenerationBefore = restyleManager->GetHoverGeneration();
+  Restyler* restyleManager = mPresContext->RestyleManager();
+  if (restyleManager->IsServo()) {
+    return;
+  }
+  uint32_t hoverGenerationBefore = restyleManager->AsGecko()->GetHoverGeneration();
   nsEventStatus status;
   nsView* targetView = nsView::GetViewFor(aEvent->widget);
   if (!targetView)
@@ -3565,7 +3570,7 @@ PresShell::DispatchSynthMouseMove(WidgetGUIEvent* aEvent,
     return;
   }
   if (aFlushOnHoverChange &&
-      hoverGenerationBefore != restyleManager->GetHoverGeneration()) {
+      hoverGenerationBefore != restyleManager->AsGecko()->GetHoverGeneration()) {
     // Flush so that the resulting reflow happens now so that our caller
     // can suppress any synthesized mouse moves caused by that reflow.
     FlushPendingNotifications(Flush_Layout);
@@ -4387,7 +4392,7 @@ nsIPresShell::ReconstructStyleDataInternal()
     return;
   }
 
-  RestyleManager* restyleManager = mPresContext->RestyleManager();
+  Restyler* restyleManager = mPresContext->RestyleManager();
   if (scopeRoots.IsEmpty()) {
     // If scopeRoots is empty, we know that mStylesHaveChanged was true at
     // the beginning of this function, and that we need to restyle the whole
@@ -6478,8 +6483,8 @@ FlushThrottledStyles(nsIDocument *aDocument, void *aData)
   nsIPresShell* shell = aDocument->GetShell();
   if (shell && shell->IsVisible()) {
     nsPresContext* presContext = shell->GetPresContext();
-    if (presContext) {
-      presContext->RestyleManager()->UpdateOnlyAnimationStyles();
+    if (presContext && presContext->RestyleManager()->IsGecko()) {
+      presContext->RestyleManager()->AsGecko()->UpdateOnlyAnimationStyles();
     }
   }
 
@@ -9227,9 +9232,11 @@ PresShell::Observe(nsISupports* aSubject,
         {
           nsAutoScriptBlocker scriptBlocker;
           ++mChangeNestCount;
-          RestyleManager* restyleManager = mPresContext->RestyleManager();
-          restyleManager->ProcessRestyledFrames(changeList);
-          restyleManager->FlushOverflowChangedTracker();
+          Restyler* restyleManager = mPresContext->RestyleManager();
+          restyleManager->ProcessFrameReconstructions(changeList);
+          if (restyleManager->IsGecko()) {
+            restyleManager->AsGecko()->FlushOverflowChangedTracker();
+          }
           --mChangeNestCount;
         }
       }

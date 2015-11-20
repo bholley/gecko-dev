@@ -70,7 +70,7 @@ private:
   nsCSSFrameConstructor& operator=(const nsCSSFrameConstructor& aCopy) = delete;
 
 public:
-  mozilla::RestyleManager* RestyleManager() const
+  mozilla::Restyler* RestyleManager() const
     { return mPresShell->GetPresContext()->RestyleManager(); }
 
   nsIFrame* ConstructRootFrame();

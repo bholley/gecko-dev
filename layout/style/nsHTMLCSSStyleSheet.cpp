@@ -69,7 +69,7 @@ nsHTMLCSSStyleSheet::ElementRulesMatching(nsPresContext* aPresContext,
 
   declaration = aElement->GetSMILOverrideStyleDeclaration();
   if (declaration) {
-    RestyleManager* restyleManager = aPresContext->RestyleManager();
+    RestyleManager* restyleManager = aPresContext->RestyleManager()->AsGecko();
     if (!restyleManager->SkipAnimationRules()) {
       // Animation restyle (or non-restyle traversal of rules)
       // Now we can walk SMIL overrride style, without triggering transitions.

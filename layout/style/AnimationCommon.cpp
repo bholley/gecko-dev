@@ -309,8 +309,12 @@ CommonAnimationManager::GetAnimationRule(mozilla::dom::Element* aElement,
     return nullptr;
   }
 
-  RestyleManager* restyleManager = mPresContext->RestyleManager();
-  if (restyleManager->SkipAnimationRules()) {
+  Restyler* restyleManager = mPresContext->RestyleManager();
+  if (restyleManager->IsServo()) {
+    return nullptr;
+  }
+
+  if (restyleManager->AsGecko()->SkipAnimationRules()) {
     return nullptr;
   }
 
@@ -468,6 +472,10 @@ AnimationCollection::RequestRestyle(RestyleType aRestyleType)
     return;
   }
 
+  if (presContext->RestyleManager()->IsServo()) {
+    return;
+  }
+
   // Steps for Restyle::Layer:
 
   if (aRestyleType == RestyleType::Layer) {
@@ -476,7 +484,7 @@ AnimationCollection::RequestRestyle(RestyleType aRestyleType)
 
     // Prompt layers to re-sync their animations.
     presContext->ClearLastStyleUpdateForAllAnimations();
-    presContext->RestyleManager()->IncrementAnimationGeneration();
+    presContext->RestyleManager()->AsGecko()->IncrementAnimationGeneration();
     EffectSet* effectSet =
       EffectSet::GetEffectSet(mElement, PseudoElementType());
     if (effectSet) {
@@ -507,7 +515,11 @@ void
 AnimationCollection::UpdateCheckGeneration(
   nsPresContext* aPresContext)
 {
-  mCheckGeneration = aPresContext->RestyleManager()->GetAnimationGeneration();
+  if (aPresContext->RestyleManager()->IsServo()) {
+    return;
+  }
+  mCheckGeneration =
+    aPresContext->RestyleManager()->AsGecko()->GetAnimationGeneration();
 }
 
 nsPresContext*
