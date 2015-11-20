@@ -1769,18 +1769,23 @@ Loader::ParseSheet(const nsAString& aInput,
 
   aCompleted = false;
 
-  MOZ_ASSERT(GetStyleImplementation() == StyleImplementation::Gecko, "TODO");
-
-  nsCSSParser parser(this, aLoadData->mSheet->AsGecko());
-
   // Push our load data on the stack so any kids can pick it up
   mParsingDatas.AppendElement(aLoadData);
   nsIURI* sheetURI = aLoadData->mSheet->GetSheetURI();
   nsIURI* baseURI = aLoadData->mSheet->GetBaseURI();
-  nsresult rv = parser.ParseSheet(aInput, sheetURI, baseURI,
-                                  aLoadData->mSheet->Principal(),
-                                  aLoadData->mLineNumber,
-                                  aLoadData->mParsingMode);
+
+  nsresult rv;
+
+  if (GetStyleImplementation() == StyleImplementation::Gecko) {
+    nsCSSParser parser(this, aLoadData->mSheet->AsGecko());
+    rv = parser.ParseSheet(aInput, sheetURI, baseURI,
+                           aLoadData->mSheet->Principal(),
+                           aLoadData->mLineNumber,
+                           aLoadData->mParsingMode);
+  } else {
+    MOZ_ASSERT(false, "TODO");
+  }
+
   mParsingDatas.RemoveElementAt(mParsingDatas.Length() - 1);
 
   if (NS_FAILED(rv)) {
