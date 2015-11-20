@@ -919,7 +919,7 @@ nsSVGElement::WalkAnimatedContentStyleRules(nsRuleWalker* aRuleWalker)
   // whether this is a "no-animation restyle". (This should match the check
   // in nsHTMLCSSStyleSheet::RulesMatching(), where we determine whether to
   // apply the SMILOverrideStyle.)
-  RestyleManager* restyleManager = aRuleWalker->PresContext()->RestyleManager();
+  RestyleManager* restyleManager = aRuleWalker->PresContext()->RestyleManager()->AsGecko();
   if (!restyleManager->SkipAnimationRules()) {
     // update/walk the animated content style rule.
     css::StyleRule* animContentStyleRule = GetAnimatedContentStyleRule();

@@ -352,7 +352,7 @@ ReparentChildListStyle(nsPresContext* aPresContext,
                        const nsFrameList::Slice& aFrames,
                        nsIFrame* aParentFrame)
 {
-  RestyleManager* restyleManager = aPresContext->RestyleManager();
+  Restyler* restyleManager = aPresContext->RestyleManager();
 
   for (nsFrameList::Enumerator e(aFrames); !e.AtEnd(); e.Next()) {
     NS_ASSERTION(e.get()->GetParent() == aParentFrame, "Bogus parentage");
@@ -513,7 +513,7 @@ nsInlineFrame::DrainSelfOverflowListInternal(DrainFlags aFlags,
       }
       const bool doReparentSC =
         (aFlags & eInFirstLine) && !(aFlags & eForDestroy);
-      RestyleManager* restyleManager = PresContext()->RestyleManager();
+      Restyler* restyleManager = PresContext()->RestyleManager();
       for (nsIFrame* f = firstChild; f; f = f->GetNextSibling()) {
         f->SetParent(this);
         if (doReparentSC) {
@@ -580,7 +580,7 @@ nsInlineFrame::ReflowFrames(nsPresContext* aPresContext,
 
   nsLineLayout* lineLayout = aReflowState.mLineLayout;
   bool inFirstLine = aReflowState.mLineLayout->GetInFirstLine();
-  RestyleManager* restyleManager = aPresContext->RestyleManager();
+  Restyler* restyleManager = aPresContext->RestyleManager();
   WritingMode frameWM = aReflowState.GetWritingMode();
   WritingMode lineWM = aReflowState.mLineLayout->mRootSpan->mWritingMode;
   LogicalMargin framePadding = aReflowState.ComputedLogicalBorderPadding();

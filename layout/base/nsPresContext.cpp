@@ -2784,7 +2784,9 @@ nsPresContext::NotifyFontFaceSetOnRefresh()
 bool
 nsPresContext::HasPendingRestyleOrReflow()
 {
-  return (mRestyleManager && mRestyleManager->HasPendingRestyles()) ||
+  return (mRestyleManager &&
+          mRestyleManager->IsGecko() &&
+          mRestyleManager->AsGecko()->HasPendingRestyles()) ||
          PresShell()->HasPendingReflow();
 }
 
@@ -2964,10 +2966,10 @@ nsPresContext::IsDeviceSizePageSize()
 uint64_t
 nsPresContext::GetRestyleGeneration() const
 {
-  if (!mRestyleManager) {
+  if (!mRestyleManager || mRestyleManager->IsServo()) {
     return 0;
   }
-  return mRestyleManager->GetRestyleGeneration();
+  return mRestyleManager->AsGecko()->GetRestyleGeneration();
 }
 
 nsRootPresContext::nsRootPresContext(nsIDocument* aDocument,

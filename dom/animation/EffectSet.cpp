@@ -134,7 +134,7 @@ void
 EffectSet::UpdateAnimationGeneration(nsPresContext* aPresContext)
 {
   mAnimationGeneration =
-    aPresContext->RestyleManager()->GetAnimationGeneration();
+    aPresContext->RestyleManager()->AsGecko()->GetAnimationGeneration();
 }
 
 /* static */ nsIAtom**

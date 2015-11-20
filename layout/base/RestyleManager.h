@@ -12,6 +12,7 @@
 #define mozilla_RestyleManager_h
 
 #include "mozilla/RestyleLogging.h"
+#include "mozilla/Restyler.h"
 #include "nsISupportsImpl.h"
 #include "nsChangeHint.h"
 #include "RestyleTracker.h"
@@ -20,6 +21,7 @@
 #include "nsRefPtrHashtable.h"
 #include "nsCSSPseudoElements.h"
 #include "nsTransitionManager.h"
+#include "nsStyleChangeList.h"
 
 class nsIFrame;
 class nsStyleChangeList;
@@ -33,7 +35,7 @@ namespace dom {
   class Element;
 } // namespace dom
 
-class RestyleManager final
+class RestyleManager final : public Restyler
 {
 public:
   friend class ::nsRefreshDriver;
@@ -43,9 +45,9 @@ public:
 
   explicit RestyleManager(nsPresContext* aPresContext);
 
-private:
-  // Private destructor, to discourage deletion outside of Release():
-  ~RestyleManager()
+protected:
+  // Protected destructor, to discourage deletion outside of Release():
+  virtual ~RestyleManager() override
   {
     MOZ_ASSERT(!mReframingStyleContexts,
                "temporary member should be nulled out before destruction");
@@ -54,9 +56,9 @@ private:
   }
 
 public:
-  NS_INLINE_DECL_REFCOUNTING(mozilla::RestyleManager)
+  virtual StyleBackendType Implementation() const override { return StyleBackendType::Gecko; }
 
-  void Disconnect() {
+  virtual void Disconnect() override {
     mPresContext = nullptr;
   }
 
@@ -71,22 +73,22 @@ public:
 
   // Forwarded nsIDocumentObserver method, to handle restyling (and
   // passing the notification to the frame).
-  nsresult ContentStateChanged(nsIContent*   aContent,
-                               EventStates aStateMask);
+  virtual nsresult ContentStateChanged(nsIContent*   aContent,
+                                       EventStates aStateMask) override;
 
   // Forwarded nsIMutationObserver method, to handle restyling.
-  void AttributeWillChange(Element* aElement,
-                           int32_t  aNameSpaceID,
-                           nsIAtom* aAttribute,
-                           int32_t  aModType,
-                           const nsAttrValue* aNewValue);
+  virtual void AttributeWillChange(Element* aElement,
+                                   int32_t  aNameSpaceID,
+                                   nsIAtom* aAttribute,
+                                   int32_t  aModType,
+                                   const nsAttrValue* aNewValue) override;
   // Forwarded nsIMutationObserver method, to handle restyling (and
   // passing the notification to the frame).
-  void AttributeChanged(Element* aElement,
-                        int32_t  aNameSpaceID,
-                        nsIAtom* aAttribute,
-                        int32_t  aModType,
-                        const nsAttrValue* aOldValue);
+  virtual void AttributeChanged(Element* aElement,
+                                int32_t  aNameSpaceID,
+                                nsIAtom* aAttribute,
+                                int32_t  aModType,
+                                const nsAttrValue* aOldValue) override;
 
   // Get an integer that increments every time we process pending restyles.
   // The value is never 0.
@@ -125,7 +127,7 @@ public:
    *
    * @param aFrame the root of the subtree to reparent.  Must not be null.
    */
-  nsresult ReparentStyleContext(nsIFrame* aFrame);
+  virtual nsresult ReparentStyleContext(nsIFrame* aFrame) override;
 
   void ClearSelectors() {
     mPendingRestyles.ClearSelectors();
@@ -157,6 +159,15 @@ public:
    */
   void DebugVerifyStyleTree(nsIFrame* aFrame);
 #endif
+
+  virtual nsresult ProcessFrameReconstructions(nsStyleChangeList& aChangeList) override {
+    for (int32_t i = 0, n = aChangeList.Count(); i < n; i++) {
+      const nsStyleChangeData* data = nullptr;
+      aChangeList.ChangeAt(i, &data);
+      MOZ_ASSERT((int)data->mHint == (int)nsChangeHint_ReconstructFrame);
+    }
+    return ProcessRestyledFrames(aChangeList);
+  }
 
   // Note: It's the caller's responsibility to make sure to wrap a
   // ProcessRestyledFrames call in a view update batch and a script blocker.
@@ -316,20 +327,20 @@ public:
   // Restyling for a ContentInserted (notification after insertion) or
   // for a CharacterDataChanged.  |aContainer| must be non-null; when
   // the container is null, no work is needed.
-  void RestyleForInsertOrChange(Element* aContainer, nsIContent* aChild);
+  virtual void RestyleForInsertOrChange(Element* aContainer, nsIContent* aChild) override;
 
   // This would be the same as RestyleForInsertOrChange if we got the
   // notification before the removal.  However, we get it after, so we need the
   // following sibling in addition to the old child.  |aContainer| must be
   // non-null; when the container is null, no work is needed.  aFollowingSibling
   // is the sibling that used to come after aOldChild before the removal.
-  void RestyleForRemove(Element* aContainer,
-                        nsIContent* aOldChild,
-                        nsIContent* aFollowingSibling);
+  virtual void RestyleForRemove(Element* aContainer,
+                                nsIContent* aOldChild,
+                                nsIContent* aFollowingSibling) override;
 
   // Same for a ContentAppended.  |aContainer| must be non-null; when
   // the container is null, no work is needed.
-  void RestyleForAppend(Element* aContainer, nsIContent* aFirstNewContent);
+  virtual void RestyleForAppend(Element* aContainer, nsIContent* aFirstNewContent) override;
 
   // Process any pending restyles. This should be called after
   // CreateNeededFrames.
@@ -338,7 +349,7 @@ public:
   // This function does not call ProcessAttachedQueue() on the binding manager.
   // If the caller wants that to happen synchronously, it needs to handle that
   // itself.
-  void ProcessPendingRestyles();
+  virtual void ProcessPendingRestyles() override;
 
   // Returns whether there are any pending restyles.
   bool HasPendingRestyles() { return mPendingRestyles.Count() != 0; }
@@ -389,8 +400,8 @@ public:
   // in the restyle hint is harmless; some callers (e.g.,
   // nsPresContext::MediaFeatureValuesChanged) might do this for their
   // own reasons.)
-  void RebuildAllStyleData(nsChangeHint aExtraHint,
-                           nsRestyleHint aRestyleHint);
+  virtual void RebuildAllStyleData(nsChangeHint aExtraHint,
+                                   nsRestyleHint aRestyleHint) override;
 
   /**
    * Notify the frame constructor that an element needs to have its
@@ -405,9 +416,15 @@ public:
   void PostRestyleEvent(Element* aElement,
                         nsRestyleHint aRestyleHint,
                         nsChangeHint aMinChangeHint,
-                        const RestyleHintData* aRestyleHintData = nullptr);
+                        const RestyleHintData* aRestyleHintData);
 
-  void PostRestyleEventForLazyConstruction()
+  virtual void PostRestyleEvent(Element* aElement,
+                                nsRestyleHint aRestyleHint,
+                                nsChangeHint aMinChangeHint) override {
+    PostRestyleEvent(aElement, aRestyleHint, aMinChangeHint, nullptr);
+  }
+
+  virtual void PostRestyleEventForLazyConstruction() override
   {
     PostRestyleEventInternal(true);
   }
@@ -439,8 +456,8 @@ public:
    *
    * For parameters, see RebuildAllStyleData.
    */
-  void PostRebuildAllStyleDataEvent(nsChangeHint aExtraHint,
-                                    nsRestyleHint aRestyleHint);
+  virtual void PostRebuildAllStyleDataEvent(nsChangeHint aExtraHint,
+                                            nsRestyleHint aRestyleHint) override;
 
 #ifdef RESTYLE_LOGGING
   /**
@@ -902,6 +919,13 @@ private:
   int32_t mLoggingDepth;
 #endif
 };
+
+inline RestyleManager*
+mozilla::Restyler::AsGecko()
+{
+  MOZ_ASSERT(IsGecko());
+  return static_cast<RestyleManager*>(this);
+}
 
 /**
  * This pushes any display:contents nodes onto a TreeMatchContext.

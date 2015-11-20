@@ -160,7 +160,7 @@ EffectCompositor::RequestRestyle(dom::Element* aElement,
 
   if (aRestyleType == RestyleType::Layer) {
     // Prompt layers to re-sync their animations.
-    mPresContext->RestyleManager()->IncrementAnimationGeneration();
+    mPresContext->RestyleManager()->AsGecko()->IncrementAnimationGeneration();
     EffectSet* effectSet =
       EffectSet::GetEffectSet(aElement, aPseudoType);
     if (effectSet) {
@@ -252,7 +252,7 @@ EffectCompositor::GetAnimationRule(dom::Element* aElement,
     return nullptr;
   }
 
-  if (mPresContext->RestyleManager()->SkipAnimationRules()) {
+  if (mPresContext->RestyleManager()->AsGecko()->SkipAnimationRules()) {
     // We don't need to worry about updating mElementsToRestyle in this case
     // since this is not the animation restyle we requested when we called
     // PostRestyleForAnimation (see comment at start of this method).

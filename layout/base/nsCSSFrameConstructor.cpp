@@ -438,7 +438,7 @@ AnyKidsNeedBlockParent(nsIFrame *aFrameList)
 
 // Reparent a frame into a wrapper frame that is a child of its old parent.
 static void
-ReparentFrame(RestyleManager* aRestyleManager,
+ReparentFrame(Restyler* aRestyleManager,
               nsContainerFrame* aNewParentFrame,
               nsIFrame* aFrame)
 {
@@ -451,7 +451,7 @@ ReparentFrames(nsCSSFrameConstructor* aFrameConstructor,
                nsContainerFrame* aNewParentFrame,
                const nsFrameList& aFrameList)
 {
-  RestyleManager* restyleManager = aFrameConstructor->RestyleManager();
+  Restyler* restyleManager = aFrameConstructor->RestyleManager();
   for (nsFrameList::Enumerator e(aFrameList); !e.AtEnd(); e.Next()) {
     ReparentFrame(restyleManager, aNewParentFrame, e.get());
   }
@@ -1551,7 +1551,9 @@ nsCSSFrameConstructor::NotifyDestroyingFrame(nsIFrame* aFrame)
     CountersDirty();
   }
 
-  RestyleManager()->NotifyDestroyingFrame(aFrame);
+  if (RestyleManager()->IsGecko()) {
+    RestyleManager()->AsGecko()->NotifyDestroyingFrame(aFrame);
+  }
 
   nsFrameManager::NotifyDestroyingFrame(aFrame);
 }
@@ -1810,8 +1812,8 @@ nsCSSFrameConstructor::CreateGeneratedContentItem(nsFrameConstructorState& aStat
     return;
   }
 
-  RestyleManager::ReframingStyleContexts* rsc =
-    RestyleManager()->GetReframingStyleContexts();
+  RestyleManager::ReframingStyleContexts* rsc = RestyleManager()->IsGecko() ?
+    RestyleManager()->AsGecko()->GetReframingStyleContexts() : nullptr;
   if (rsc) {
     nsStyleContext* oldStyleContext = rsc->Get(container, aPseudoElement);
     if (oldStyleContext) {
@@ -4923,8 +4925,8 @@ nsCSSFrameConstructor::ResolveStyleContext(nsStyleContext* aParentStyleContext,
     result = styleSet->ResolveStyleForNonElement(aParentStyleContext);
   }
 
-  RestyleManager::ReframingStyleContexts* rsc =
-    RestyleManager()->GetReframingStyleContexts();
+  RestyleManager::ReframingStyleContexts* rsc = RestyleManager()->IsGecko() ?
+    RestyleManager()->AsGecko()->GetReframingStyleContexts() : nullptr;
   if (rsc) {
     nsStyleContext* oldStyleContext =
       rsc->Get(aContent, nsCSSPseudoElements::ePseudo_NotPseudoElement);

@@ -1721,7 +1721,9 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
 
           NS_ADDREF(shell);
           mStyleFlushObservers.RemoveElement(shell);
-          shell->GetPresContext()->RestyleManager()->mObservingRefreshDriver = false;
+          if (shell->GetPresContext()->RestyleManager()->IsGecko()) {
+            shell->GetPresContext()->RestyleManager()->AsGecko()->mObservingRefreshDriver = false;
+          }
           shell->FlushPendingNotifications(ChangesToFlush(Flush_Style, false));
           // Inform the FontFaceSet that we ticked, so that it can resolve its
           // ready promise if it needs to (though it might still be waiting on

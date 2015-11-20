@@ -83,7 +83,7 @@ nsFirstLetterFrame::SetInitialChildList(ChildListID  aListID,
 {
   MOZ_ASSERT(aListID == kPrincipalList, "Principal child list is the only "
              "list that nsFirstLetterFrame should set via this function");
-  RestyleManager* restyleManager = PresContext()->RestyleManager();
+  Restyler* restyleManager = PresContext()->RestyleManager();
 
   for (nsFrameList::Enumerator e(aChildList); !e.AtEnd(); e.Next()) {
     NS_ASSERTION(e.get()->GetParent() == this, "Unexpected parent");

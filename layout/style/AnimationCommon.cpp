@@ -199,7 +199,11 @@ void
 AnimationCollection::UpdateCheckGeneration(
   nsPresContext* aPresContext)
 {
-  mCheckGeneration = aPresContext->RestyleManager()->GetAnimationGeneration();
+  if (aPresContext->RestyleManager()->IsServo()) {
+    return;
+  }
+  mCheckGeneration =
+    aPresContext->RestyleManager()->AsGecko()->GetAnimationGeneration();
 }
 
 nsPresContext*

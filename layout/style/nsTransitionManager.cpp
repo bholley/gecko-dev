@@ -215,6 +215,10 @@ nsTransitionManager::StyleContextChanged(dom::Element *aElement,
                                          nsStyleContext *aOldStyleContext,
                                          RefPtr<nsStyleContext>* aNewStyleContext /* inout */)
 {
+  if (mPresContext->RestyleManager()->IsServo()) {
+    return;
+  }
+
   nsStyleContext* newStyleContext = *aNewStyleContext;
 
   NS_PRECONDITION(aOldStyleContext->GetPseudo() == newStyleContext->GetPseudo(),
@@ -289,7 +293,7 @@ nsTransitionManager::StyleContextChanged(dom::Element *aElement,
 
   if (collection &&
       collection->mCheckGeneration ==
-        mPresContext->RestyleManager()->GetAnimationGeneration()) {
+        mPresContext->RestyleManager()->AsGecko()->GetAnimationGeneration()) {
     // When we start a new transition, we immediately post a restyle.
     // If the animation generation on the collection is current, that
     // means *this* is that restyle, since we bump the animation
@@ -503,6 +507,10 @@ nsTransitionManager::ConsiderStartingTransition(
   NS_ASSERTION(!aElementTransitions ||
                aElementTransitions->mElement == aElement, "Element mismatch");
 
+  if (mPresContext->RestyleManager()->IsServo()) {
+    return;
+  }
+
   if (aWhichStarted->HasProperty(aProperty)) {
     // A later item in transition-property already started a
     // transition for this property, so we ignore this one.
@@ -684,7 +692,7 @@ nsTransitionManager::ConsiderStartingTransition(
     OwningElementRef(*aElement, aNewStyleContext->GetPseudoType()));
   animation->SetTimeline(timeline);
   animation->SetCreationSequence(
-    mPresContext->RestyleManager()->GetAnimationGeneration());
+    mPresContext->RestyleManager()->AsGecko()->GetAnimationGeneration());
   // The order of the following two calls is important since PlayFromStyle
   // will add the animation to the PendingAnimationTracker of its effect's
   // document. When we come to make effect writeable (bug 1049975) we should
