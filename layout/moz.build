@@ -9,6 +9,7 @@ with Files('**'):
 
 DIRS += [
     'style',
+    'servo',
     'base',
     'generic',
     'forms',
