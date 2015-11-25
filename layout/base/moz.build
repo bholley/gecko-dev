@@ -171,6 +171,7 @@ LOCAL_INCLUDES += [
     '../generic',
     '../mathml',
     '../printing',
+    '../servo',
     '../style',
     '../svg',
     '../tables',

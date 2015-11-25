@@ -12,6 +12,8 @@
 #define mozilla_RestyleManager_h
 
 #include "mozilla/RestyleLogging.h"
+#include "mozilla/servo/ExternalAPI.h"
+
 #include "nsISupportsImpl.h"
 #include "nsChangeHint.h"
 #include "RestyleTracker.h"
