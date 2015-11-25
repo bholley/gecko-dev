@@ -51,6 +51,7 @@ class nsIURI;
 class nsNodeSupportsWeakRefTearoff;
 class nsNodeWeakReference;
 class nsDOMMutationObserver;
+struct ServoNodeData;
 
 namespace mozilla {
 class EventListenerManager;
@@ -320,7 +321,8 @@ public:
     mPreviousSibling(nullptr),
     mFirstChild(nullptr),
     mSubtreeRoot(this),
-    mSlots(nullptr)
+    mSlots(nullptr),
+    mServoNodeData(nullptr)
   {
   }
 #endif
@@ -2008,6 +2010,10 @@ protected:
 
   // Storage for more members that are usually not needed; allocated lazily.
   nsSlots* mSlots;
+
+public:
+  // Layout data managed by Servo.
+  ServoNodeData* mServoNodeData;
 };
 
 inline nsIDOMNode* GetAsDOMNode(nsINode* aNode)
