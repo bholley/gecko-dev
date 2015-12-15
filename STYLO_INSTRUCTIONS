@@ -10,7 +10,9 @@ Steps:
 * Clone servo, check out the stylo branch.
 * Clone https://github.com/bholley/rust-azure, check out the stylo branch.
 * Clone https://github.com/bholley/rust-mozjs, check out the stylo branch.
-* Set up a .cargo/config override for rust-azure and rust-mozjs.
+* Clone https://github.com/bholley/rust-selectors, check out the stylo branch.
+* Set up a .cargo/config override for rust-azure, rust-mozjs, and rust-selectors.
 * Build servo as CEF (./mach build-cef).
 * Set up the absolute path in m-c's |toolkit/library/moz.build| to point to your servo build directory.
+* Set up the absolute path in servo/components/layout/gecko_glue.rs to point to the appropriate resources directory.
 * Build m-c.
