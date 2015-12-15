@@ -172,63 +172,74 @@ private:
 #define NS_DEFINE_EVENT_STATE_MACRO(_val)               \
   (mozilla::EventStates(mozilla::EventStates::InternalType(1) << _val))
 
+/*
+ * These must be binary compatible with the state enumeration in rust-selectors!
+ */
+
 // Mouse is down on content.
 #define NS_EVENT_STATE_ACTIVE        NS_DEFINE_EVENT_STATE_MACRO(0)
 // Content has focus.
 #define NS_EVENT_STATE_FOCUS         NS_DEFINE_EVENT_STATE_MACRO(1)
 // Mouse is hovering over content.
 #define NS_EVENT_STATE_HOVER         NS_DEFINE_EVENT_STATE_MACRO(2)
-// Drag is hovering over content.
-#define NS_EVENT_STATE_DRAGOVER      NS_DEFINE_EVENT_STATE_MACRO(3)
-// Content is URL's target (ref).
-#define NS_EVENT_STATE_URLTARGET     NS_DEFINE_EVENT_STATE_MACRO(4)
+// Content is enabled (and can be disabled).
+#define NS_EVENT_STATE_ENABLED       NS_DEFINE_EVENT_STATE_MACRO(3)
+// Content is disabled.
+#define NS_EVENT_STATE_DISABLED      NS_DEFINE_EVENT_STATE_MACRO(4)
 // Content is checked.
 #define NS_EVENT_STATE_CHECKED       NS_DEFINE_EVENT_STATE_MACRO(5)
-// Content is enabled (and can be disabled).
-#define NS_EVENT_STATE_ENABLED       NS_DEFINE_EVENT_STATE_MACRO(6)
-// Content is disabled.
-#define NS_EVENT_STATE_DISABLED      NS_DEFINE_EVENT_STATE_MACRO(7)
+// Content is in the indeterminate state.
+#define NS_EVENT_STATE_INDETERMINATE NS_DEFINE_EVENT_STATE_MACRO(6)
+
+#define NS_EVENT_STATE_HIGHEST_SERVO_BIT 6
+
+/*
+ * This marks the binary compatibility barrier
+ */
+
+// Drag is hovering over content.
+#define NS_EVENT_STATE_DRAGOVER      NS_DEFINE_EVENT_STATE_MACRO(7)
+// Content is URL's target (ref).
+#define NS_EVENT_STATE_URLTARGET     NS_DEFINE_EVENT_STATE_MACRO(8)
 // Content is required.
-#define NS_EVENT_STATE_REQUIRED      NS_DEFINE_EVENT_STATE_MACRO(8)
+#define NS_EVENT_STATE_REQUIRED      NS_DEFINE_EVENT_STATE_MACRO(9)
 // Content is optional (and can be required).
-#define NS_EVENT_STATE_OPTIONAL      NS_DEFINE_EVENT_STATE_MACRO(9)
+#define NS_EVENT_STATE_OPTIONAL      NS_DEFINE_EVENT_STATE_MACRO(10)
 // Link has been visited.
-#define NS_EVENT_STATE_VISITED       NS_DEFINE_EVENT_STATE_MACRO(10)
+#define NS_EVENT_STATE_VISITED       NS_DEFINE_EVENT_STATE_MACRO(11)
 // Link hasn't been visited.
-#define NS_EVENT_STATE_UNVISITED     NS_DEFINE_EVENT_STATE_MACRO(11)
+#define NS_EVENT_STATE_UNVISITED     NS_DEFINE_EVENT_STATE_MACRO(12)
 // Content is valid (and can be invalid).
-#define NS_EVENT_STATE_VALID         NS_DEFINE_EVENT_STATE_MACRO(12)
+#define NS_EVENT_STATE_VALID         NS_DEFINE_EVENT_STATE_MACRO(13)
 // Content is invalid.
-#define NS_EVENT_STATE_INVALID       NS_DEFINE_EVENT_STATE_MACRO(13)
+#define NS_EVENT_STATE_INVALID       NS_DEFINE_EVENT_STATE_MACRO(14)
 // Content value is in-range (and can be out-of-range).
-#define NS_EVENT_STATE_INRANGE       NS_DEFINE_EVENT_STATE_MACRO(14)
+#define NS_EVENT_STATE_INRANGE       NS_DEFINE_EVENT_STATE_MACRO(15)
 // Content value is out-of-range.
-#define NS_EVENT_STATE_OUTOFRANGE    NS_DEFINE_EVENT_STATE_MACRO(15)
+#define NS_EVENT_STATE_OUTOFRANGE    NS_DEFINE_EVENT_STATE_MACRO(16)
 // These two are temporary (see bug 302188)
 // Content is read-only.
-#define NS_EVENT_STATE_MOZ_READONLY  NS_DEFINE_EVENT_STATE_MACRO(16)
+#define NS_EVENT_STATE_MOZ_READONLY  NS_DEFINE_EVENT_STATE_MACRO(17)
 // Content is editable.
-#define NS_EVENT_STATE_MOZ_READWRITE NS_DEFINE_EVENT_STATE_MACRO(17)
+#define NS_EVENT_STATE_MOZ_READWRITE NS_DEFINE_EVENT_STATE_MACRO(18)
 // Content is the default one (meaning depends of the context).
-#define NS_EVENT_STATE_DEFAULT       NS_DEFINE_EVENT_STATE_MACRO(18)
+#define NS_EVENT_STATE_DEFAULT       NS_DEFINE_EVENT_STATE_MACRO(19)
 // Content could not be rendered (image/object/etc).
-#define NS_EVENT_STATE_BROKEN        NS_DEFINE_EVENT_STATE_MACRO(19)
+#define NS_EVENT_STATE_BROKEN        NS_DEFINE_EVENT_STATE_MACRO(20)
 // Content disabled by the user (images turned off, say).
-#define NS_EVENT_STATE_USERDISABLED  NS_DEFINE_EVENT_STATE_MACRO(20)
+#define NS_EVENT_STATE_USERDISABLED  NS_DEFINE_EVENT_STATE_MACRO(21)
 // Content suppressed by the user (ad blocking, etc).
-#define NS_EVENT_STATE_SUPPRESSED    NS_DEFINE_EVENT_STATE_MACRO(21)
+#define NS_EVENT_STATE_SUPPRESSED    NS_DEFINE_EVENT_STATE_MACRO(22)
 // Content is still loading such that there is nothing to show the
 // user (eg an image which hasn't started coming in yet).
-#define NS_EVENT_STATE_LOADING       NS_DEFINE_EVENT_STATE_MACRO(22)
+#define NS_EVENT_STATE_LOADING       NS_DEFINE_EVENT_STATE_MACRO(23)
 // Content is of a type that gecko can't handle.
-#define NS_EVENT_STATE_TYPE_UNSUPPORTED NS_DEFINE_EVENT_STATE_MACRO(23)
-#define NS_EVENT_STATE_INCREMENT_SCRIPT_LEVEL NS_DEFINE_EVENT_STATE_MACRO(24)
+#define NS_EVENT_STATE_TYPE_UNSUPPORTED NS_DEFINE_EVENT_STATE_MACRO(24)
+#define NS_EVENT_STATE_INCREMENT_SCRIPT_LEVEL NS_DEFINE_EVENT_STATE_MACRO(25)
 // Handler for the content has been blocked.
-#define NS_EVENT_STATE_HANDLER_BLOCKED NS_DEFINE_EVENT_STATE_MACRO(25)
+#define NS_EVENT_STATE_HANDLER_BLOCKED NS_DEFINE_EVENT_STATE_MACRO(26)
 // Handler for the content has been disabled.
-#define NS_EVENT_STATE_HANDLER_DISABLED NS_DEFINE_EVENT_STATE_MACRO(26)
-// Content is in the indeterminate state.
-#define NS_EVENT_STATE_INDETERMINATE NS_DEFINE_EVENT_STATE_MACRO(27)
+#define NS_EVENT_STATE_HANDLER_DISABLED NS_DEFINE_EVENT_STATE_MACRO(27)
 // Handler for the content has crashed
 #define NS_EVENT_STATE_HANDLER_CRASHED NS_DEFINE_EVENT_STATE_MACRO(28)
 // Content has focus and should show a ring.
