@@ -142,16 +142,16 @@ Gecko_SetLayoutData(GeckoNode* aNode, ServoLayoutData* aData)
   aNode->mServoLayoutData = aData;
 }
 
-static_assert(ELEMENT_NODE == nsIDOMNode::ELEMENT_NODE, "Mismatched enum");
-static_assert(ATTRIBUTE_NODE == nsIDOMNode::ATTRIBUTE_NODE, "Mismatched enum");
-static_assert(TEXT_NODE == nsIDOMNode::TEXT_NODE, "Mismatched enum");
-static_assert(CDATA_SECTION_NODE == nsIDOMNode::CDATA_SECTION_NODE, "Mismatched enum");
-static_assert(ENTITY_REFERENCE_NODE == nsIDOMNode::ENTITY_REFERENCE_NODE, "Mismatched enum");
-static_assert(ENTITY_NODE == nsIDOMNode::ENTITY_NODE, "Mismatched enum");
-static_assert(PROCESSING_INSTRUCTION_NODE == nsIDOMNode::PROCESSING_INSTRUCTION_NODE, "Mismatched enum");
-static_assert(COMMENT_NODE == nsIDOMNode::COMMENT_NODE, "Mismatched enum");
-static_assert(DOCUMENT_NODE == nsIDOMNode::DOCUMENT_NODE, "Mismatched enum");
-static_assert(DOCUMENT_TYPE_NODE == nsIDOMNode::DOCUMENT_TYPE_NODE, "Mismatched enum");
-static_assert(DOCUMENT_FRAGMENT_NODE == nsIDOMNode::DOCUMENT_FRAGMENT_NODE, "Mismatched enum");
-static_assert(NOTATION_NODE == nsIDOMNode::NOTATION_NODE, "Mismatched enum");
+static_assert((unsigned) ELEMENT_NODE == nsIDOMNode::ELEMENT_NODE, "Mismatched enum");
+static_assert((unsigned) ATTRIBUTE_NODE == nsIDOMNode::ATTRIBUTE_NODE, "Mismatched enum");
+static_assert((unsigned) TEXT_NODE == nsIDOMNode::TEXT_NODE, "Mismatched enum");
+static_assert((unsigned) CDATA_SECTION_NODE == nsIDOMNode::CDATA_SECTION_NODE, "Mismatched enum");
+static_assert((unsigned) ENTITY_REFERENCE_NODE == nsIDOMNode::ENTITY_REFERENCE_NODE, "Mismatched enum");
+static_assert((unsigned) ENTITY_NODE == nsIDOMNode::ENTITY_NODE, "Mismatched enum");
+static_assert((unsigned) PROCESSING_INSTRUCTION_NODE == nsIDOMNode::PROCESSING_INSTRUCTION_NODE, "Mismatched enum");
+static_assert((unsigned) COMMENT_NODE == nsIDOMNode::COMMENT_NODE, "Mismatched enum");
+static_assert((unsigned) DOCUMENT_NODE == nsIDOMNode::DOCUMENT_NODE, "Mismatched enum");
+static_assert((unsigned) DOCUMENT_TYPE_NODE == nsIDOMNode::DOCUMENT_TYPE_NODE, "Mismatched enum");
+static_assert((unsigned) DOCUMENT_FRAGMENT_NODE == nsIDOMNode::DOCUMENT_FRAGMENT_NODE, "Mismatched enum");
+static_assert((unsigned) NOTATION_NODE == nsIDOMNode::NOTATION_NODE, "Mismatched enum");
 
