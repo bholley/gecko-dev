@@ -27,7 +27,11 @@ def Libxul(name):
         'winspool.drv'
     ]
 
-    OS_LIBS += ['-L/files/mozilla/stylo/servo/target/debug', '-lembedding', '-lz', '-lssl', '-lcrypto', '-framework CoreFoundation', '-framework IOSurface']
+    OS_LIBS += ['-L/files/mozilla/stylo/servo/target/debug', '-lembedding', '-lz', '-lssl', '-lcrypto']
+    if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'cocoa':
+        OS_LIBS += ['-framework CoreFoundation', '-framework IOSurface']
+    elif CONFIG['MOZ_WIDGET_GTK']:
+        OS_LIBS += ['-lGL']
 
     if CONFIG['ACCESSIBILITY']:
         DELAYLOAD_DLLS += ['oleacc.dll']
