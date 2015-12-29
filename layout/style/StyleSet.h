@@ -13,6 +13,7 @@
 //   * change nsStyleContext to a generic StyleContext type
 
 namespace mozilla {
+class ServoStyleSet;
 namespace dom {
 class Element;
 }
@@ -39,6 +40,7 @@ public:
   bool IsGecko() const { return Implementation() == StyleImplementation::Gecko; }
   bool IsServo() const { return Implementation() == StyleImplementation::Servo; }
   inline nsStyleSet* AsGecko();
+  inline ServoStyleSet* AsServo();
 
   virtual void Init(nsPresContext* aPresContext) = 0;
   virtual void BeginShutdown() = 0;
