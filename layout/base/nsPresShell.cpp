@@ -183,6 +183,7 @@
 #include "nsSubDocumentFrame.h"
 #include "nsQueryObject.h"
 #include "nsLayoutStylesheetCache.h"
+#include "nsStyleSet.h"
 
 #ifdef ANDROID
 #include "nsIDocShellTreeOwner.h"

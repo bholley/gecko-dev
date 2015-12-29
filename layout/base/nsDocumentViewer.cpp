@@ -6,6 +6,7 @@
 
 /* container for a document and its presentation */
 
+#include "mozilla/ServoStyleSet.h"
 #include "nscore.h"
 #include "nsCOMPtr.h"
 #include "nsCRT.h"
@@ -2141,6 +2142,27 @@ nsDocumentViewer::RequestWindowClose(bool* aCanClose)
   return NS_OK;
 }
 
+static StyleImplementation
+StyleImplementationForDocument(nsIDocument* aDocument, nsIDocShell* aContainer)
+{
+  MOZ_ASSERT(aDocument);
+
+  // XXX For now we use a Servo-backed style set only for (X)HTML documents
+  // in content docshells.  This should let us avoid implementing XUL-specific
+  // CSS features.  And apart from not supporting SVG properties in Servo
+  // yet, the root SVG element likes to create a style sheet for an SVG
+  // document before we have a pres shell (i.e. before we make the decision
+  // here about whether to use a Gecko- or Servo-backed style system), so
+  // we avoid Servo-backed style sets for SVG documents.
+
+  return StyleSet::StyloEnabled() &&
+         aDocument->IsHTMLOrXHTML() &&
+         aContainer &&
+         aContainer->ItemType() == nsIDocShell::typeContent ?
+           StyleImplementation::Servo :
+           StyleImplementation::Gecko;
+}
+
 nsresult
 nsDocumentViewer::CreateStyleSet(nsIDocument* aDocument,
                                  StyleSet** aStyleSet)
@@ -2150,17 +2172,14 @@ nsDocumentViewer::CreateStyleSet(nsIDocument* aDocument,
   // this should eventually get expanded to allow for creating
   // different sets for different media
 
-  // XXX Create a Servo style set for certain domains.  SVG documents should
-  // probably keep a Gecko style set regardless.  (For one thing, the root
-  // SVG element likes to create a style sheet for an SVG document before we
-  // have a pres shell.)
-  StyleImplementation styleImplementation = StyleImplementation::Gecko;
+  StyleImplementation styleImplementation =
+    StyleImplementationForDocument(aDocument, mContainer);
 
   StyleSet* styleSet;
   if (styleImplementation == StyleImplementation::Gecko) {
     styleSet = new nsStyleSet();
   } else {
-    MOZ_ASSERT(false, "TODO");
+    styleSet = new ServoStyleSet();
   }
 
   styleSet->BeginUpdate();
