@@ -7,11 +7,13 @@
 #include "nsCSSPseudoElements.h"
 #include "nsIAtom.h"
 #include "nsTArray.h"
+#include "prenv.h"
 
 // TODO:
 //   * change nsStyleContext to a generic StyleContext type
 
 namespace mozilla {
+class ServoStyleSet;
 namespace dom {
 class Element;
 }
@@ -28,10 +30,17 @@ class StyleSet
 public:
   virtual ~StyleSet() {}
 
+  static bool StyloEnabled()
+  {
+    static bool enabled = PR_GetEnv("MOZ_STYLO");
+    return enabled;
+  }
+
   virtual StyleImplementation Implementation() const = 0;
   bool IsGecko() const { return Implementation() == StyleImplementation::Gecko; }
   bool IsServo() const { return Implementation() == StyleImplementation::Servo; }
   inline nsStyleSet* AsGecko();
+  inline ServoStyleSet* AsServo();
 
   virtual void Init(nsPresContext* aPresContext) = 0;
   virtual void BeginShutdown() = 0;
