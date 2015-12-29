@@ -3,6 +3,7 @@
 
 #include "mozilla/StyleBackendType.h"
 #include "nsChangeHint.h"
+#include "prenv.h"
 
 namespace mozilla {
 namespace dom {
@@ -20,6 +21,12 @@ namespace mozilla {
 class Restyler
 {
 public:
+  static bool StyloEnabled()
+  {
+    static bool enabled = PR_GetEnv("MOZ_STYLO");
+    return enabled;
+  }
+
   virtual StyleBackendType Implementation() const = 0;
   bool IsGecko() const { return Implementation() == StyleBackendType::Gecko; }
   bool IsServo() const { return Implementation() == StyleBackendType::Servo; }

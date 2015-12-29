@@ -1727,7 +1727,9 @@ RestyleManager::ProcessPendingRestyles()
                   "Missing a script blocker!");
 
   if (!gRestyledOnce) {
-    Servo_RestyleDocument(mPresContext->Document());
+    if (!Restyler::StyloEnabled()) {
+      Servo_RestyleDocument(mPresContext->Document());
+    }
     gRestyledOnce = true;
   }
 
