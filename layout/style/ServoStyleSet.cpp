@@ -1,5 +1,7 @@
 #include "mozilla/ServoStyleSet.h"
 
+#include "nsCSSAnonBoxes.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 
@@ -91,6 +93,13 @@ ServoStyleSet::ResolveAnonymousBoxStyle(nsIAtom* aPseudoTag,
                                         nsStyleContext* aParentContext,
                                         uint32_t aFlags)
 {
+  MOZ_ASSERT(nsCSSAnonBoxes::IsAnonBox(aPseudoTag));
+
+  // FIXME(heycam): Do something with eSkipParentDisplayBasedStyleFixup,
+  // which is the only value of aFlags that can be passed in.
+  MOZ_ASSERT(aFlags == 0 ||
+             aFlags == nsStyleSet::eSkipParentDisplayBasedStyleFixup);
+
   MOZ_CRASH("not implemented");
 }
 
@@ -99,14 +108,32 @@ nsresult
 ServoStyleSet::AppendStyleSheet(SheetType aType,
                                 StyleSheet* aSheet)
 {
-  MOZ_CRASH("not implemented");
+  MOZ_ASSERT(aSheet);
+  MOZ_ASSERT(aSheet->IsApplicable());
+  MOZ_ASSERT(IsCSSSheetType(aType));
+
+  ServoStyleSheet* sheet = aSheet->AsServo();
+
+  mSheets[aType].RemoveElement(sheet);
+  mSheets[aType].AppendElement(sheet);
+
+  return NS_OK;
 }
 
 nsresult
 ServoStyleSet::PrependStyleSheet(SheetType aType,
                                  StyleSheet* aSheet)
 {
-  MOZ_CRASH("not implemented");
+  MOZ_ASSERT(aSheet);
+  MOZ_ASSERT(aSheet->IsApplicable());
+  MOZ_ASSERT(IsCSSSheetType(aType));
+
+  ServoStyleSheet* sheet = aSheet->AsServo();
+
+  mSheets[aType].RemoveElement(sheet);
+  mSheets[aType].InsertElementAt(0, sheet);
+
+  return NS_OK;
 }
 
 nsresult
@@ -134,14 +161,16 @@ ServoStyleSet::InsertStyleSheetBefore(SheetType aType,
 int32_t
 ServoStyleSet::SheetCount(SheetType aType) const
 {
-  MOZ_CRASH("not implemented");
+  MOZ_ASSERT(IsCSSSheetType(aType));
+  return mSheets[aType].Length();
 }
 
 StyleSheet*
 ServoStyleSet::StyleSheetAt(SheetType aType,
                             int32_t aIndex) const
 {
-  MOZ_CRASH("not implemented");
+  MOZ_ASSERT(IsCSSSheetType(aType));
+  return mSheets[aType][aIndex];
 }
 
 nsresult

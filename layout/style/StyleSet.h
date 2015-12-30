@@ -111,6 +111,8 @@ public:
                           nsStyleContext* aParentContext,
                           TreeMatchContext& aTreeMatchContext,
                           mozilla::dom::Element* aPseudoElement = nullptr) = 0;
+
+  static bool IsCSSSheetType(SheetType aSheetType);
 };
 
 } // namespace mozilla

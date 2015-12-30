@@ -3,13 +3,16 @@
 
 #include "mozilla/net/ReferrerPolicy.h"
 #include "mozilla/dom/SRIMetadata.h"
+#include "mozilla/CORSMode.h"
 #include "mozilla/StyleImplementation.h"
 #include "nsICSSLoaderObserver.h"
 #include "nsIURI.h"
 
 namespace mozilla {
 class CSSStyleSheet;
+class ServoStyleSheet;
 }
+class nsIDocument;
 
 namespace mozilla {
 
@@ -21,14 +24,14 @@ namespace mozilla {
 class StyleSheet : public nsISupports
 {
 public:
-  virtual ~StyleSheet() {}
-
   NS_DECLARE_STATIC_IID_ACCESSOR(STYLE_SHEET_IMPL_CID)
 
   bool IsGecko() const { return Implementation() == StyleImplementation::Gecko; }
   bool IsServo() const { return Implementation() == StyleImplementation::Servo; }
   inline CSSStyleSheet* AsGecko();
   inline const CSSStyleSheet* AsGecko() const;
+  inline ServoStyleSheet* AsServo();
+  inline const ServoStyleSheet* AsServo() const;
 
   virtual nsIURI* GetSheetURI() const = 0;
   virtual nsIURI* GetOriginalURI() const = 0;
@@ -58,6 +61,7 @@ public:
   virtual nsICSSLoaderObserver* GetChildSheetLoadObserver() = 0;
 
 protected:
+  virtual ~StyleSheet() {}
   virtual StyleImplementation Implementation() const = 0;
 };
 

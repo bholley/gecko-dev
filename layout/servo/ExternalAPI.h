@@ -39,6 +39,7 @@ typedef mozilla::dom::Element RawGeckoElement;
 class nsIDocument;
 typedef nsIDocument RawGeckoDocument;
 struct ServoNodeData;
+struct ServoArcStyleSheet;
 #else
 struct RawGeckoNode;
 typedef struct RawGeckoNode RawGeckoNode;
@@ -48,6 +49,8 @@ struct RawGeckoDocument;
 typedef struct RawGeckoDocument RawGeckoDocument;
 struct ServoNodeData;
 typedef struct ServoNodeData ServoNodeData;
+struct ServoArcStyleSheet;
+typedef struct ServoArcStyleSheet ServoArcStyleSheet;
 #endif
 
 #ifdef __cplusplus
@@ -80,6 +83,8 @@ void Gecko_SetNodeData(RawGeckoNode* node, ServoNodeData* data);
 // These functions are implemented in Servo.
 void Servo_RestyleDocument(RawGeckoDocument* aDoc);
 void Servo_DropNodeData(ServoNodeData* data);
+ServoArcStyleSheet* Servo_StylesheetFromUTF8Bytes(const uint8_t* bytes, uint32_t length);
+void Servo_DropStylesheet(ServoArcStyleSheet* sheet);
 
 #ifdef __cplusplus
 } // extern "C"

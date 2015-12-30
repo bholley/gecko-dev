@@ -1,7 +1,9 @@
 #ifndef mozilla_ServoStyleSet_h
 #define mozilla_ServoStyleSet_h
 
+#include "mozilla/ServoStyleSheet.h"
 #include "mozilla/StyleSet.h"
+#include "mozilla/EnumeratedArray.h"
 
 namespace mozilla {
 
@@ -81,6 +83,8 @@ public:
                           mozilla::dom::Element* aPseudoElement = nullptr) override;
 
 private:
+  mozilla::EnumeratedArray<mozilla::SheetType, mozilla::SheetType::Count,
+                           nsTArray<RefPtr<mozilla::ServoStyleSheet>>> mSheets;
   int32_t mBatching;
 };
 

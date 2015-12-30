@@ -21,6 +21,7 @@
 #include "mozilla/MemoryReporting.h"
 
 #include "mozilla/css/Loader.h"
+#include "mozilla/ServoStyleSheet.h"
 #include "nsIRunnable.h"
 #include "nsIUnicharStreamLoader.h"
 #include "nsSyncLoadService.h"
@@ -1255,7 +1256,7 @@ Loader::CreateSheet(nsIURI* aURI,
     if (GetStyleImplementation() == StyleImplementation::Gecko) {
       sheet = new CSSStyleSheet(aCORSMode, aReferrerPolicy, sriMetadata);
     } else {
-      MOZ_ASSERT(false, "TODO");
+      sheet = new ServoStyleSheet(aCORSMode, aReferrerPolicy, sriMetadata);
     }
     sheet->SetURIs(sheetURI, originalURI, baseURI);
     sheet.forget(aSheet);
@@ -1783,7 +1784,10 @@ Loader::ParseSheet(const nsAString& aInput,
                            aLoadData->mLineNumber,
                            aLoadData->mParsingMode);
   } else {
-    MOZ_ASSERT(false, "TODO");
+    aLoadData->mSheet->AsServo()->ParseSheet(aInput, sheetURI, baseURI,
+                                             aLoadData->mSheet->Principal(),
+                                             aLoadData->mLineNumber,
+                                             aLoadData->mParsingMode);
   }
 
   mParsingDatas.RemoveElementAt(mParsingDatas.Length() - 1);

@@ -7,6 +7,8 @@
 #include "nsLayoutStylesheetCache.h"
 
 #include "nsAppDirectoryServiceDefs.h"
+#include "mozilla/CSSStyleSheet.h"
+#include "mozilla/ServoStyleSheet.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Preferences.h"
@@ -838,17 +840,16 @@ nsLayoutStylesheetCache::BuildPreferenceSheet(RefPtr<StyleSheet>& aSheet,
   if (mImplementation == StyleImplementation::Gecko) {
     aSheet = new CSSStyleSheet(CORS_NONE, mozilla::net::RP_Default);
   } else {
-    MOZ_ASSERT(false, "TODO");
+    aSheet = new ServoStyleSheet(CORS_NONE, mozilla::net::RP_Default,
+                                 SRIMetadata());
   }
 
   nsCOMPtr<nsIURI> uri;
   NS_NewURI(getter_AddRefs(uri), "about:PreferenceStyleSheet", nullptr);
   MOZ_ASSERT(uri, "URI creation shouldn't fail");
 
-  CSSStyleSheet* sheet = aSheet->AsGecko();
-
-  sheet->SetURIs(uri, uri, uri);
-  sheet->SetComplete();
+  aSheet->SetURIs(uri, uri, uri);
+  aSheet->SetComplete();
 
   static const uint32_t kPreallocSize = 1024;
 
@@ -935,7 +936,12 @@ nsLayoutStylesheetCache::BuildPreferenceSheet(RefPtr<StyleSheet>& aSheet,
                "kPreallocSize should be big enough to build preference style "
                "sheet without reallocation");
 
-  sheet->ReparseSheet(sheetText);
+  if (aSheet->IsGecko()) {
+    aSheet->AsGecko()->ReparseSheet(sheetText);
+  } else {
+    aSheet->AsServo()->ParseSheet(sheetText, uri, uri, nullptr, 0,
+                                  SheetParsingMode::eAuthorSheetFeatures);
+  }
 
 #undef NS_GET_R_G_B
 }
