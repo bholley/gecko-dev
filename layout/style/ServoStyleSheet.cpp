@@ -16,7 +16,9 @@ ServoStyleSheet::ServoStyleSheet(CORSMode aCORSMode,
   , mIntegrity(aIntegrity)
   , mComplete(false)
   , mDisabled(false)
+#ifdef DEBUG
   , mPrincipalSet(false)
+#endif
 {
   if (!mPrincipal) {
     NS_RUNTIMEABORT("nsNullPrincipal::Init failed");
