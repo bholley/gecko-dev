@@ -13,7 +13,8 @@ using namespace mozilla;
 using namespace mozilla::dom;
 
 ServoStyleSet::ServoStyleSet()
-  : mBatching(0)
+  : mServoData(Servo_InitStyleSetData())
+  , mBatching(0)
 {
 }
 
@@ -30,6 +31,8 @@ ServoStyleSet::BeginShutdown()
 void
 ServoStyleSet::Shutdown()
 {
+  Servo_DropStyleSetData(mServoData);
+  mServoData = nullptr;
 }
 
 bool
@@ -121,6 +124,9 @@ ServoStyleSet::AppendStyleSheet(SheetType aType,
   mSheets[aType].RemoveElement(aSheet);
   mSheets[aType].AppendElement(aSheet);
 
+  // Maintain a mirrored list of sheets on the servo side.
+  Servo_AppendStyleSheet(aSheet->ArcSheet(), mServoData);
+
   return NS_OK;
 }
 
@@ -135,6 +141,9 @@ ServoStyleSet::PrependStyleSheet(SheetType aType,
   mSheets[aType].RemoveElement(aSheet);
   mSheets[aType].InsertElementAt(0, aSheet);
 
+  // Maintain a mirrored list of sheets on the servo side.
+  Servo_PrependStyleSheet(aSheet->ArcSheet(), mServoData);
+
   return NS_OK;
 }
 
@@ -142,7 +151,16 @@ nsresult
 ServoStyleSet::RemoveStyleSheet(SheetType aType,
                                 ServoStyleSheet* aSheet)
 {
-  MOZ_CRASH("stylo: not implemented");
+  MOZ_ASSERT(aSheet);
+  MOZ_ASSERT(aSheet->IsApplicable());
+  MOZ_ASSERT(nsStyleSet::IsCSSSheetType(aType));
+
+  mSheets[aType].RemoveElement(aSheet);
+
+  // Maintain a mirrored list of sheets on the servo side.
+  Servo_RemoveStyleSheet(aSheet->ArcSheet(), mServoData);
+
+  return NS_OK;
 }
 
 nsresult
@@ -185,7 +203,8 @@ nsresult
 ServoStyleSet::AddDocStyleSheet(ServoStyleSheet* aSheet,
                                 nsIDocument* aDocument)
 {
-  MOZ_CRASH("stylo: not implemented");
+  // XXXbholley: Implement this.
+  return NS_OK;
 }
 
 already_AddRefed<nsStyleContext>
