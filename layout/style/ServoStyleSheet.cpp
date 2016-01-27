@@ -6,6 +6,8 @@
 
 #include "mozilla/ServoStyleSheet.h"
 
+#include "mozilla/dom/ShadowRoot.h"
+
 #include "nsNullPrincipal.h"
 
 using namespace mozilla::dom;
@@ -79,15 +81,20 @@ ServoStyleSheet::SetComplete()
 
   mComplete = true;
 
-  // XXX Do the things that CSSStyleSheet::SetComplete does on mDocument
-  // and mOwningNode.
-
-  if (mDocument) {
-    MOZ_CRASH("not implemented");
+  // XXXbholley: This is copy-paste from CSSStyleSheet::SetComplete. We should just
+  // share it on the superclass.
+  if (mDocument && !mDisabled) {
+    // Let the document know
+    mDocument->BeginUpdate(UPDATE_STYLE);
+    mDocument->SetStyleSheetApplicableState(this, true);
+    mDocument->EndUpdate(UPDATE_STYLE);
   }
 
-  if (mOwningNode /* ... */) {
-    MOZ_CRASH("not implemented");
+  if (mOwningNode && !mDisabled &&
+      mOwningNode->HasFlag(NODE_IS_IN_SHADOW_TREE) &&
+      mOwningNode->IsContent()) {
+    ShadowRoot* shadowRoot = mOwningNode->AsContent()->GetContainingShadow();
+    shadowRoot->StyleSheetChanged();
   }
 }
 
@@ -100,7 +107,7 @@ ServoStyleSheet::SetParsingMode(css::SheetParsingMode aMode)
 bool
 ServoStyleSheet::HasRules() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return Servo_StyleSheetHasRules(ArcSheet());
 }
 
 nsIDocument*

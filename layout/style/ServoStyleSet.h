@@ -114,6 +114,7 @@ public:
                                        EventStates aStateMask);
 
 private:
+  ServoStyleSetData* mServoData;
   mozilla::EnumeratedArray<mozilla::SheetType, mozilla::SheetType::Count,
                            nsTArray<RefPtr<mozilla::ServoStyleSheet>>> mSheets;
   int32_t mBatching;

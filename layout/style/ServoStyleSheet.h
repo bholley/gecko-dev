@@ -65,6 +65,8 @@ public:
   void List(FILE* aOut = stdout, int32_t aIndex = 0) const;
 #endif
 
+  ServoArcStyleSheet* ArcSheet() const { return mSheet; }
+
 protected:
   ~ServoStyleSheet();
 
