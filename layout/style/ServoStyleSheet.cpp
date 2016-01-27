@@ -112,7 +112,10 @@ ServoStyleSheet::GetOwningDocument() const
 void
 ServoStyleSheet::SetOwningDocument(nsIDocument* aDocument)
 {
-  MOZ_CRASH("stylo: not implemented");
+  // Not refcounted.
+  mDocument = aDocument;
+
+  // XXXbholley: May need to account for child sheets when we support them.
 }
 
 void

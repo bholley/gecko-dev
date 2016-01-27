@@ -142,7 +142,13 @@ nsresult
 ServoStyleSet::RemoveStyleSheet(SheetType aType,
                                 ServoStyleSheet* aSheet)
 {
-  MOZ_CRASH("stylo: not implemented");
+  MOZ_ASSERT(aSheet);
+  MOZ_ASSERT(aSheet->IsApplicable());
+  MOZ_ASSERT(nsStyleSet::IsCSSSheetType(aType));
+
+  mSheets[aType].RemoveElement(aSheet);
+
+  return NS_OK;
 }
 
 nsresult
