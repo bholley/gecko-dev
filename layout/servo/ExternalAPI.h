@@ -68,6 +68,12 @@ RawGeckoNode* Gecko_GetLastChild(RawGeckoNode* node);
 RawGeckoNode* Gecko_GetPrevSibling(RawGeckoNode* node);
 RawGeckoNode* Gecko_GetNextSibling(RawGeckoNode* node);
 
+RawGeckoElement* Gecko_GetParentElement(RawGeckoElement* element);
+RawGeckoElement* Gecko_GetFirstChildElement(RawGeckoElement* element);
+RawGeckoElement* Gecko_GetLastChildElement(RawGeckoElement* element);
+RawGeckoElement* Gecko_GetPrevSiblingElement(RawGeckoElement* element);
+RawGeckoElement* Gecko_GetNextSiblingElement(RawGeckoElement* element);
+
 ServoNodeData* Gecko_GetNodeData(RawGeckoNode* node);
 RawGeckoNode* Gecko_GetParentNode(RawGeckoNode* node);
 const uint16_t* Gecko_LocalName(RawGeckoElement* element, uint32_t* length);
@@ -76,6 +82,7 @@ int Gecko_IsLink(RawGeckoElement* element);
 int Gecko_IsTextNode(RawGeckoNode* node);
 int Gecko_IsVisitedLink(RawGeckoElement* element);
 int Gecko_IsUnvisitedLink(RawGeckoElement* element);
+int Gecko_IsRootElement(RawGeckoElement* element);
 const uint16_t* Gecko_Namespace(RawGeckoElement* element, uint32_t* length);
 int Gecko_NodeIsElement(RawGeckoNode* node);
 void Gecko_SetNodeData(RawGeckoNode* node, ServoNodeData* data);

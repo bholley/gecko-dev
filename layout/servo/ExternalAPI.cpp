@@ -69,6 +69,35 @@ Gecko_GetNextSibling(RawGeckoNode* aNode)
   return aNode->GetNextSibling();
 }
 
+RawGeckoElement*
+Gecko_GetParentElement(RawGeckoElement* aElement)
+{
+  return aElement->GetParentElement();
+}
+
+RawGeckoElement*
+Gecko_GetFirstChildElement(RawGeckoElement* aElement)
+{
+  return aElement->GetFirstElementChild();
+}
+
+RawGeckoElement* Gecko_GetLastChildElement(RawGeckoElement* aElement)
+{
+  return aElement->GetLastElementChild();
+}
+
+RawGeckoElement*
+Gecko_GetPrevSiblingElement(RawGeckoElement* aElement)
+{
+  return aElement->GetPreviousElementSibling();
+}
+
+RawGeckoElement*
+Gecko_GetNextSiblingElement(RawGeckoElement* aElement)
+{
+  return aElement->GetNextElementSibling();
+}
+
 ServoNodeData*
 Gecko_GetNodeData(RawGeckoNode* aNode)
 {
@@ -113,11 +142,16 @@ Gecko_IsVisitedLink(RawGeckoElement* aElement)
   return aElement->State().HasState(NS_EVENT_STATE_VISITED);
 }
 
-
 int
 Gecko_IsUnvisitedLink(RawGeckoElement* aElement)
 {
   return aElement->State().HasState(NS_EVENT_STATE_UNVISITED);
+}
+
+int
+Gecko_IsRootElement(RawGeckoElement* aElement)
+{
+  return aElement->OwnerDoc()->GetRootElement() == aElement;
 }
 
 const uint16_t*
