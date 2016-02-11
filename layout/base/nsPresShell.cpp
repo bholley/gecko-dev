@@ -183,6 +183,7 @@
 #include "nsSubDocumentFrame.h"
 #include "nsQueryObject.h"
 #include "nsLayoutStylesheetCache.h"
+#include "nsStyleSet.h"
 #include "mozilla/StyleSetHandle.h"
 #include "mozilla/StyleSetHandleInlines.h"
 #include "mozilla/StyleSheetHandle.h"
