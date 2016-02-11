@@ -22,6 +22,7 @@
 #include "mozilla/CORSMode.h"
 #include "mozilla/CSSStyleSheet.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/StyleBackendType.h"
 #include "mozilla/StyleSheetHandle.h"
 #include "mozilla/net/ReferrerPolicy.h"
 
@@ -188,7 +189,7 @@ class Loader final {
   typedef mozilla::net::ReferrerPolicy ReferrerPolicy;
 
 public:
-  Loader();
+  explicit Loader(StyleBackendType aType);
   explicit Loader(nsIDocument*);
 
  private:
@@ -198,6 +199,12 @@ public:
  public:
   NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(Loader)
   NS_DECL_CYCLE_COLLECTION_NATIVE_CLASS(Loader)
+
+  StyleBackendType GetStyleBackendType() const;
+  void SetStyleBackendType(StyleBackendType aType) {
+    mStyleBackendType = aType;
+    mStyleBackendTypeSet = true;
+  }
 
   void DropDocumentReference(); // notification that doc is going away
 
@@ -574,6 +581,9 @@ private:
   nsString          mPreferredSheet;  // title of preferred sheet
 
   bool              mEnabled; // is enabled to load new styles
+
+  StyleBackendType  mStyleBackendType;
+  bool              mStyleBackendTypeSet;
 
 #ifdef DEBUG
   bool              mSyncCallback;

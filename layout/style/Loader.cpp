@@ -532,11 +532,13 @@ LoaderReusableStyleSheets::FindReusableStyleSheet(nsIURI* aURL,
  * Loader Implementation *
  *************************/
 
-Loader::Loader(void)
+Loader::Loader(StyleBackendType aType)
   : mDocument(nullptr)
   , mDatasToNotifyOn(0)
   , mCompatMode(eCompatibility_FullStandards)
   , mEnabled(true)
+  , mStyleBackendType(aType)
+  , mStyleBackendTypeSet(true)
 #ifdef DEBUG
   , mSyncCallback(false)
 #endif
@@ -548,6 +550,8 @@ Loader::Loader(nsIDocument* aDocument)
   , mDatasToNotifyOn(0)
   , mCompatMode(eCompatibility_FullStandards)
   , mEnabled(true)
+  , mStyleBackendType(StyleBackendType::Gecko)
+  , mStyleBackendTypeSet(false)
 #ifdef DEBUG
   , mSyncCallback(false)
 #endif
@@ -2630,6 +2634,17 @@ Loader::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
   // - mPreferredSheet, because it can be a shared string
 
   return n;
+}
+
+StyleBackendType
+Loader::GetStyleBackendType() const
+{
+  MOZ_ASSERT(mStyleBackendTypeSet || mDocument);
+  if (mStyleBackendTypeSet) {
+    return mStyleBackendType;
+  } else {
+    return mDocument->GetStyleBackendType();
+  }
 }
 
 } // namespace css
