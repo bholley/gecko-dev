@@ -6,50 +6,95 @@
 
 #include "mozilla/ServoStyleSheet.h"
 
+#include "nsNullPrincipal.h"
+
 using namespace mozilla::dom;
 
 namespace mozilla {
 
+ServoStyleSheet::ServoStyleSheet(CORSMode aCORSMode,
+                                 net::ReferrerPolicy aReferrerPolicy,
+                                 const dom::SRIMetadata& aIntegrity)
+  : mPrincipal(nsNullPrincipal::Create())
+  , mDocument(nullptr)
+  , mOwningNode(nullptr)
+  , mSheet(nullptr)
+  , mCORSMode(aCORSMode)
+  , mReferrerPolicy(aReferrerPolicy)
+  , mIntegrity(aIntegrity)
+  , mParsingMode(css::eUserSheetFeatures)
+  , mComplete(false)
+  , mDisabled(false)
+  , mPrincipalSet(false)
+{
+  if (!mPrincipal) {
+    NS_RUNTIMEABORT("nsNullPrincipal::Init failed");
+  }
+}
+
+ServoStyleSheet::~ServoStyleSheet()
+{
+  DropSheet();
+}
+
 nsIURI*
 ServoStyleSheet::GetSheetURI() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mSheetURI;
 }
 
 nsIURI*
 ServoStyleSheet::GetOriginalURI() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mOriginalURI;
 }
 
 nsIURI*
 ServoStyleSheet::GetBaseURI() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mBaseURI;
 }
 
 void
 ServoStyleSheet::SetURIs(nsIURI* aSheetURI, nsIURI* aOriginalSheetURI, nsIURI* aBaseURI)
 {
-  MOZ_CRASH("stylo: not implemented");
+  MOZ_ASSERT(aSheetURI);
+  MOZ_ASSERT(aBaseURI);
+
+ mSheetURI = aSheetURI;
+  mOriginalURI = aOriginalSheetURI;
+  mBaseURI = aBaseURI;
 }
 
 bool
 ServoStyleSheet::IsApplicable() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return !mDisabled && mComplete;
 }
 
 void
 ServoStyleSheet::SetComplete()
 {
-  MOZ_CRASH("stylo: not implemented");
+  MOZ_ASSERT(!mComplete);
+
+  mComplete = true;
+
+  // XXX Do the things that CSSStyleSheet::SetComplete does on mDocument
+  // and mOwningNode.
+
+  if (mDocument) {
+    MOZ_CRASH("not implemented");
+  }
+
+  if (mOwningNode /* ... */) {
+    MOZ_CRASH("not implemented");
+  }
 }
 
 void
 ServoStyleSheet::SetParsingMode(css::SheetParsingMode aMode)
 {
-  MOZ_CRASH("stylo: not implemented");
+  mParsingMode = aMode;
 }
 
 bool
@@ -61,7 +106,7 @@ ServoStyleSheet::HasRules() const
 nsIDocument*
 ServoStyleSheet::GetOwningDocument() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mDocument;
 }
 
 void
@@ -73,13 +118,14 @@ ServoStyleSheet::SetOwningDocument(nsIDocument* aDocument)
 void
 ServoStyleSheet::SetOwningNode(nsINode* aOwningNode)
 {
-  MOZ_CRASH("stylo: not implemented");
+  // Not refcounted.
+  mOwningNode = aOwningNode;
 }
 
 nsINode*
 ServoStyleSheet::GetOwnerNode() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mOwningNode;
 }
 
 StyleSheetHandle
@@ -97,31 +143,38 @@ ServoStyleSheet::AppendStyleSheet(StyleSheetHandle aSheet)
 nsIPrincipal*
 ServoStyleSheet::Principal() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mPrincipal;
 }
 
 void
 ServoStyleSheet::SetPrincipal(nsIPrincipal* aPrincipal)
 {
-  MOZ_CRASH("stylo: not implemented");
+  MOZ_ASSERT(!mPrincipalSet);
+
+  if (aPrincipal) {
+    mPrincipal = aPrincipal;
+#ifdef DEBUG
+    mPrincipalSet = true;
+#endif
+  }
 }
 
 CORSMode
 ServoStyleSheet::GetCORSMode() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mCORSMode;
 }
 
 net::ReferrerPolicy
 ServoStyleSheet::GetReferrerPolicy() const
 {
-  MOZ_CRASH("stylo: not implemented");
+  return mReferrerPolicy;
 }
 
 void
 ServoStyleSheet::GetIntegrity(dom::SRIMetadata& aResult) const
 {
-  MOZ_CRASH("stylo: not implemented");
+  aResult = mIntegrity;
 }
 
 void
@@ -132,7 +185,20 @@ ServoStyleSheet::ParseSheet(const nsAString& aInput,
                             uint32_t aLineNumber,
                             css::SheetParsingMode aParsingMode)
 {
-  MOZ_CRASH("stylo: not implemented");
+  DropSheet();
+
+  NS_ConvertUTF16toUTF8 input(aInput);
+  mSheet = Servo_StylesheetFromUTF8Bytes(
+      reinterpret_cast<const uint8_t*>(input.get()), input.Length());
+}
+
+void
+ServoStyleSheet::DropSheet()
+{
+  if (mSheet) {
+    Servo_DropStylesheet(mSheet);
+    mSheet = nullptr;
+  }
 }
 
 size_t

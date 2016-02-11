@@ -8,6 +8,8 @@
 #define mozilla_ServoStyleSheet_h
 
 #include "mozilla/StyleSheetHandle.h"
+#include "mozilla/dom/SRIMetadata.h"
+#include "mozilla/servo/ExternalAPI.h"
 #include "nsStringFwd.h"
 
 namespace mozilla {
@@ -18,6 +20,10 @@ namespace mozilla {
 class ServoStyleSheet
 {
 public:
+  ServoStyleSheet(CORSMode aCORSMode,
+                  net::ReferrerPolicy aReferrerPolicy,
+                  const dom::SRIMetadata& aIntegrity);
+
   NS_INLINE_DECL_REFCOUNTING(ServoStyleSheet)
 
   nsIURI* GetSheetURI() const;
@@ -60,7 +66,31 @@ public:
 #endif
 
 protected:
-  ~ServoStyleSheet() {}
+  ~ServoStyleSheet();
+
+private:
+  void DropSheet();
+
+  nsCOMPtr<nsIURI> mSheetURI;
+  nsCOMPtr<nsIURI> mOriginalURI;
+  nsCOMPtr<nsIURI> mBaseURI;
+  nsCOMPtr<nsIPrincipal> mPrincipal;
+  nsIDocument* mDocument; // weak ref; parents maintain this for their children
+  nsINode* mOwningNode; // weak ref
+
+  ServoArcStyleSheet* mSheet;
+
+  CORSMode mCORSMode;
+  net::ReferrerPolicy mReferrerPolicy;
+  dom::SRIMetadata mIntegrity;
+
+  mozilla::css::SheetParsingMode mParsingMode;
+
+  bool mComplete;
+  bool mDisabled;
+#ifdef DEBUG
+  bool mPrincipalSet;
+#endif
 };
 
 } // namespace mozilla
