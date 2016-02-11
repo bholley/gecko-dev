@@ -1409,7 +1409,8 @@ PresShell::AddUserSheet(nsISupports* aSheet)
   mStyleSet->BeginUpdate();
 
   nsStyleSheetService* sheetService = nsStyleSheetService::gInstance;
-  nsTArray<StyleSheetHandle::RefPtr>& userSheets = *sheetService->UserStyleSheets();
+  nsTArray<StyleSheetHandle::RefPtr>& userSheets =
+    *sheetService->UserStyleSheets(mStyleSet->BackendType());
   // Iterate forwards when removing so the searches for RemoveStyleSheet are as
   // short as possible.
   for (StyleSheetHandle sheet : userSheets) {

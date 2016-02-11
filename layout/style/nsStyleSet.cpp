@@ -745,7 +745,8 @@ nsStyleSet::AddDocStyleSheet(CSSStyleSheet* aSheet, nsIDocument* aDocument)
     // doc sheet should end up before it.
     if (sheetDocIndex < 0) {
       if (sheetService) {
-        auto& authorSheets = *sheetService->AuthorStyleSheets();
+        auto& authorSheets =
+          *sheetService->AuthorStyleSheets(StyleBackendType::Gecko);
         StyleSheetHandle handle = sheet;
         if (authorSheets.IndexOf(handle) != authorSheets.NoIndex) {
           break;

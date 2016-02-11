@@ -2339,10 +2339,12 @@ nsDocumentViewer::CreateStyleSet(nsIDocument* aDocument,
 
   nsStyleSheetService* sheetService = nsStyleSheetService::GetInstance();
   if (sheetService) {
-    for (StyleSheetHandle sheet : *sheetService->AgentStyleSheets()) {
+    for (StyleSheetHandle sheet :
+           *sheetService->AgentStyleSheets(backendType)) {
       styleSet->AppendStyleSheet(SheetType::Agent, sheet);
     }
-    for (StyleSheetHandle sheet : Reversed(*sheetService->UserStyleSheets())) {
+    for (StyleSheetHandle sheet :
+           Reversed(*sheetService->UserStyleSheets(backendType))) {
       styleSet->PrependStyleSheet(SheetType::User, sheet);
     }
   }

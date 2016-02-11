@@ -2652,19 +2652,25 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
     // This looks like a lot of work, but in a normal browser session we just
     // send two loads.
 
-    for (StyleSheetHandle sheet : *sheetService->AgentStyleSheets()) {
+    // XXXheycam We should eventually have the same set of Gecko style sheets as
+    // Servo style sheets in the nsStyleSheetService, so it shouldn't matter
+    // which StyleBackendType we pass in here.
+    for (StyleSheetHandle sheet :
+           *sheetService->AgentStyleSheets(StyleBackendType::Gecko)) {
       URIParams uri;
       SerializeURI(sheet->GetSheetURI(), uri);
       Unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::AGENT_SHEET);
     }
 
-    for (StyleSheetHandle sheet : *sheetService->UserStyleSheets()) {
+    for (StyleSheetHandle sheet :
+           *sheetService->UserStyleSheets(StyleBackendType::Gecko)) {
       URIParams uri;
       SerializeURI(sheet->GetSheetURI(), uri);
       Unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::USER_SHEET);
     }
 
-    for (StyleSheetHandle sheet : *sheetService->AuthorStyleSheets()) {
+    for (StyleSheetHandle sheet :
+           *sheetService->AuthorStyleSheets(StyleBackendType::Gecko)) {
       URIParams uri;
       SerializeURI(sheet->GetSheetURI(), uri);
       Unused << SendLoadAndRegisterSheet(uri, nsIStyleSheetService::AUTHOR_SHEET);

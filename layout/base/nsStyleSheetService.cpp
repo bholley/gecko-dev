@@ -157,7 +157,7 @@ nsStyleSheetService::LoadAndRegisterSheet(nsIURI *aSheetURI,
 
       // XXXheycam Once the nsStyleSheetService can hold ServoStyleSheets too,
       // we'll need to include them in the notification.
-      StyleSheetHandle sheet = mSheets[aSheetType].LastElement();
+      StyleSheetHandle sheet = mSheets_Gecko[aSheetType].LastElement();
       if (sheet->IsGecko()) {
         CSSStyleSheet* cssSheet = sheet->AsGecko();
         serv->NotifyObservers(NS_ISUPPORTS_CAST(nsIDOMCSSStyleSheet*, cssSheet),
@@ -219,7 +219,7 @@ nsStyleSheetService::LoadAndRegisterSheetInternal(nsIURI *aSheetURI,
   nsresult rv = loader->LoadSheetSync(aSheetURI, parsingMode, true, &sheet);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  mSheets[aSheetType].AppendElement(sheet);
+  mSheets_Gecko[aSheetType].AppendElement(sheet);
 
   return rv;
 }
@@ -234,7 +234,7 @@ nsStyleSheetService::SheetRegistered(nsIURI *sheetURI,
   NS_ENSURE_ARG_POINTER(sheetURI);
   NS_PRECONDITION(_retval, "Null out param");
 
-  *_retval = (FindSheetByURI(mSheets[aSheetType], sheetURI) >= 0);
+  *_retval = (FindSheetByURI(mSheets_Gecko[aSheetType], sheetURI) >= 0);
 
   return NS_OK;
 }
@@ -290,10 +290,12 @@ nsStyleSheetService::UnregisterSheet(nsIURI *aSheetURI, uint32_t aSheetType)
                 aSheetType == AUTHOR_SHEET);
   NS_ENSURE_ARG_POINTER(aSheetURI);
 
-  int32_t foundIndex = FindSheetByURI(mSheets[aSheetType], aSheetURI);
+  int32_t foundIndex = FindSheetByURI(mSheets_Gecko[aSheetType], aSheetURI);
   NS_ENSURE_TRUE(foundIndex >= 0, NS_ERROR_INVALID_ARG);
-  StyleSheetHandle::RefPtr sheet = mSheets[aSheetType][foundIndex];
-  mSheets[aSheetType].RemoveElementAt(foundIndex);
+  StyleSheetHandle::RefPtr sheet = mSheets_Gecko[aSheetType][foundIndex];
+  mSheets_Gecko[aSheetType].RemoveElementAt(foundIndex);
+
+  // XXXheycam mSheets_Servo should have its sheet removed too.
 
   const char* message;
   switch (aSheetType) {
@@ -371,11 +373,12 @@ size_t
 nsStyleSheetService::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
-  for (auto& sheetArray : mSheets) {
+  for (auto& sheetArray : mSheets_Gecko) {
     n += sheetArray.ShallowSizeOfExcludingThis(aMallocSizeOf);
     for (StyleSheetHandle sheet : sheetArray) {
       n += sheet->SizeOfIncludingThis(aMallocSizeOf);
     }
   }
+  // XXXheycam Measure mSheets_Servo too.
   return n;
 }
