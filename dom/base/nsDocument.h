@@ -1683,6 +1683,8 @@ public:
   // that we only report them once for the document.
   bool mReportedUseCounters:1;
 
+  bool mStyleSetFilled:1;
+
   uint8_t mPendingFullscreenRequests;
 
   uint8_t mXMLDeclarationBits;

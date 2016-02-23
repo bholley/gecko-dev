@@ -15,6 +15,7 @@
 #include "nsIStyleSheetService.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/StyleBackendType.h"
 #include "mozilla/StyleSheetHandle.h"
 
 class nsICategoryManager;
@@ -41,17 +42,19 @@ class nsStyleSheetService final
 
   nsresult Init();
 
-  nsTArray<mozilla::StyleSheetHandle::RefPtr>* AgentStyleSheets()
+  typedef nsTArray<mozilla::StyleSheetHandle::RefPtr> SheetArray;
+
+  SheetArray* AgentStyleSheets(mozilla::StyleBackendType aType)
   {
-    return &mSheets[AGENT_SHEET];
-  }
-  nsTArray<mozilla::StyleSheetHandle::RefPtr>* UserStyleSheets()
+    return &Sheets(aType)[AGENT_SHEET];
+  } 
+  SheetArray* UserStyleSheets(mozilla::StyleBackendType aType)
   {
-    return &mSheets[USER_SHEET];
-  }
-  nsTArray<mozilla::StyleSheetHandle::RefPtr>* AuthorStyleSheets()
+    return &Sheets(aType)[USER_SHEET];
+  } 
+  SheetArray* AuthorStyleSheets(mozilla::StyleBackendType aType)
   {
-    return &mSheets[AUTHOR_SHEET];
+    return &Sheets(aType)[AUTHOR_SHEET];
   }
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
@@ -61,6 +64,12 @@ class nsStyleSheetService final
 
  private:
   ~nsStyleSheetService();
+
+  SheetArray (& Sheets(mozilla::StyleBackendType aType))[3]
+  {
+    return aType == mozilla::StyleBackendType::Gecko ? mSheets_Gecko :
+                                                       mSheets_Servo;
+  }
 
   void RegisterFromEnumerator(nsICategoryManager  *aManager,
                                           const char          *aCategory,
@@ -75,7 +84,8 @@ class nsStyleSheetService final
   nsresult LoadAndRegisterSheetInternal(nsIURI *aSheetURI,
                                         uint32_t aSheetType);
 
-  nsTArray<mozilla::StyleSheetHandle::RefPtr> mSheets[3];
+  nsTArray<mozilla::StyleSheetHandle::RefPtr> mSheets_Gecko[3];
+  nsTArray<mozilla::StyleSheetHandle::RefPtr> mSheets_Servo[3];
 };
 
 #endif
