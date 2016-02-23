@@ -1680,21 +1680,30 @@ nsAttrValue::ParseStyleAttribute(const nsAString& aString,
     }
   }
 
-  css::Loader* cssLoader = ownerDoc->CSSLoader();
-  nsCSSParser cssParser(cssLoader);
+  if (ownerDoc->GetStyleBackendType() == StyleBackendType::Gecko) {
+    css::Loader* cssLoader = ownerDoc->CSSLoader();
+    nsCSSParser cssParser(cssLoader);
 
-  RefPtr<css::Declaration> declaration =
-    cssParser.ParseStyleAttribute(aString, docURI, baseURI,
-                                  aElement->NodePrincipal());
-  if (declaration) {
-    declaration->SetHTMLCSSStyleSheet(sheet);
-    SetTo(declaration, &aString);
-    if (cachingAllowed) {
-      MiscContainer* cont = GetMiscContainer();
-      cont->Cache();
+    RefPtr<css::Declaration> declaration =
+      cssParser.ParseStyleAttribute(aString, docURI, baseURI,
+                                    aElement->NodePrincipal());
+    if (declaration) {
+      declaration->SetHTMLCSSStyleSheet(sheet);
+      SetTo(declaration, &aString);
+      if (cachingAllowed) {
+        MiscContainer* cont = GetMiscContainer();
+        cont->Cache();
+      }
+
+      return true;
     }
-
-    return true;
+  } else {
+    NS_WARNING("stylo: no support for Servo-backed style=\"\" attributes");
+    // Need a new ValueType like eCSSDeclaration but for an object that
+    // wraps a Servo PropertyDeclarationBlock for the style="".  Then
+    // we'll need similar methods to {Get,Set}InlineStyleDeclaration
+    // on Element that the Servo restyler can grab the
+    // PropertyDeclarationBlocks from.
   }
 
   return false;
