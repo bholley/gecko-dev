@@ -82,6 +82,15 @@ ServoComputedValues* Servo_GetComputedValuesForAnonymousBox(ServoComputedValues*
 void Servo_AddRefComputedValues(ServoComputedValues*);
 void Servo_ReleaseComputedValues(ServoComputedValues*);
 
+// Temporary string-based APIs for attributes and element names.
+//
+// These won't ever land in mozilla-central, as we'll replace them
+// with atom-based APIs instead.
+const char* Gecko_GetAttrAsUTF8(RawGeckoElement* element, const uint8_t* ns,
+                                const uint8_t* name, uint32_t* length);
+const uint16_t* Gecko_LocalName(RawGeckoElement* element, uint32_t* length);
+const uint16_t* Gecko_Namespace(RawGeckoElement* element, uint32_t* length);
+
 // Servo API.
 void Servo_RestyleDocument(RawGeckoDocument* doc, RawServoStyleSet* set);
 
