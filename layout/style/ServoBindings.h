@@ -89,6 +89,7 @@ void Servo_ReleaseComputedValues(ServoComputedValues*);
 // with atom-based APIs instead.
 const char* Gecko_GetAttrAsUTF8(RawGeckoElement* element, const uint8_t* ns,
                                 const uint8_t* name, uint32_t* length);
+const uint16_t* Gecko_GetAtomAsUTF16(nsIAtom* atom, uint32_t* length);
 const uint16_t* Gecko_LocalName(RawGeckoElement* element, uint32_t* length);
 const uint16_t* Gecko_Namespace(RawGeckoElement* element, uint32_t* length);
 

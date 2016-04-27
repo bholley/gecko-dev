@@ -122,6 +122,17 @@ Gecko_GetAttrAsUTF8(RawGeckoElement* aElement, const uint8_t* aNS, const uint8_t
 }
 
 const uint16_t*
+Gecko_GetAtomAsUTF16(nsIAtom* aAtom, uint32_t* aLength)
+{
+  static_assert(sizeof(char16_t) == sizeof(uint16_t), "Servo doesn't know what a char16_t is");
+
+  MOZ_ASSERT(aAtom);
+
+  *aLength = aAtom->GetLength();
+  return reinterpret_cast<const uint16_t*>(aAtom->GetUTF16String());
+}
+
+const uint16_t*
 Gecko_LocalName(RawGeckoElement* aElement, uint32_t* aLength)
 {
   static_assert(sizeof(char16_t) == sizeof(uint16_t), "Servo doesn't know what a char16_t is");
