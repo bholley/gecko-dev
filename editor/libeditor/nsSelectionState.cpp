@@ -8,7 +8,6 @@
 #include "mozilla/Assertions.h"         // for MOZ_ASSERT, etc
 #include "mozilla/dom/Selection.h"      // for Selection
 #include "nsAString.h"                  // for nsAString_internal::Length
-#include "nsAutoPtr.h"                  // for nsRefPtr, getter_AddRefs, etc
 #include "nsCycleCollectionParticipant.h"
 #include "nsDebug.h"                    // for NS_ENSURE_TRUE, etc
 #include "nsEditor.h"                   // for nsEditor
@@ -33,21 +32,6 @@ nsSelectionState::nsSelectionState() : mArray(){}
 nsSelectionState::~nsSelectionState()
 {
   MakeEmpty();
-}
-
-void
-nsSelectionState::DoTraverse(nsCycleCollectionTraversalCallback &cb)
-{
-  for (uint32_t i = 0, iEnd = mArray.Length(); i < iEnd; ++i)
-  {
-    nsRangeStore* item = mArray[i];
-    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb,
-                                       "selection state mArray[i].startNode");
-    cb.NoteXPCOMChild(item->startNode);
-    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb,
-                                       "selection state mArray[i].endNode");
-    cb.NoteXPCOMChild(item->endNode);
-  }
 }
 
 void
@@ -651,6 +635,10 @@ nsRangeStore::nsRangeStore()
 nsRangeStore::~nsRangeStore()
 {
 }
+
+NS_IMPL_CYCLE_COLLECTION(nsRangeStore, startNode, endNode)
+NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(nsRangeStore, AddRef)
+NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(nsRangeStore, Release)
 
 void
 nsRangeStore::StoreRange(nsRange* aRange)

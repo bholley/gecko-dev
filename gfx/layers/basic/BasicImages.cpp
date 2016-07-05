@@ -22,9 +22,6 @@
 #include "mozilla/gfx/Point.h"          // for IntSize
 #include "gfx2DGlue.h"
 #include "YCbCrUtils.h"                 // for YCbCr conversions
-#ifdef XP_MACOSX
-#include "gfxQuartzImageSurface.h"
-#endif
 
 namespace mozilla {
 namespace layers {
@@ -35,6 +32,7 @@ public:
   BasicPlanarYCbCrImage(const gfx::IntSize& aScaleHint, gfxImageFormat aOffscreenFormat, BufferRecycleBin *aRecycleBin)
     : RecyclingPlanarYCbCrImage(aRecycleBin)
     , mScaleHint(aScaleHint)
+    , mStride(0)
     , mDelayedConversion(false)
   {
     SetOffscreenFormat(aOffscreenFormat);
@@ -49,7 +47,7 @@ public:
     }
   }
 
-  virtual bool SetData(const Data& aData) override;
+  virtual bool CopyData(const Data& aData) override;
   virtual void SetDelayedConversion(bool aDelayed) override { mDelayedConversion = aDelayed; }
 
   already_AddRefed<gfx::SourceSurface> GetAsSourceSurface() override;
@@ -78,24 +76,17 @@ class BasicImageFactory : public ImageFactory
 public:
   BasicImageFactory() {}
 
-  virtual already_AddRefed<Image> CreateImage(ImageFormat aFormat,
-                                              const gfx::IntSize &aScaleHint,
-                                              BufferRecycleBin *aRecycleBin)
+  virtual RefPtr<PlanarYCbCrImage>
+  CreatePlanarYCbCrImage(const gfx::IntSize& aScaleHint, BufferRecycleBin* aRecycleBin)
   {
-    RefPtr<Image> image;
-    if (aFormat == ImageFormat::PLANAR_YCBCR) {
-      image = new BasicPlanarYCbCrImage(aScaleHint, gfxPlatform::GetPlatform()->GetOffscreenFormat(), aRecycleBin);
-      return image.forget();
-    }
-
-    return ImageFactory::CreateImage(aFormat, aScaleHint, aRecycleBin);
+    return new BasicPlanarYCbCrImage(aScaleHint, gfxPlatform::GetPlatform()->GetOffscreenFormat(), aRecycleBin);
   }
 };
 
 bool
-BasicPlanarYCbCrImage::SetData(const Data& aData)
+BasicPlanarYCbCrImage::CopyData(const Data& aData)
 {
-  RecyclingPlanarYCbCrImage::SetData(aData);
+  RecyclingPlanarYCbCrImage::CopyData(aData);
 
   if (mDelayedConversion) {
     return false;

@@ -75,6 +75,8 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 #include "nsISelectionController.h"
 
 // Misc
+#include "mozilla/gfx/DrawEventRecorder.h"
+#include "mozilla/layout/RemotePrintJobChild.h"
 #include "nsISupportsUtils.h"
 #include "nsIScriptContext.h"
 #include "nsIDOMDocument.h"
@@ -90,6 +92,7 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 
 #include "nsWidgetsCID.h"
 #include "nsIDeviceContextSpec.h"
+#include "nsDeviceContextSpecProxy.h"
 #include "nsViewManager.h"
 #include "nsView.h"
 #include "nsRenderingContext.h"
@@ -123,6 +126,8 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 #include "nsIChannel.h"
 #include "xpcpublic.h"
 #include "nsVariant.h"
+#include "mozilla/StyleSetHandle.h"
+#include "mozilla/StyleSetHandleInlines.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -222,8 +227,7 @@ nsPrintEngine::nsPrintEngine() :
   mLoadCounter(0),
   mDidLoadDataForPrinting(false),
   mIsDestroying(false),
-  mDisallowSelectionPrint(false),
-  mNoMarginBoxes(false)
+  mDisallowSelectionPrint(false)
 {
 }
 
@@ -332,8 +336,7 @@ nsPrintEngine::InstallPrintPreviewListener()
       return;
     }
 
-    nsCOMPtr<nsPIDOMWindow> win(docShell->GetWindow());
-    if (win) {
+    if (nsPIDOMWindowOuter* win = docShell->GetWindow()) {
       nsCOMPtr<EventTarget> target = win->GetFrameElementInternal();
       mPrt->mPPEventListeners = new nsPrintPreviewListener(target);
       mPrt->mPPEventListeners->AddListeners();
@@ -459,21 +462,6 @@ nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
   mPrt->mPrintSettings->SetIsCancelled(false);
   mPrt->mPrintSettings->GetShrinkToFit(&mPrt->mShrinkToFit);
 
-  // In the case the margin boxes are not printed store the print settings for
-  // the footer/header to be used as default print setting for follow up prints.
-  mPrt->mPrintSettings->SetPersistMarginBoxSettings(!mNoMarginBoxes);
-
-  if (mNoMarginBoxes) {
-    // Set the footer/header to blank.
-    const char16_t* emptyString = EmptyString().get();
-    mPrt->mPrintSettings->SetHeaderStrLeft(emptyString);
-    mPrt->mPrintSettings->SetHeaderStrCenter(emptyString);
-    mPrt->mPrintSettings->SetHeaderStrRight(emptyString);
-    mPrt->mPrintSettings->SetFooterStrLeft(emptyString);
-    mPrt->mPrintSettings->SetFooterStrCenter(emptyString);
-    mPrt->mPrintSettings->SetFooterStrRight(emptyString);
-  }
-
   if (aIsPrintPreview) {
     SetIsCreatingPrintPreview(true);
     SetIsPrintPreview(true);
@@ -487,14 +475,29 @@ nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
   }
 
   // Create a print session and let the print settings know about it.
+  // Don't overwrite an existing print session.
   // The print settings hold an nsWeakPtr to the session so it does not
   // need to be cleared from the settings at the end of the job.
   // XXX What lifetime does the printSession need to have?
   nsCOMPtr<nsIPrintSession> printSession;
+  bool remotePrintJobListening = false;
   if (!aIsPrintPreview) {
-    printSession = do_CreateInstance("@mozilla.org/gfx/printsession;1", &rv);
-    NS_ENSURE_SUCCESS(rv, rv);
-    mPrt->mPrintSettings->SetPrintSession(printSession);
+    rv = mPrt->mPrintSettings->GetPrintSession(getter_AddRefs(printSession));
+    if (NS_FAILED(rv) || !printSession) {
+      printSession = do_CreateInstance("@mozilla.org/gfx/printsession;1", &rv);
+      NS_ENSURE_SUCCESS(rv, rv);
+      mPrt->mPrintSettings->SetPrintSession(printSession);
+    } else {
+      RefPtr<mozilla::layout::RemotePrintJobChild> remotePrintJob;
+      printSession->GetRemotePrintJob(getter_AddRefs(remotePrintJob));
+      if (NS_SUCCEEDED(rv) && remotePrintJob) {
+        // If we have a RemotePrintJob add it to the print progress listeners,
+        // so it can forward to the parent.
+        mPrt->mPrintProgressListeners.AppendElement(remotePrintJob);
+        remotePrintJobListening = true;
+      }
+    }
+
   }
 
   if (aWebProgressListener != nullptr) {
@@ -568,9 +571,15 @@ nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
   mPrt->mPrintSettings->SetPrintOptions(nsIPrintSettings::kEnableSelectionRB,
                                         isSelection || mPrt->mIsIFrameSelected);
 
-  nsCOMPtr<nsIDeviceContextSpec> devspec
-    (do_CreateInstance("@mozilla.org/gfx/devicecontextspec;1", &rv));
-  NS_ENSURE_SUCCESS(rv, rv);
+  bool printingViaParent = XRE_IsContentProcess() &&
+                           Preferences::GetBool("print.print_via_parent");
+  nsCOMPtr<nsIDeviceContextSpec> devspec;
+  if (printingViaParent) {
+    devspec = new nsDeviceContextSpecProxy();
+  } else {
+    devspec = do_CreateInstance("@mozilla.org/gfx/devicecontextspec;1", &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
 
   nsScriptSuppressor scriptSuppressor(this);
   if (!aIsPrintPreview) {
@@ -589,10 +598,12 @@ nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
     // Ask dialog to be Print Shown via the Plugable Printing Dialog Service
     // This service is for the Print Dialog and the Print Progress Dialog
     // If printing silently or you can't get the service continue on
-    if (!printSilently) {
+    // If printing via the parent then we need to confirm that the pref is set
+    // and get a remote print job, but the parent won't display a prompt.
+    if (!printSilently || printingViaParent) {
       nsCOMPtr<nsIPrintingPromptService> printPromptService(do_GetService(kPrintingPromptService));
       if (printPromptService) {
-        nsIDOMWindow *domWin = mDocument->GetWindow(); 
+        nsPIDOMWindowOuter* domWin = mDocument->GetWindow(); 
         NS_ENSURE_TRUE(domWin, NS_ERROR_FAILURE);
 
         // Platforms not implementing a given dialog for the service may
@@ -620,6 +631,17 @@ nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
           if (mPrt->mPrintSettings) {
             // The user might have changed shrink-to-fit in the print dialog, so update our copy of its state
             mPrt->mPrintSettings->GetShrinkToFit(&mPrt->mShrinkToFit);
+
+            // If we haven't already added the RemotePrintJob as a listener,
+            // add it now if there is one.
+            if (!remotePrintJobListening) {
+              RefPtr<mozilla::layout::RemotePrintJobChild> remotePrintJob;
+              printSession->GetRemotePrintJob(getter_AddRefs(remotePrintJob));
+              if (NS_SUCCEEDED(rv) && remotePrintJob) {
+                mPrt->mPrintProgressListeners.AppendElement(remotePrintJob);
+                remotePrintJobListening = true;
+              }
+            }
           }
         } else if (rv == NS_ERROR_NOT_IMPLEMENTED) {
           // This means the Dialog service was there,
@@ -768,8 +790,8 @@ nsPrintEngine::Print(nsIPrintSettings*       aPrintSettings,
 
 NS_IMETHODIMP
 nsPrintEngine::PrintPreview(nsIPrintSettings* aPrintSettings, 
-                                 nsIDOMWindow *aChildDOMWin, 
-                                 nsIWebProgressListener* aWebProgressListener)
+                            mozIDOMWindowProxy* aChildDOMWin, 
+                            nsIWebProgressListener* aWebProgressListener)
 {
   // Get the DocShell and see if it is busy
   // (We can't Print Preview this document if it is still busy)
@@ -784,7 +806,7 @@ nsPrintEngine::PrintPreview(nsIPrintSettings* aPrintSettings,
     return NS_ERROR_FAILURE;
   }
 
-  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aChildDOMWin);
+  auto* window = nsPIDOMWindowOuter::From(aChildDOMWin);
   NS_ENSURE_STATE(window);
   nsCOMPtr<nsIDocument> doc = window->GetDoc();
   NS_ENSURE_STATE(doc);
@@ -813,7 +835,7 @@ nsPrintEngine::GetIsIFrameSelected(bool *aIsIFrameSelected)
   // Get the docshell for this documentviewer
   nsCOMPtr<nsIDocShell> webContainer(do_QueryReferent(mContainer));
   // Get the currently focused window
-  nsCOMPtr<nsIDOMWindow> currentFocusWin = FindFocusedDOMWindow();
+  nsCOMPtr<nsPIDOMWindowOuter> currentFocusWin = FindFocusedDOMWindow();
   if (currentFocusWin && webContainer) {
     // Get whether the doc contains a frameset 
     // Also, check to see if the currently focus docshell
@@ -829,7 +851,7 @@ NS_IMETHODIMP
 nsPrintEngine::GetIsRangeSelection(bool *aIsRangeSelection)
 {
   // Get the currently focused window 
-  nsCOMPtr<nsIDOMWindow> currentFocusWin = FindFocusedDOMWindow();
+  nsCOMPtr<nsPIDOMWindowOuter> currentFocusWin = FindFocusedDOMWindow();
   *aIsRangeSelection = IsThereARangeSelection(currentFocusWin);
   return NS_OK;
 }
@@ -839,7 +861,7 @@ NS_IMETHODIMP
 nsPrintEngine::GetIsFramesetFrameSelected(bool *aIsFramesetFrameSelected)
 {
   // Get the currently focused window 
-  nsCOMPtr<nsIDOMWindow> currentFocusWin = FindFocusedDOMWindow();
+  nsCOMPtr<nsPIDOMWindowOuter> currentFocusWin = FindFocusedDOMWindow();
   *aIsFramesetFrameSelected = currentFocusWin != nullptr;
   return NS_OK;
 }
@@ -1025,7 +1047,7 @@ nsPrintEngine::ShowPrintProgress(bool aIsForPrinting, bool& aDoNotify)
   if (showProgresssDialog) {
     nsCOMPtr<nsIPrintingPromptService> printPromptService(do_GetService(kPrintingPromptService));
     if (printPromptService) {
-      nsPIDOMWindow *domWin = mDocument->GetWindow(); 
+      nsPIDOMWindowOuter* domWin = mDocument->GetWindow(); 
       if (!domWin) return;
 
       nsCOMPtr<nsIDocShell> docShell = domWin->GetDocShell();
@@ -1061,15 +1083,14 @@ nsPrintEngine::ShowPrintProgress(bool aIsForPrinting, bool& aDoNotify)
 
 //---------------------------------------------------------------------
 bool
-nsPrintEngine::IsThereARangeSelection(nsIDOMWindow* aDOMWin)
+nsPrintEngine::IsThereARangeSelection(nsPIDOMWindowOuter* aDOMWin)
 {
   if (mDisallowSelectionPrint)
     return false;
 
   nsCOMPtr<nsIPresShell> presShell;
   if (aDOMWin) {
-    nsCOMPtr<nsPIDOMWindow> window(do_QueryInterface(aDOMWin));
-    presShell = window->GetDocShell()->GetPresShell();
+    presShell = aDOMWin->GetDocShell()->GetPresShell();
   }
 
   if (!presShell)
@@ -1077,8 +1098,7 @@ nsPrintEngine::IsThereARangeSelection(nsIDOMWindow* aDOMWin)
 
   // check here to see if there is a range selection
   // so we know whether to turn on the "Selection" radio button
-  Selection* selection =
-    presShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+  Selection* selection = presShell->GetCurrentSelection(SelectionType::eNormal);
   if (!selection) {
     return false;
   }
@@ -1351,7 +1371,7 @@ nsPrintEngine::MapContentForPO(nsPrintObject*   aPO,
 //---------------------------------------------------------------------
 bool
 nsPrintEngine::IsThereAnIFrameSelected(nsIDocShell* aDocShell,
-                                       nsIDOMWindow* aDOMWin,
+                                       nsPIDOMWindowOuter* aDOMWin,
                                        bool& aIsParentFrameSet)
 {
   aIsParentFrameSet = IsParentAFrameSet(aDocShell);
@@ -1368,8 +1388,7 @@ nsPrintEngine::IsThereAnIFrameSelected(nsIDocShell* aDocShell,
       if (aDOMWin) {
         // Get the main docshell's DOMWin to see if it matches 
         // the frame that is selected
-        nsCOMPtr<nsIDOMWindow> domWin =
-         aDocShell ? aDocShell->GetWindow() : nullptr;
+        nsPIDOMWindowOuter* domWin = aDocShell ? aDocShell->GetWindow() : nullptr;
         if (domWin != aDOMWin) {
           iFrameIsSelected = true; // we have a selected IFRAME
         }
@@ -1518,8 +1537,12 @@ void
 nsPrintEngine::FirePrintingErrorEvent(nsresult aPrintError)
 {
   nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
+  if (NS_WARN_IF(!cv)) {
+    return;
+  }
+
   nsCOMPtr<nsIDocument> doc = cv->GetDocument();
-  nsCOMPtr<nsIDOMCustomEvent> event =
+  RefPtr<CustomEvent> event =
     NS_NewDOMCustomEvent(doc, nullptr, nullptr);
 
   MOZ_ASSERT(event);
@@ -1537,6 +1560,11 @@ nsPrintEngine::FirePrintingErrorEvent(nsresult aPrintError)
     new AsyncEventDispatcher(doc, event);
   asyncDispatcher->mOnlyChromeDispatch = true;
   asyncDispatcher->RunDOMEventWhenSafe();
+
+  // Inform any progress listeners of the Error.
+  if (mPrt) {
+    mPrt->DoOnStatusChange(aPrintError);
+  }
 }
 
 //-----------------------------------------------------------------
@@ -1678,14 +1706,15 @@ nsPrintEngine::SetupToPrintContent()
     mPrt->OnStartPrinting();    
   }
 
-  char16_t* fileName = nullptr;
+  nsAutoString fileNameStr;
   // check to see if we are printing to a file
   bool isPrintToFile = false;
   mPrt->mPrintSettings->GetPrintToFile(&isPrintToFile);
   if (isPrintToFile) {
-  // On some platforms The BeginDocument needs to know the name of the file
-  // and it uses the PrintService to get it, so we need to set it into the PrintService here
+    // On some platforms The BeginDocument needs to know the name of the file.
+    char16_t* fileName = nullptr;
     mPrt->mPrintSettings->GetToFileName(&fileName);
+    fileNameStr = fileName;
   }
 
   nsAutoString docTitleStr;
@@ -1711,7 +1740,8 @@ nsPrintEngine::SetupToPrintContent()
   //      to the "File Name" dialog, this comes back as an error
   // Don't start printing when regression test are executed  
   if (!mPrt->mDebugFilePtr && mIsDoingPrinting) {
-    rv = mPrt->mPrintDC->BeginDocument(docTitleStr, fileName, startPage, endPage);
+    rv = mPrt->mPrintDC->BeginDocument(docTitleStr, fileNameStr, startPage,
+                                       endPage);
   } 
 
   if (mIsCreatingPrintPreview) {
@@ -1929,9 +1959,9 @@ nsPrintEngine::UpdateSelectionAndShrinkPrintObject(nsPrintObject* aPO,
   RefPtr<Selection> selection, selectionPS;
   // It's okay if there is no display shell, just skip copying the selection
   if (displayShell) {
-    selection = displayShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+    selection = displayShell->GetCurrentSelection(SelectionType::eNormal);
   }
-  selectionPS = aPO->mPresShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+  selectionPS = aPO->mPresShell->GetCurrentSelection(SelectionType::eNormal);
 
   // Reset all existing selection ranges that might have been added by calling
   // this function before.
@@ -2113,14 +2143,12 @@ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
   rv = aPO->mViewManager->Init(mPrt->mPrintDC);
   NS_ENSURE_SUCCESS(rv,rv);
 
-  nsStyleSet* styleSet;
-  rv = mDocViewerPrint->CreateStyleSet(aPO->mDocument, &styleSet);
-  NS_ENSURE_SUCCESS(rv, rv);
+  StyleSetHandle styleSet = mDocViewerPrint->CreateStyleSet(aPO->mDocument);
 
   aPO->mPresShell = aPO->mDocument->CreateShell(aPO->mPresContext,
                                                 aPO->mViewManager, styleSet);
   if (!aPO->mPresShell) {
-    delete styleSet;
+    styleSet->Delete();
     return NS_ERROR_FAILURE;
   }
 
@@ -2229,11 +2257,7 @@ nsPrintEngine::CalcNumPrintablePages(int32_t& aNumPages)
       nsIPageSequenceFrame* pageSequence = po->mPresShell->GetPageSequenceFrame();
       nsIFrame * seqFrame = do_QueryFrame(pageSequence);
       if (seqFrame) {
-        nsIFrame* frame = seqFrame->GetFirstPrincipalChild();
-        while (frame) {
-          aNumPages++;
-          frame = frame->GetNextSibling();
-        }
+        aNumPages += seqFrame->PrincipalChildList().GetLength();
       }
     }
   }
@@ -2348,9 +2372,9 @@ static nsresult CloneSelection(nsIDocument* aOrigDoc, nsIDocument* aDoc)
   NS_ENSURE_STATE(origShell && shell);
 
   RefPtr<Selection> origSelection =
-    origShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+    origShell->GetCurrentSelection(SelectionType::eNormal);
   RefPtr<Selection> selection =
-    shell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+    shell->GetCurrentSelection(SelectionType::eNormal);
   NS_ENSURE_STATE(origSelection && selection);
 
   int32_t rangeCount = origSelection->RangeCount();
@@ -2431,12 +2455,6 @@ nsPrintEngine::DoPrint(nsPrintObject * aPO)
         // which is needed to find the selection frames
         // mPrintDC must have positive width and height for this call
 
-        // CreateRenderingContext can fail for large dimensions
-        RefPtr<gfxContext> gCtx = mPrt->mPrintDC->CreateRenderingContext();
-        NS_ENSURE_TRUE(gCtx, NS_ERROR_OUT_OF_MEMORY);
-
-        nsRenderingContext rc(gCtx);
-
         // find the starting and ending page numbers
         // via the selection
         nsIFrame* startFrame;
@@ -2446,10 +2464,7 @@ nsPrintEngine::DoPrint(nsPrintObject * aPO)
         nsRect    startRect;
         nsRect    endRect;
 
-        RefPtr<Selection> selectionPS =
-          poPresShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
-
-        rv = GetPageRangeForSelection(poPresShell, poPresContext, rc, selectionPS, pageSequence,
+        rv = GetPageRangeForSelection(pageSequence,
                                       &startFrame, startPageNum, startRect,
                                       &endFrame, endPageNum, endRect);
         if (NS_SUCCEEDED(rv)) {
@@ -2737,10 +2752,8 @@ nsPrintEngine::PrintPage(nsPrintObject*    aPO,
 /** ---------------------------------------------------
  *  Find by checking frames type
  */
-nsresult 
-nsPrintEngine::FindSelectionBoundsWithList(nsPresContext* aPresContext,
-                                           nsRenderingContext& aRC,
-                                           nsFrameList::Enumerator& aChildFrames,
+nsresult
+nsPrintEngine::FindSelectionBoundsWithList(nsFrameList::Enumerator& aChildFrames,
                                            nsIFrame *      aParentFrame,
                                            nsRect&         aRect,
                                            nsIFrame *&     aStartFrame,
@@ -2748,7 +2761,6 @@ nsPrintEngine::FindSelectionBoundsWithList(nsPresContext* aPresContext,
                                            nsIFrame *&     aEndFrame,
                                            nsRect&         aEndRect)
 {
-  NS_ASSERTION(aPresContext, "Pointer is null!");
   NS_ASSERTION(aParentFrame, "Pointer is null!");
 
   aRect += aParentFrame->GetPosition();
@@ -2764,7 +2776,7 @@ nsPrintEngine::FindSelectionBoundsWithList(nsPresContext* aPresContext,
         aEndRect.SetRect(aRect.x + r.x, aRect.y + r.y, r.width, r.height);
       }
     }
-    FindSelectionBounds(aPresContext, aRC, child, aRect, aStartFrame, aStartRect, aEndFrame, aEndRect);
+    FindSelectionBounds(child, aRect, aStartFrame, aStartRect, aEndFrame, aEndRect);
     child = child->GetNextSibling();
   }
   aRect -= aParentFrame->GetPosition();
@@ -2773,24 +2785,22 @@ nsPrintEngine::FindSelectionBoundsWithList(nsPresContext* aPresContext,
 
 //-------------------------------------------------------
 // Find the Frame that is XMost
-nsresult 
-nsPrintEngine::FindSelectionBounds(nsPresContext* aPresContext,
-                                   nsRenderingContext& aRC,
-                                   nsIFrame *      aParentFrame,
+nsresult
+nsPrintEngine::FindSelectionBounds(nsIFrame *      aParentFrame,
                                    nsRect&         aRect,
                                    nsIFrame *&     aStartFrame,
                                    nsRect&         aStartRect,
                                    nsIFrame *&     aEndFrame,
                                    nsRect&         aEndRect)
 {
-  NS_ASSERTION(aPresContext, "Pointer is null!");
   NS_ASSERTION(aParentFrame, "Pointer is null!");
 
   // loop through named child lists
   nsIFrame::ChildListIterator lists(aParentFrame);
   for (; !lists.IsDone(); lists.Next()) {
     nsFrameList::Enumerator childFrames(lists.CurrentList());
-    nsresult rv = FindSelectionBoundsWithList(aPresContext, aRC, childFrames, aParentFrame, aRect, aStartFrame, aStartRect, aEndFrame, aEndRect);
+    nsresult rv = FindSelectionBoundsWithList(childFrames, aParentFrame, aRect,
+      aStartFrame, aStartRect, aEndFrame, aEndRect);
     NS_ENSURE_SUCCESS(rv, rv);
   }
   return NS_OK;
@@ -2802,12 +2812,8 @@ nsPrintEngine::FindSelectionBounds(nsPresContext* aPresContext,
  *  the x,y of the rect is relative to the very top of the
  *  frame tree (absolutely positioned)
  */
-nsresult 
-nsPrintEngine::GetPageRangeForSelection(nsIPresShell *        aPresShell,
-                                        nsPresContext*       aPresContext,
-                                        nsRenderingContext&  aRC,
-                                        nsISelection*         aSelection,
-                                        nsIPageSequenceFrame* aPageSeqFrame,
+nsresult
+nsPrintEngine::GetPageRangeForSelection(nsIPageSequenceFrame* aPageSeqFrame,
                                         nsIFrame**            aStartFrame,
                                         int32_t&              aStartPageNum,
                                         nsRect&               aStartRect,
@@ -2815,9 +2821,6 @@ nsPrintEngine::GetPageRangeForSelection(nsIPresShell *        aPresShell,
                                         int32_t&              aEndPageNum,
                                         nsRect&               aEndRect)
 {
-  NS_ASSERTION(aPresShell, "Pointer is null!");
-  NS_ASSERTION(aPresContext, "Pointer is null!");
-  NS_ASSERTION(aSelection, "Pointer is null!");
   NS_ASSERTION(aPageSeqFrame, "Pointer is null!");
   NS_ASSERTION(aStartFrame, "Pointer is null!");
   NS_ASSERTION(aEndFrame, "Pointer is null!");
@@ -2834,8 +2837,7 @@ nsPrintEngine::GetPageRangeForSelection(nsIPresShell *        aPresShell,
   // capturing the starting and ending child frames of the selection
   // and their rects
   nsRect r = seqFrame->GetRect();
-  FindSelectionBounds(aPresContext, aRC, seqFrame, r,
-                      startFrame, aStartRect, endFrame, aEndRect);
+  FindSelectionBounds(seqFrame, r, startFrame, aStartRect, endFrame, aEndRect);
 
 #ifdef DEBUG_rodsX
   printf("Start Frame: %p\n", startFrame);
@@ -2880,7 +2882,7 @@ nsPrintEngine::GetPageRangeForSelection(nsIPresShell *        aPresShell,
   // dump all the pages and their pointers
   {
   int32_t pageNum = 1;
-  nsIFrame* child = seqFrame->GetFirstPrincipalChild();
+  nsIFrame* child = seqFrame->PrincipalChildList().FirstChild();
   while (child != nullptr) {
     printf("Page: %d - %p\n", pageNum, child);
     pageNum++;
@@ -2892,8 +2894,7 @@ nsPrintEngine::GetPageRangeForSelection(nsIPresShell *        aPresShell,
   // Now that we have the page frames
   // find out what the page numbers are for each frame
   int32_t pageNum = 1;
-  nsIFrame* page = seqFrame->GetFirstPrincipalChild();
-  while (page != nullptr) {
+  for (nsIFrame* page : seqFrame->PrincipalChildList()) {
     if (page == startPageFrame) {
       aStartPageNum = pageNum;
     }
@@ -2901,7 +2902,6 @@ nsPrintEngine::GetPageRangeForSelection(nsIPresShell *        aPresShell,
       aEndPageNum = pageNum;
     }
     pageNum++;
-    page = page->GetNextSibling();
   }
 
 #ifdef DEBUG_rodsX
@@ -2985,19 +2985,19 @@ bool nsPrintEngine::HasFramesetChild(nsIContent* aContent)
 /** ---------------------------------------------------
  *  Get the Focused Frame for a documentviewer
  */
-already_AddRefed<nsIDOMWindow>
+already_AddRefed<nsPIDOMWindowOuter>
 nsPrintEngine::FindFocusedDOMWindow()
 {
   nsIFocusManager* fm = nsFocusManager::GetFocusManager();
   NS_ENSURE_TRUE(fm, nullptr);
 
-  nsCOMPtr<nsPIDOMWindow> window(mDocument->GetWindow());
+  nsPIDOMWindowOuter* window = mDocument->GetWindow();
   NS_ENSURE_TRUE(window, nullptr);
 
-  nsCOMPtr<nsPIDOMWindow> rootWindow = window->GetPrivateRoot();
+  nsCOMPtr<nsPIDOMWindowOuter> rootWindow = window->GetPrivateRoot();
   NS_ENSURE_TRUE(rootWindow, nullptr);
 
-  nsCOMPtr<nsPIDOMWindow> focusedWindow;
+  nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
   nsFocusManager::GetFocusedDescendant(rootWindow, true,
                                        getter_AddRefs(focusedWindow));
   NS_ENSURE_TRUE(focusedWindow, nullptr);
@@ -3011,7 +3011,7 @@ nsPrintEngine::FindFocusedDOMWindow()
 
 //---------------------------------------------------------------------
 bool
-nsPrintEngine::IsWindowsInOurSubTree(nsPIDOMWindow * window)
+nsPrintEngine::IsWindowsInOurSubTree(nsPIDOMWindowOuter* window)
 {
   bool found = false;
 
@@ -3097,7 +3097,7 @@ nsPrintEngine::SetPrintAsIs(nsPrintObject* aPO, bool aAsIs)
 // Given a DOMWindow it recursively finds the PO object that matches
 nsPrintObject*
 nsPrintEngine::FindPrintObjectByDOMWin(nsPrintObject* aPO,
-                                       nsIDOMWindow* aDOMWin)
+                                       nsPIDOMWindowOuter* aDOMWin)
 {
   NS_ASSERTION(aPO, "Pointer is null!");
 
@@ -3107,9 +3107,7 @@ nsPrintEngine::FindPrintObjectByDOMWin(nsPrintObject* aPO,
     return nullptr;
   }
 
-  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aDOMWin);
-
-  nsCOMPtr<nsIDocument> doc = window->GetDoc();
+  nsCOMPtr<nsIDocument> doc = aDOMWin->GetDoc();
   if (aPO->mDocument && aPO->mDocument->GetOriginalDocument() == doc) {
     return aPO;
   }
@@ -3214,8 +3212,8 @@ nsPrintEngine::EnablePOsForPrinting()
           //
           // XXX this is sort of a hack right here to make the page
           // not try to reposition itself when printing selection
-          nsCOMPtr<nsIDOMWindow> domWin =
-            do_QueryInterface(po->mDocument->GetOriginalDocument()->GetWindow());
+          nsPIDOMWindowOuter* domWin =
+            po->mDocument->GetOriginalDocument()->GetWindow();
           if (!IsThereARangeSelection(domWin)) {
             printRangeType = nsIPrintSettings::kRangeAllPages;
             mPrt->mPrintSettings->SetPrintRange(printRangeType);
@@ -3229,9 +3227,9 @@ nsPrintEngine::EnablePOsForPrinting()
         for (uint32_t i=0;i<mPrt->mPrintDocList.Length();i++) {
           nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
           NS_ASSERTION(po, "nsPrintObject can't be null!");
-          nsCOMPtr<nsIDOMWindow> domWin = po->mDocShell->GetWindow();
+          nsCOMPtr<nsPIDOMWindowOuter> domWin = po->mDocShell->GetWindow();
           if (IsThereARangeSelection(domWin)) {
-            mPrt->mCurrentFocusWin = domWin;
+            mPrt->mCurrentFocusWin = domWin.forget();
             SetPrintPO(po, true);
             break;
           }
@@ -3262,8 +3260,7 @@ nsPrintEngine::EnablePOsForPrinting()
         //
         // XXX this is sort of a hack right here to make the page
         // not try to reposition itself when printing selection
-        nsCOMPtr<nsIDOMWindow> domWin =
-          do_QueryInterface(po->mDocument->GetOriginalDocument()->GetWindow());
+        nsCOMPtr<nsPIDOMWindowOuter> domWin = po->mDocument->GetOriginalDocument()->GetWindow();
         if (!IsThereARangeSelection(domWin)) {
           printRangeType = nsIPrintSettings::kRangeAllPages;
           mPrt->mPrintSettings->SetPrintRange(printRangeType);
@@ -3383,7 +3380,7 @@ nsPrintEngine::TurnScriptingOn(bool aDoTurnOn)
       continue;
     }
 
-    if (nsCOMPtr<nsPIDOMWindow> window = doc->GetInnerWindow()) {
+    if (nsCOMPtr<nsPIDOMWindowInner> window = doc->GetInnerWindow()) {
       nsCOMPtr<nsIGlobalObject> go = do_QueryInterface(window);
       NS_WARN_IF_FALSE(go && go->GetGlobalJSObject(), "Can't get global");
       nsresult propThere = NS_PROPTABLE_PROP_NOT_THERE;
@@ -3502,6 +3499,17 @@ nsPrintEngine::StartPagePrintTimer(nsPrintObject* aPO)
     RefPtr<nsPagePrintTimer> timer =
       new nsPagePrintTimer(this, mDocViewerPrint, printPageDelay);
     timer.forget(&mPagePrintTimer);
+
+    nsCOMPtr<nsIPrintSession> printSession;
+    nsresult rv = mPrt->mPrintSettings->GetPrintSession(getter_AddRefs(printSession));
+    if (NS_SUCCEEDED(rv) && printSession) {
+      RefPtr<mozilla::layout::RemotePrintJobChild> remotePrintJob;
+      printSession->GetRemotePrintJob(getter_AddRefs(remotePrintJob));
+      if (NS_SUCCEEDED(rv) && remotePrintJob) {
+        remotePrintJob->SetPagePrintTimer(mPagePrintTimer);
+        remotePrintJob->SetPrintEngine(this);
+      }
+    }
   }
 
   return mPagePrintTimer->Start(aPO);
@@ -3525,7 +3533,7 @@ nsPrintEngine::Observe(nsISupports *aSubject, const char *aTopic, const char16_t
 //---------------------------------------------------------------
 //-- PLEvent Notification
 //---------------------------------------------------------------
-class nsPrintCompletionEvent : public nsRunnable {
+class nsPrintCompletionEvent : public Runnable {
 public:
   explicit nsPrintCompletionEvent(nsIDocumentViewerPrint *docViewerPrint)
     : mDocViewerPrint(docViewerPrint) {
@@ -3644,7 +3652,7 @@ static void DumpFrames(FILE*                 out,
   NS_ASSERTION(aRendContext, "Pointer is null!");
   NS_ASSERTION(aFrame, "Pointer is null!");
 
-  nsIFrame* child = aFrame->GetFirstPrincipalChild();
+  nsIFrame* child = aFrame->PrincipalChildList().FirstChild();
   while (child != nullptr) {
     for (int32_t i=0;i<aLevel;i++) {
      fprintf(out, "  ");
@@ -3785,7 +3793,7 @@ static void DumpPrintObjectsList(nsTArray<nsPrintObject*> * aDocList)
         if (sqf) {
           break;
         }
-        rootFrame = rootFrame->GetFirstPrincipalChild();
+        rootFrame = rootFrame->PrincipalChildList().FirstChild();
       }
     }
 

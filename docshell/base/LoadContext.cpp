@@ -7,6 +7,34 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/LoadContext.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/dom/ScriptSettings.h" // for AutoJSAPI
+#include "nsContentUtils.h"
+#include "xpcpublic.h"
+
+bool
+nsILoadContext::GetOriginAttributes(mozilla::DocShellOriginAttributes& aAttrs)
+{
+  mozilla::dom::AutoJSAPI jsapi;
+  bool ok = jsapi.Init(xpc::PrivilegedJunkScope());
+  NS_ENSURE_TRUE(ok, false);
+  JS::Rooted<JS::Value> v(jsapi.cx());
+  nsresult rv = GetOriginAttributes(&v);
+  NS_ENSURE_SUCCESS(rv, false);
+  NS_ENSURE_TRUE(v.isObject(), false);
+  JS::Rooted<JSObject*> obj(jsapi.cx(), &v.toObject());
+
+  // If we're JS-implemented, the object will be left in a different (System-Principaled)
+  // scope, so we may need to enter its compartment.
+  MOZ_ASSERT(nsContentUtils::IsSystemPrincipal(nsContentUtils::ObjectPrincipal(obj)));
+  JSAutoCompartment ac(jsapi.cx(), obj);
+
+  mozilla::DocShellOriginAttributes attrs;
+  ok = attrs.Init(jsapi.cx(), v);
+  NS_ENSURE_TRUE(ok, false);
+  aAttrs = attrs;
+  return true;
+}
 
 namespace mozilla {
 
@@ -23,17 +51,16 @@ LoadContext::LoadContext(nsIPrincipal* aPrincipal,
   , mIsNotNull(true)
 #endif
 {
-  mOriginAttributes = BasePrincipal::Cast(aPrincipal)->OriginAttributesRef();
-
+  PrincipalOriginAttributes poa = BasePrincipal::Cast(aPrincipal)->OriginAttributesRef();
+  mOriginAttributes.InheritFromDocToChildDocShell(poa);
+  mOriginAttributes.SyncAttributesWithPrivateBrowsing(mUsePrivateBrowsing);
   if (!aOptionalBase) {
     return;
   }
 
-  MOZ_ALWAYS_TRUE(NS_SUCCEEDED(aOptionalBase->GetIsContent(&mIsContent)));
-  MOZ_ALWAYS_TRUE(
-    NS_SUCCEEDED(aOptionalBase->GetUsePrivateBrowsing(&mUsePrivateBrowsing)));
-  MOZ_ALWAYS_TRUE(
-    NS_SUCCEEDED(aOptionalBase->GetUseRemoteTabs(&mUseRemoteTabs)));
+  MOZ_ALWAYS_SUCCEEDS(aOptionalBase->GetIsContent(&mIsContent));
+  MOZ_ALWAYS_SUCCEEDS(aOptionalBase->GetUsePrivateBrowsing(&mUsePrivateBrowsing));
+  MOZ_ALWAYS_SUCCEEDS(aOptionalBase->GetUseRemoteTabs(&mUseRemoteTabs));
 }
 
 //-----------------------------------------------------------------------------
@@ -41,7 +68,7 @@ LoadContext::LoadContext(nsIPrincipal* aPrincipal,
 //-----------------------------------------------------------------------------
 
 NS_IMETHODIMP
-LoadContext::GetAssociatedWindow(nsIDOMWindow**)
+LoadContext::GetAssociatedWindow(mozIDOMWindowProxy**)
 {
   MOZ_ASSERT(mIsNotNull);
 
@@ -50,7 +77,7 @@ LoadContext::GetAssociatedWindow(nsIDOMWindow**)
 }
 
 NS_IMETHODIMP
-LoadContext::GetTopWindow(nsIDOMWindow**)
+LoadContext::GetTopWindow(mozIDOMWindowProxy**)
 {
   MOZ_ASSERT(mIsNotNull);
 
@@ -144,13 +171,13 @@ LoadContext::SetRemoteTabs(bool aUseRemoteTabs)
 }
 
 NS_IMETHODIMP
-LoadContext::GetIsInBrowserElement(bool* aIsInBrowserElement)
+LoadContext::GetIsInIsolatedMozBrowserElement(bool* aIsInIsolatedMozBrowserElement)
 {
   MOZ_ASSERT(mIsNotNull);
 
-  NS_ENSURE_ARG_POINTER(aIsInBrowserElement);
+  NS_ENSURE_ARG_POINTER(aIsInIsolatedMozBrowserElement);
 
-  *aIsInBrowserElement = mOriginAttributes.mInBrowser;
+  *aIsInIsolatedMozBrowserElement = mOriginAttributes.mInIsolatedMozBrowser;
   return NS_OK;
 }
 
@@ -173,6 +200,23 @@ LoadContext::GetOriginAttributes(JS::MutableHandleValue aAttrs)
 
   bool ok = ToJSValue(cx, mOriginAttributes, aAttrs);
   NS_ENSURE_TRUE(ok, NS_ERROR_FAILURE);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadContext::IsTrackingProtectionOn(bool* aIsTrackingProtectionOn)
+{
+  MOZ_ASSERT(mIsNotNull);
+
+  if (Preferences::GetBool("privacy.trackingprotection.enabled", false)) {
+    *aIsTrackingProtectionOn = true;
+  } else if (mUsePrivateBrowsing &&
+             Preferences::GetBool("privacy.trackingprotection.pbmode.enabled", false)) {
+    *aIsTrackingProtectionOn = true;
+  } else {
+    *aIsTrackingProtectionOn = false;
+  }
+
   return NS_OK;
 }
 

@@ -14,37 +14,116 @@ from collections import defaultdict
 
 import ConfigParser
 
+def validate_choices(values, choices):
+    for value in values:
+        if value not in choices:
+            print 'Invalid choice {v!r}. Allowed choices: {c!r}'.format(v=value, c=choices)
+            sys.exit(1)
+
+class ValidatePlatforms(argparse.Action):
+    def __call__(self, parser, args, values, option_string=None):
+        choices = ['linux', 'linux64', 'linux64-asan', 'linux64-st-an',
+                   'linux64-valgrind', 'linux64-haz', 'macosx64',
+                   'macosx64-st-an', 'win32', 'win64', 'android-api-9',
+                   'android-api-15', 'android-api-15-gradle-dependencies',
+                   'android-api-15-frontend', 'android-x86', 'sm-arm-sim',
+                   'sm-compacting', 'sm-generational', 'sm-plain',
+                   'sm-rootanalysis', 'sm-warnaserr']
+        validate_choices(values, choices)
+        setattr(args, self.dest, values)
+
+class ValidateUnittestSuites(argparse.Action):
+    def __call__(self, parser, args, values, option_string=None):
+        choices = ['none', 'all', 'reftest', 'reftest-1', 'reftest-2',
+                   'reftest-3', 'reftest-4', 'reftest-e10s',
+                   'reftest-no-accel', 'crashtest', 'crashtest-e10s',
+                   'xpcshell', 'jsreftest', 'marionette', 'marionette-e10s',
+                   'mozmill', 'cppunit', 'gtest', 'firefox-ui-functional',
+                   'firefox-ui-functional-e10s', 'jittests', 'jittest-1',
+                   'jittest-2', 'luciddream', 'mochitests',
+                   'mochitest-gl', 'mochitest-bc', 'mochitest-browser-screenshots',
+                   'mochitest-dt', 'mochitest-o', 'mochitest-media',
+                   'mochitest-jetpack', 'mochitest-e10s-1', 'mochitest-e10s-2',
+                   'mochitest-e10s-3', 'mochitest-e10s-4', 'mochitest-e10s-5',
+                   'mochitest-e10s-bc', 'mochitest-e10s-devtools-chrome',
+                   'mochitest-media-e10s', 'web-platform-tests',
+                   'web-platform-tests-1', 'web-platform-tests-2',
+                   'web-platform-tests-3', 'web-platform-tests-4',
+                   'web-platform-tests-5', 'web-platform-tests-6',
+                   'web-platform-tests-7', 'web-platform-tests-8',
+                   'web-platform-tests-reftests', 'web-platform-tests-e10s-1',
+                   'web-platform-tests-e10s-2', 'web-platform-tests-e10s-3',
+                   'web-platform-tests-e10s-4', 'web-platform-tests-e10s-5',
+                   'web-platform-tests-e10s-6', 'web-platform-tests-e10s-7',
+                   'web-platform-tests-e10s-8', 'web-platform-tests-e10s-reftests',
+                   'robocop-1', 'robocop-2', 'robocop-3', 'robocop-4',
+                   'plain-reftest-1', 'plain-reftest-2', 'plain-reftest-3',
+                   'plain-reftest-4', 'plain-reftest-5', 'plain-reftest-6',
+                   'plain-reftest-7', 'plain-reftest-8', 'plain-reftest-9',
+                   'plain-reftest-10', 'plain-reftest-11', 'plain-reftest-12',
+                   'plain-reftest-13', 'plain-reftest-14', 'plain-reftest-15',
+                   'plain-reftest-16', 'jsreftest-1', 'jsreftest-2',
+                   'jsreftest-3', 'jsreftest-4', 'jsreftest-5', 'jsreftest-6',
+                   'mochitest-1', 'mochitest-2', 'mochitest-3', 'mochitest-4',
+                   'mochitest-5', 'mochitest-6', 'mochitest-7', 'mochitest-8',
+                   'mochitest-9', 'mochitest-10', 'mochitest-11', 'mochitest-12',
+                   'mochitest-13', 'mochitest-14', 'mochitest-15', 'mochitest-16',
+                   'mochitest-17', 'mochitest-18', 'mochitest-19', 'mochitest-20',
+                   'mochitest-chrome', 'mochitest-gl-1', 'mochitest-gl-2',
+                   'mochitest-gl-3', 'mochitest-gl-4', 'mochitest-gl-5',
+                   'mochitest-gl-6', 'mochitest-gl-7', 'mochitest-gl-8',
+                   'mochitest-gl-9', 'mochitest-gl-10', 'mochitest-media-1',
+                   'mochitest-media-2', 'crashtest-1', 'crashtest-2',
+                   'crashtest-3', 'crashtest-4', 'xpcshell-1', 'xpcshell-2',
+                   'xpcshell-3', 'autophone-smoketest', 'autophone-s1s2',
+                   'autophone-webapp', 'autophone-mochitest-dom-browser-element',
+                   'autophone-mochitest-dom-media', 'autophone-mochitest-skia',
+                   'autophone-mochitest-toolkit-widgets']
+        validate_choices(values, choices)
+        setattr(args, self.dest, values)
+
+class ValidateTalosSuites(argparse.Action):
+    def __call__(self, parser, args, values, option_string=None):
+        choices = ['none', 'all', 'chromez', 'dromaeojs', 'other', 'g1', 'g2',
+                   'svgr', 'tp5o', 'xperf', 'chromez-e10s', 'dromaeojs-e10s',
+                   'other-e10s', 'g1-e10s', 'g2-e10s', 'svgr-e10s',
+                   'tp5o-e10s', 'xperf-e10s']
+        validate_choices(values, choices)
+        setattr(args, self.dest, values)
+
+def csv(val):
+    return str.split(val, ',')
 
 def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('paths', nargs='*', help='Paths to search for tests to run on try.')
-    parser.add_argument('-b', dest='builds', default='do',
+    parser.add_argument('-b', '--build', dest='builds', default='do',
                         help='Build types to run (d for debug, o for optimized).')
-    parser.add_argument('-p', dest='platforms', action="append",
+    parser.add_argument('-p', '--platform', dest='platforms', action=ValidatePlatforms, type=csv,
                         help='Platforms to run (required if not found in the environment as AUTOTRY_PLATFORM_HINT).')
-    parser.add_argument('-u', dest='tests', action="append",
+    parser.add_argument('-u', '--unittests', dest='tests', action=ValidateUnittestSuites, type=csv,
                         help='Test suites to run in their entirety.')
-    parser.add_argument('-t', dest="talos", action="append",
+    parser.add_argument('-t', '--talos', dest='talos', action=ValidateTalosSuites, type=csv,
                         help='Talos suites to run.')
     parser.add_argument('--tag', dest='tags', action='append',
                         help='Restrict tests to the given tag (may be specified multiple times).')
-    parser.add_argument('--and', action='store_true', dest="intersection",
+    parser.add_argument('--and', action='store_true', dest='intersection',
                         help='When -u and paths are supplied run only the intersection of the tests specified by the two arguments.')
     parser.add_argument('--no-push', dest='push', action='store_false',
                         help='Do not push to try as a result of running this command (if '
                         'specified this command will only print calculated try '
                         'syntax and selection info).')
-    parser.add_argument('--save', dest="save", action='store',
-                        help="Save the command line arguments for future use with --preset.")
-    parser.add_argument('--preset', dest="load", action='store',
-                        help="Load a saved set of arguments. Additional arguments will override saved ones.")
+    parser.add_argument('--save', dest='save', action='store',
+                        help='Save the command line arguments for future use with --preset.')
+    parser.add_argument('--preset', dest='load', action='store',
+                        help='Load a saved set of arguments. Additional arguments will override saved ones.')
     parser.add_argument('--list', action='store_true',
-                        help="List all saved try strings")
-    parser.add_argument('extra_args', nargs=argparse.REMAINDER,
-                        help='Extra arguments to put in the try push.')
-    parser.add_argument('-v', "--verbose", dest='verbose', action='store_true', default=False,
+                        help='List all saved try strings')
+    parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=False,
                         help='Print detailed information about the resulting test selection '
                         'and commands performed.')
+    for arg, opts in AutoTry.pass_through_arguments.items():
+        parser.add_argument(arg, **opts)
     return parser
 
 class TryArgumentTokenizer(object):
@@ -153,8 +232,8 @@ class AutoTry(object):
         'chrome': ['mochitest-o'],
         'browser-chrome': ['mochitest-browser-chrome-1',
                            'mochitest-e10s-browser-chrome-1'],
-        'devtools-chrome': ['mochitest-dt',
-                            'mochitest-e10s-devtools-chrome'],
+        'devtools-chrome': ['mochitest-devtools-chrome-1',
+                            'mochitest-e10s-devtools-chrome-1'],
         'crashtest': ['crashtest', 'crashtest-e10s'],
         'reftest': ['reftest', 'reftest-e10s'],
         'web-platform-tests': ['web-platform-tests-1'],
@@ -169,6 +248,63 @@ class AutoTry(object):
         "crashtest": "crashtest",
         "reftest": "reftest",
         "web-platform-tests": "web-platform-tests",
+    }
+
+    # Arguments we will accept on the command line and pass through to try
+    # syntax with no further intervention. The set is taken from
+    # http://trychooser.pub.build.mozilla.org with a few additions.
+    #
+    # Note that the meaning of store_false and store_true arguments is
+    # not preserved here, as we're only using these to echo the literal
+    # arguments to another consumer. Specifying either store_false or
+    # store_true here will have an equivalent effect.
+    pass_through_arguments = {
+        '--rebuild': {
+            'action': 'store',
+            'dest': 'rebuild',
+            'help': 'Re-trigger all test jobs (up to 20 times)',
+        },
+        '--rebuild-talos': {
+            'action': 'store',
+            'dest': 'rebuild_talos',
+            'help': 'Re-trigger all talos jobs',
+        },
+        '--interactive': {
+            'action': 'store_true',
+            'dest': 'interactive',
+            'help': 'Allow ssh-like access to running test containers',
+        },
+        '--no-retry': {
+            'action': 'store_true',
+            'dest': 'no_retry',
+            'help': 'Do not retrigger failed tests',
+        },
+        '--setenv': {
+            'action': 'append',
+            'dest': 'setenv',
+            'help': 'Set the corresponding variable in the test environment for'
+                    'applicable harnesses.',
+        },
+        '-f': {
+            'action': 'store_true',
+            'dest': 'failure_emails',
+            'help': 'Request failure emails only',
+        },
+        '--failure-emails': {
+            'action': 'store_true',
+            'dest': 'failure_emails',
+            'help': 'Request failure emails only',
+        },
+        '-e': {
+            'action': 'store_true',
+            'dest': 'all_emails',
+            'help': 'Request all emails',
+        },
+        '--all-emails': {
+            'action': 'store_true',
+            'dest': 'all_emails',
+            'help': 'Request all emails',
+        }
     }
 
     def __init__(self, topsrcdir, resolver_func, mach_context):
@@ -299,7 +435,7 @@ class AutoTry(object):
         return rv
 
     def calc_try_syntax(self, platforms, tests, talos, builds, paths_by_flavor, tags,
-                        extra_args, intersection):
+                        extras, intersection):
         parts = ["try:", "-b", builds, "-p", ",".join(platforms)]
 
         suites = tests if not intersection else {}
@@ -320,16 +456,29 @@ class AutoTry(object):
                               for k,v in sorted(suites.items())) if suites else "none")
 
         parts.append("-t")
-        parts.append(",".join(talos) if talos else "none")
+        parts.append(",".join("%s%s" % (k, "[%s]" % ",".join(v) if v else "")
+                              for k,v in sorted(talos.items())) if talos else "none")
 
         if tags:
             parts.append(' '.join('--tag %s' % t for t in tags))
 
-        if extra_args is not None:
-            parts.extend(extra_args)
-
         if paths:
             parts.append("--try-test-paths %s" % " ".join(sorted(paths)))
+
+        args_by_dest = {v['dest']: k for k, v in AutoTry.pass_through_arguments.items()}
+        for dest, value in extras.iteritems():
+            assert dest in args_by_dest
+            arg = args_by_dest[dest]
+            action = AutoTry.pass_through_arguments[arg]['action']
+            if action == 'store':
+                parts.append(arg)
+                parts.append(value)
+            if action == 'append':
+                for e in value:
+                    parts.append(arg)
+                    parts.append(e)
+            if action in ('store_true', 'store_false'):
+                parts.append(arg)
 
         return " ".join(parts)
 

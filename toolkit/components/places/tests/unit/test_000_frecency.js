@@ -43,6 +43,7 @@ var bonusPrefs = {
   downloadVisitBonus: Ci.nsINavHistoryService.TRANSITION_DOWNLOAD,
   permRedirectVisitBonus: Ci.nsINavHistoryService.TRANSITION_REDIRECT_PERMANENT,
   tempRedirectVisitBonus: Ci.nsINavHistoryService.TRANSITION_REDIRECT_TEMPORARY,
+  reloadVisitBonus: Ci.nsINavHistoryService.TRANSITION_RELOAD,
 };
 
 // create test data
@@ -77,7 +78,7 @@ function* task_initializeBucket(bucket) {
     // unvisited (only for first cutoff date bucket)
     if (bonusName == "unvisitedBookmarkBonus" || bonusName == "unvisitedTypedBonus") {
       if (cutoffName == "firstBucketCutoff") {
-        var points = Math.ceil(bonusValue / parseFloat(100.0) * weight);
+        let points = Math.ceil(bonusValue / parseFloat(100.0) * weight);
         var visitCount = 1; //bonusName == "unvisitedBookmarkBonus" ? 1 : 0;
         frecency = Math.ceil(visitCount * points);
         calculatedURI = uri("http://" + searchTerm + ".com/" +
@@ -105,11 +106,12 @@ function* task_initializeBucket(bucket) {
       if (visitType == Ci.nsINavHistoryService.TRANSITION_BOOKMARK)
         bonusValue = bonusValue * 2;
 
-      var points = Math.ceil(1 * ((bonusValue / parseFloat(100.000000)).toFixed(6) * weight) / 1);
+      let points = Math.ceil(1 * ((bonusValue / parseFloat(100.000000)).toFixed(6) * weight) / 1);
       if (!points) {
         if (visitType == Ci.nsINavHistoryService.TRANSITION_EMBED ||
             visitType == Ci.nsINavHistoryService.TRANSITION_FRAMED_LINK ||
             visitType == Ci.nsINavHistoryService.TRANSITION_DOWNLOAD ||
+            visitType == Ci.nsINavHistoryService.TRANSITION_RELOAD ||
             bonusName == "defaultVisitBonus")
           frecency = 0;
         else
@@ -197,13 +199,11 @@ AutoCompleteInput.prototype = {
   }
 }
 
-function run_test()
-{
-  run_next_test();
-}
-
 add_task(function* test_frecency()
 {
+  // Disable autoFill for this test.
+  Services.prefs.setBoolPref("browser.urlbar.autoFill", false);
+  do_register_cleanup(() => Services.prefs.clearUserPref("browser.urlbar.autoFill"));
   for (let bucket of bucketPrefs) {
     yield task_initializeBucket(bucket);
   }
@@ -223,7 +223,7 @@ add_task(function* test_frecency()
 
   // Make an AutoCompleteInput that uses our searches
   // and confirms results on search complete
-  var input = new AutoCompleteInput(["history"]);
+  var input = new AutoCompleteInput(["unifiedcomplete"]);
 
   controller.input = input;
 

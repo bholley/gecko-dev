@@ -15,8 +15,6 @@
 namespace mozilla {
 namespace gmp {
 
-#define GMP_DEFAULT_ASYNC_SHUTDONW_TIMEOUT 3000
-
 class GMPContentParent;
 class GMPServiceChild;
 
@@ -47,10 +45,9 @@ public:
                                     nsACString& aOutVersion) override;
   NS_IMETHOD GetNodeId(const nsAString& aOrigin,
                        const nsAString& aTopLevelOrigin,
+                       const nsAString& aGMPName,
                        bool aInPrivateBrowsingMode,
                        UniquePtr<GetNodeIdCallback>&& aCallback) override;
-  NS_IMETHOD UpdateTrialCreateState(const nsAString& aKeySystem,
-                                    uint32_t aState) override;
 
   NS_DECL_NSIOBSERVER
 
@@ -59,14 +56,14 @@ public:
   void RemoveGMPContentParent(GMPContentParent* aGMPContentParent);
 
 protected:
-  virtual void InitializePlugins() override
+  void InitializePlugins(AbstractThread*) override
   {
     // Nothing to do here.
   }
-  virtual bool GetContentParentFrom(const nsACString& aNodeId,
-                                    const nsCString& aAPI,
-                                    const nsTArray<nsCString>& aTags,
-                                    UniquePtr<GetGMPContentParentCallback>&& aCallback)
+  bool GetContentParentFrom(const nsACString& aNodeId,
+                            const nsCString& aAPI,
+                            const nsTArray<nsCString>& aTags,
+                            UniquePtr<GetGMPContentParentCallback>&& aCallback)
     override;
 
 private:
@@ -84,9 +81,8 @@ public:
   explicit GMPServiceChild();
   virtual ~GMPServiceChild();
 
-  virtual PGMPContentParent* AllocPGMPContentParent(Transport* aTransport,
-                                                    ProcessId aOtherPid)
-    override;
+  PGMPContentParent* AllocPGMPContentParent(Transport* aTransport,
+                                            ProcessId aOtherPid) override;
 
   void GetBridgedGMPContentParent(ProcessId aOtherPid,
                                   GMPContentParent** aGMPContentParent);

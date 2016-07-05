@@ -17,6 +17,7 @@ import re
 import shutil
 import signal
 import sys
+import tempfile
 import time
 import traceback
 
@@ -105,7 +106,7 @@ class XPCShellTestThread(Thread):
     def __init__(self, test_object, event, cleanup_dir_list, retry=True,
             app_dir_key=None, interactive=False,
             verbose=False, pStdout=None, pStderr=None, keep_going=False,
-            log=None, **kwargs):
+            log=None, usingTSan=False, **kwargs):
         Thread.__init__(self)
         self.daemon = True
 
@@ -132,6 +133,7 @@ class XPCShellTestThread(Thread):
         self.xpcsRunArgs = kwargs.get('xpcsRunArgs')
         self.failureManifest = kwargs.get('failureManifest')
         self.stack_fixer_function = kwargs.get('stack_fixer_function')
+        self._rootTempDir = kwargs.get('tempDir')
 
         self.app_dir_key = app_dir_key
         self.interactive = interactive
@@ -140,6 +142,7 @@ class XPCShellTestThread(Thread):
         self.pStderr = pStderr
         self.keep_going = keep_going
         self.log = log
+        self.usingTSan = usingTSan
 
         # only one of these will be set to 1. adding them to the totals in
         # the harness
@@ -320,7 +323,7 @@ class XPCShellTestThread(Thread):
                   name.replace('\\', '/')]
 
     def setupTempDir(self):
-        tempDir = mkdtemp(prefix='xpc-other-')
+        tempDir = mkdtemp(prefix='xpc-other-', dir=self._rootTempDir)
         self.env["XPCSHELL_TEST_TEMP_DIR"] = tempDir
         if self.interactive:
             self.log.info("temp dir is %s" % tempDir)
@@ -330,7 +333,7 @@ class XPCShellTestThread(Thread):
         if not os.path.isdir(self.pluginsPath):
             return None
 
-        pluginsDir = mkdtemp(prefix='xpc-plugins-')
+        pluginsDir = mkdtemp(prefix='xpc-plugins-', dir=self._rootTempDir)
         # shutil.copytree requires dst to not exist. Deleting the tempdir
         # would make a race condition possible in a concurrent environment,
         # so we are using dir_utils.copy_tree which accepts an existing dst
@@ -356,7 +359,7 @@ class XPCShellTestThread(Thread):
                 pass
             os.makedirs(profileDir)
         else:
-            profileDir = mkdtemp(prefix='xpc-profile-')
+            profileDir = mkdtemp(prefix='xpc-profile-', dir=self._rootTempDir)
         self.env["XPCSHELL_TEST_PROFILE_DIR"] = profileDir
         if self.interactive or self.singleFile:
             self.log.info("profile dir is %s" % profileDir)
@@ -389,11 +392,9 @@ class XPCShellTestThread(Thread):
                  '-e', 'const _JSDEBUGGER_PORT = %d;' % dbgport,
                 ]
 
-    def getHeadAndTailFiles(self, test_object):
-        """Obtain the list of head and tail files.
-
-        Returns a 2-tuple. The first element is a list of head files. The second
-        is a list of tail files.
+    def getHeadAndTailFiles(self, test):
+        """Obtain lists of head- and tail files.  Returns a tuple
+        containing a list of head files and a list of tail files.
         """
         def sanitize_list(s, kind):
             for f in s.strip().split(' '):
@@ -401,7 +402,7 @@ class XPCShellTestThread(Thread):
                 if len(f) < 1:
                     continue
 
-                path = os.path.normpath(os.path.join(test_object['here'], f))
+                path = os.path.normpath(os.path.join(test['here'], f))
                 if not os.path.exists(path):
                     raise Exception('%s file does not exist: %s' % (kind, path))
 
@@ -410,8 +411,8 @@ class XPCShellTestThread(Thread):
 
                 yield path
 
-        headlist = test_object['head'] if 'head' in test_object else ''
-        taillist = test_object['tail'] if 'tail' in test_object else ''
+        headlist = test.get('head', '')
+        taillist = test.get('tail', '')
         return (list(sanitize_list(headlist, 'head')),
                 list(sanitize_list(taillist, 'tail')))
 
@@ -651,6 +652,9 @@ class XPCShellTestThread(Thread):
             self.env['DMD_PRELOAD_VAR'] = preloadEnvVar
             self.env['DMD_PRELOAD_VALUE'] = libdmd
 
+        if self.test_object.get('subprocess') == 'true':
+            self.env['PYTHON'] = sys.executable
+
         testTimeoutInterval = self.harness_timeout
         # Allow a test to request a multiple of the timeout if it is expected to take long
         if 'requesttimeoutfactor' in self.test_object:
@@ -699,7 +703,23 @@ class XPCShellTestThread(Thread):
                 self.parse_output(process_output)
 
             return_code = self.getReturnCode(proc)
-            passed = (not self.has_failure_output) and (return_code == 0)
+
+            # TSan'd processes return 66 if races are detected.  This isn't
+            # good in the sense that there's no way to distinguish between
+            # a process that would normally have returned zero but has races,
+            # and a race-free process that returns 66.  But I don't see how
+            # to do better.  This ambiguity is at least constrained to the
+            # with-TSan case.  It doesn't affect normal builds.
+            #
+            # This also assumes that the magic value 66 isn't overridden by
+            # a TSAN_OPTIONS=exitcode=<number> environment variable setting.
+            #
+            TSAN_EXIT_CODE_WITH_RACES = 66
+
+            return_code_ok = (return_code == 0 or
+                              (self.usingTSan and
+                               return_code == TSAN_EXIT_CODE_WITH_RACES))
+            passed = (not self.has_failure_output) and return_code_ok
 
             status = 'PASS' if passed else 'FAIL'
             expected = 'PASS' if expect_pass else 'FAIL'
@@ -727,6 +747,12 @@ class XPCShellTestThread(Thread):
                             f.write('%s = %s\n' % (k, v))
 
             else:
+                # If TSan reports a race, dump the output, else we can't
+                # diagnose what the problem was.  See comments above about
+                # the significance of TSAN_EXIT_CODE_WITH_RACES.
+                if self.usingTSan and return_code == TSAN_EXIT_CODE_WITH_RACES:
+                    self.log_full_output(self.output_lines)
+
                 self.log.test_end(name, status, expected=expected, message=message)
                 if self.verbose:
                     self.log_full_output(self.output_lines)
@@ -913,7 +939,8 @@ class XPCShellTests(object):
                 if usingASan:
                     self.env["ASAN_SYMBOLIZER_PATH"] = llvmsym
                 else:
-                    self.env["TSAN_OPTIONS"] = "external_symbolizer_path=%s" % llvmsym
+                    oldTSanOptions = self.env.get("TSAN_OPTIONS", "")
+                    self.env["TSAN_OPTIONS"] = "external_symbolizer_path={} {}".format(llvmsym, oldTSanOptions)
                 self.log.info("runxpcshelltests.py | using symbolizer at %s" % llvmsym)
             else:
                 self.log.error("TEST-UNEXPECTED-FAIL | runxpcshelltests.py | Failed to find symbolizer at %s" % llvmsym)
@@ -1045,7 +1072,7 @@ class XPCShellTests(object):
         return path
 
     def runTests(self, xpcshell=None, xrePath=None, appPath=None, symbolsPath=None,
-                 manifest=None, testPaths=None, mobileArgs=None,
+                 manifest=None, testPaths=None, mobileArgs=None, tempDir=None,
                  interactive=False, verbose=False, keepGoing=False, logfiles=True,
                  thisChunk=1, totalChunks=1, debugger=None,
                  debuggerArgs=None, debuggerInteractive=False,
@@ -1085,6 +1112,7 @@ class XPCShellTests(object):
         |shuffle|, if True, execute tests in random order.
         |testingModulesDir|, if provided, specifies where JS modules reside.
           xpcshell will register a resource handler mapping this path.
+        |tempDir|, if provided, specifies a temporary directory to use.
         |otherOptions| may be present for the convenience of subclasses
         """
 
@@ -1138,6 +1166,7 @@ class XPCShellTests(object):
         self.xrePath = xrePath
         self.appPath = appPath
         self.symbolsPath = symbolsPath
+        self.tempDir = os.path.normpath(tempDir or tempfile.gettempdir())
         self.manifest = manifest
         self.dump_tests = dump_tests
         self.interactive = interactive
@@ -1224,6 +1253,7 @@ class XPCShellTests(object):
             'httpdManifest': self.httpdManifest,
             'httpdJSPath': self.httpdJSPath,
             'headJSPath': self.headJSPath,
+            'tempDir': self.tempDir,
             'testharnessdir': self.testharnessdir,
             'profileName': self.profileName,
             'singleFile': self.singleFile,
@@ -1262,6 +1292,10 @@ class XPCShellTests(object):
                 self.log.error("Error: --jsdebugger can only be used with a single test!")
                 return False
 
+        # The test itself needs to know whether it is a tsan build, since
+        # that has an effect on interpretation of the process return value.
+        usingTSan = "tsan" in self.mozInfo and self.mozInfo["tsan"]
+
         # create a queue of all tests that will run
         tests_queue = deque()
         # also a list for the tests that need to be run sequentially
@@ -1284,7 +1318,7 @@ class XPCShellTests(object):
                     interactive=interactive,
                     verbose=verbose or test_object.get("verbose") == "true",
                     pStdout=pStdout, pStderr=pStderr,
-                    keep_going=keepGoing, log=self.log,
+                    keep_going=keepGoing, log=self.log, usingTSan=usingTSan,
                     mobileArgs=mobileArgs, **kwargs)
             if 'run-sequentially' in test_object or self.sequential:
                 sequential_tests.append(test)

@@ -8,7 +8,6 @@
 #ifndef mozilla_dom_workers_serviceworkerclients_h
 #define mozilla_dom_workers_serviceworkerclients_h
 
-#include "nsAutoPtr.h"
 #include "nsWrapperCache.h"
 
 #include "mozilla/dom/WorkerScope.h"
@@ -28,6 +27,9 @@ public:
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(ServiceWorkerClients)
 
   explicit ServiceWorkerClients(ServiceWorkerGlobalScope* aWorkerScope);
+
+  already_AddRefed<Promise>
+  Get(const nsAString& aClientId, ErrorResult& aRv);
 
   already_AddRefed<Promise>
   MatchAll(const ClientQueryOptions& aOptions, ErrorResult& aRv);

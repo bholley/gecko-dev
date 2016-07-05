@@ -102,7 +102,7 @@ nsView::~nsView()
   delete mDirtyRegion;
 }
 
-class DestroyWidgetRunnable : public nsRunnable {
+class DestroyWidgetRunnable : public Runnable {
 public:
   NS_DECL_NSIRUNNABLE
 
@@ -214,7 +214,7 @@ bool nsView::IsEffectivelyVisible()
   return true;
 }
 
-nsIntRect nsView::CalcWidgetBounds(nsWindowType aType)
+LayoutDeviceIntRect nsView::CalcWidgetBounds(nsWindowType aType)
 {
   int32_t p2a = mViewManager->AppUnitsPerDevPixel();
 
@@ -238,7 +238,8 @@ nsIntRect nsView::CalcWidgetBounds(nsWindowType aType)
   }
 
   // Compute widget bounds in device pixels
-  nsIntRect newBounds = viewBounds.ToNearestPixels(p2a);
+  LayoutDeviceIntRect newBounds =
+    LayoutDeviceIntRect::FromUnknownRect(viewBounds.ToNearestPixels(p2a));
 
 #if defined(XP_MACOSX) || (MOZ_WIDGET_GTK == 3)
   // cocoa and GTK round widget coordinates to the nearest global "display
@@ -248,7 +249,7 @@ nsIntRect nsView::CalcWidgetBounds(nsWindowType aType)
   uint32_t round;
   if (aType == eWindowType_popup && widget &&
       ((round = widget->RoundsWidgetCoordinatesTo()) > 1)) {
-    nsIntSize pixelRoundedSize = newBounds.Size();
+    LayoutDeviceIntSize pixelRoundedSize = newBounds.Size();
     // round the top left and bottom right to the nearest round pixel
     newBounds.x = NSToIntRoundUp(NSAppUnitsToDoublePixels(viewBounds.x, p2a) / round) * round;
     newBounds.y = NSToIntRoundUp(NSAppUnitsToDoublePixels(viewBounds.y, p2a) / round) * round;
@@ -298,13 +299,13 @@ void nsView::DoResetWidgetBounds(bool aMoveOnly,
 
   // Stash a copy of these and use them so we can handle this being deleted (say
   // from sync painting/flushing from Show/Move/Resize on the widget).
-  nsIntRect newBounds;
+  LayoutDeviceIntRect newBounds;
   RefPtr<nsDeviceContext> dx = mViewManager->GetDeviceContext();
 
   nsWindowType type = widget->WindowType();
 
-  nsIntRect curBounds;
-  widget->GetClientBoundsUntyped(curBounds);
+  LayoutDeviceIntRect curBounds;
+  widget->GetClientBounds(curBounds);
   bool invisiblePopup = type == eWindowType_popup &&
                         ((curBounds.IsEmpty() && mDimBounds.IsEmpty()) ||
                          mVis == nsViewVisibility_kHide);
@@ -335,44 +336,24 @@ void nsView::DoResetWidgetBounds(bool aMoveOnly,
 
   // Child views are never attached to top level widgets, this is safe.
 
-  // Coordinates are converted to display pixels for window Move/Resize APIs,
+  // Coordinates are converted to desktop pixels for window Move/Resize APIs,
   // because of the potential for device-pixel coordinate spaces for mixed
   // hidpi/lodpi screens to overlap each other and result in bad placement
   // (bug 814434).
-  double invScale;
+  DesktopToLayoutDeviceScale scale = dx->GetDesktopToDeviceScale();
 
-  // Bug 861270: for correct widget manipulation at arbitrary scale factors,
-  // prefer to base scaling on widget->GetDefaultScale(). But only do this if
-  // it matches the view manager's device context scale after allowing for the
-  // quantization to app units, because of OS X multiscreen issues (where the
-  // only two scales are 1.0 or 2.0, and so the quantization doesn't actually
-  // cause problems anyhow).
-  // In the case of a mismatch, fall back to scaling based on the dev context's
-  // AppUnitsPerDevPixelAtUnitFullZoom value. On platforms where the device-pixel
-  // scale is uniform across all displays (currently all except OS X), we'll
-  // always use the precise value from mWindow->GetDefaultScale here.
-  CSSToLayoutDeviceScale scale = widget->GetDefaultScale();
-  if (NSToIntRound(60.0 / scale.scale) == dx->AppUnitsPerDevPixelAtUnitFullZoom()) {
-    invScale = 1.0 / scale.scale;
-  } else {
-    invScale = dx->AppUnitsPerDevPixelAtUnitFullZoom() / 60.0;
-  }
-
+  DesktopRect deskRect = newBounds / scale;
   if (changedPos) {
     if (changedSize && !aMoveOnly) {
-      widget->ResizeClient(newBounds.x * invScale,
-                           newBounds.y * invScale,
-                           newBounds.width * invScale,
-                           newBounds.height * invScale,
+      widget->ResizeClient(deskRect.x, deskRect.y,
+                           deskRect.width, deskRect.height,
                            aInvalidateChangedSize);
     } else {
-      widget->MoveClient(newBounds.x * invScale,
-                         newBounds.y * invScale);
+      widget->MoveClient(deskRect.x, deskRect.y);
     }
   } else {
     if (changedSize && !aMoveOnly) {
-      widget->ResizeClient(newBounds.width * invScale,
-                           newBounds.height * invScale,
+      widget->ResizeClient(deskRect.width, deskRect.height,
                            aInvalidateChangedSize);
     } // else do nothing!
   }
@@ -440,13 +421,13 @@ void nsView::SetFloating(bool aFloatingView)
 		mVFlags &= ~NS_VIEW_FLAG_FLOATING;
 }
 
-void nsView::InvalidateHierarchy(nsViewManager *aViewManagerParent)
+void nsView::InvalidateHierarchy()
 {
   if (mViewManager->GetRootView() == this)
     mViewManager->InvalidateHierarchy();
 
   for (nsView *child = mFirstChild; child; child = child->GetNextSibling())
-    child->InvalidateHierarchy(aViewManagerParent);
+    child->InvalidateHierarchy();
 }
 
 void nsView::InsertChild(nsView *aChild, nsView *aSibling)
@@ -477,7 +458,7 @@ void nsView::InsertChild(nsView *aChild, nsView *aSibling)
     nsViewManager *vm = aChild->GetViewManager();
     if (vm->GetRootView() == aChild)
     {
-      aChild->InvalidateHierarchy(nullptr); // don't care about releasing grabs
+      aChild->InvalidateHierarchy();
     }
   }
 }
@@ -513,7 +494,7 @@ void nsView::RemoveChild(nsView *child)
     nsViewManager *vm = child->GetViewManager();
     if (vm->GetRootView() == child)
     {
-      child->InvalidateHierarchy(GetViewManager());
+      child->InvalidateHierarchy();
     }
   }
 }
@@ -575,7 +556,7 @@ nsresult nsView::CreateWidget(nsWidgetInitData *aWidgetInitData,
     (!initDataPassedIn && GetParent() &&
      GetParent()->GetViewManager() != mViewManager);
 
-  nsIntRect trect = CalcWidgetBounds(aWidgetInitData->mWindowType);
+  LayoutDeviceIntRect trect = CalcWidgetBounds(aWidgetInitData->mWindowType);
 
   nsIWidget* parentWidget =
     GetParent() ? GetParent()->GetNearestWidget(nullptr) : nullptr;
@@ -610,7 +591,7 @@ nsresult nsView::CreateWidgetForParent(nsIWidget* aParentWidget,
   DefaultWidgetInitData defaultInitData;
   aWidgetInitData = aWidgetInitData ? aWidgetInitData : &defaultInitData;
 
-  nsIntRect trect = CalcWidgetBounds(aWidgetInitData->mWindowType);
+  LayoutDeviceIntRect trect = CalcWidgetBounds(aWidgetInitData->mWindowType);
 
   mWindow = aParentWidget->CreateChild(trect, aWidgetInitData);
   if (!mWindow) {
@@ -632,7 +613,7 @@ nsresult nsView::CreateWidgetForPopup(nsWidgetInitData *aWidgetInitData,
   MOZ_ASSERT(aWidgetInitData->mWindowType == eWindowType_popup,
              "Use one of the other CreateWidget methods");
 
-  nsIntRect trect = CalcWidgetBounds(aWidgetInitData->mWindowType);
+  LayoutDeviceIntRect trect = CalcWidgetBounds(aWidgetInitData->mWindowType);
 
   // XXX/cjones: having these two separate creation cases seems ... um
   // ... unnecessary, but it's the way the old code did it.  Please
@@ -801,11 +782,11 @@ void nsView::List(FILE* out, int32_t aIndent) const
   fprintf(out, "%p ", (void*)this);
   if (nullptr != mWindow) {
     nscoord p2a = mViewManager->AppUnitsPerDevPixel();
-    nsIntRect rect;
-    mWindow->GetClientBoundsUntyped(rect);
-    nsRect windowBounds = ToAppUnits(rect, p2a);
-    mWindow->GetBoundsUntyped(rect);
-    nsRect nonclientBounds = ToAppUnits(rect, p2a);
+    LayoutDeviceIntRect rect;
+    mWindow->GetClientBounds(rect);
+    nsRect windowBounds = LayoutDeviceIntRect::ToAppUnits(rect, p2a);
+    mWindow->GetBounds(rect);
+    nsRect nonclientBounds = LayoutDeviceIntRect::ToAppUnits(rect, p2a);
     nsrefcnt widgetRefCnt = mWindow.get()->AddRef() - 1;
     mWindow.get()->Release();
     int32_t Z = mWindow->GetZIndex();
@@ -1061,7 +1042,7 @@ nsView::WillPaintWindow(nsIWidget* aWidget)
 }
 
 bool
-nsView::PaintWindow(nsIWidget* aWidget, nsIntRegion aRegion)
+nsView::PaintWindow(nsIWidget* aWidget, LayoutDeviceIntRegion aRegion)
 {
   NS_ASSERTION(this == nsView::GetViewFor(aWidget), "wrong view for widget?");
 
@@ -1078,7 +1059,8 @@ nsView::DidPaintWindow()
 }
 
 void
-nsView::DidCompositeWindow(const TimeStamp& aCompositeStart,
+nsView::DidCompositeWindow(uint64_t aTransactionId,
+                           const TimeStamp& aCompositeStart,
                            const TimeStamp& aCompositeEnd)
 {
   nsIPresShell* presShell = mViewManager->GetPresShell();
@@ -1086,7 +1068,10 @@ nsView::DidCompositeWindow(const TimeStamp& aCompositeStart,
     nsAutoScriptBlocker scriptBlocker;
 
     nsPresContext* context = presShell->GetPresContext();
-    context->GetDisplayRootPresContext()->GetRootPresContext()->NotifyDidPaintForSubtree(nsIPresShell::PAINT_COMPOSITE);
+    nsRootPresContext* rootContext = context->GetRootPresContext();
+    MOZ_ASSERT(rootContext, "rootContext must be valid.");
+    rootContext->NotifyDidPaintForSubtree(nsIPresShell::PAINT_COMPOSITE, aTransactionId,
+                                          aCompositeEnd);
 
     // If the two timestamps are identical, this was likely a fake composite
     // event which wouldn't be terribly useful to display.
@@ -1119,16 +1104,16 @@ nsEventStatus
 nsView::HandleEvent(WidgetGUIEvent* aEvent,
                     bool aUseAttachedEvents)
 {
-  NS_PRECONDITION(nullptr != aEvent->widget, "null widget ptr");
+  NS_PRECONDITION(nullptr != aEvent->mWidget, "null widget ptr");
 
   nsEventStatus result = nsEventStatus_eIgnore;
   nsView* view;
   if (aUseAttachedEvents) {
-    nsIWidgetListener* listener = aEvent->widget->GetAttachedWidgetListener();
+    nsIWidgetListener* listener = aEvent->mWidget->GetAttachedWidgetListener();
     view = listener ? listener->GetView() : nullptr;
   }
   else {
-    view = GetViewFor(aEvent->widget);
+    view = GetViewFor(aEvent->mWidget);
   }
 
   if (view) {

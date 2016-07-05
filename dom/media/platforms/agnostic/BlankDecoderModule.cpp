@@ -4,16 +4,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "MediaDecoderReader.h"
-#include "PlatformDecoderModule.h"
-#include "nsRect.h"
-#include "mozilla/RefPtr.h"
-#include "mozilla/CheckedInt.h"
-#include "VideoUtils.h"
 #include "ImageContainer.h"
+#include "MediaDecoderReader.h"
 #include "MediaInfo.h"
+#include "mozilla/CheckedInt.h"
+#include "mozilla/mozalloc.h" // for operator new, and new (fallible)
+#include "mozilla/RefPtr.h"
 #include "mozilla/TaskQueue.h"
+#include "nsAutoPtr.h"
+#include "nsRect.h"
+#include "PlatformDecoderModule.h"
 #include "TimeUnits.h"
+#include "VideoUtils.h"
 
 namespace mozilla {
 
@@ -24,11 +26,9 @@ class BlankMediaDataDecoder : public MediaDataDecoder {
 public:
 
   BlankMediaDataDecoder(BlankMediaDataCreator* aCreator,
-                        FlushableTaskQueue* aTaskQueue,
                         MediaDataDecoderCallback* aCallback,
                         TrackInfo::TrackType aType)
     : mCreator(aCreator)
-    , mTaskQueue(aTaskQueue)
     , mCallback(aCallback)
     , mType(aType)
   {
@@ -42,43 +42,21 @@ public:
     return NS_OK;
   }
 
-  class OutputEvent : public nsRunnable {
-  public:
-    OutputEvent(MediaRawData* aSample,
-                MediaDataDecoderCallback* aCallback,
-                BlankMediaDataCreator* aCreator)
-      : mSample(aSample)
-      , mCreator(aCreator)
-      , mCallback(aCallback)
-    {
-    }
-    NS_IMETHOD Run() override
-    {
-      RefPtr<MediaData> data =
-        mCreator->Create(media::TimeUnit::FromMicroseconds(mSample->mTime),
-                         media::TimeUnit::FromMicroseconds(mSample->mDuration),
-                         mSample->mOffset);
-      mCallback->Output(data);
-      return NS_OK;
-    }
-  private:
-    RefPtr<MediaRawData> mSample;
-    BlankMediaDataCreator* mCreator;
-    MediaDataDecoderCallback* mCallback;
-  };
-
   nsresult Input(MediaRawData* aSample) override
   {
-    // The MediaDataDecoder must delete the sample when we're finished
-    // with it, so the OutputEvent stores it in an nsAutoPtr and deletes
-    // it once it's run.
-    RefPtr<nsIRunnable> r(new OutputEvent(aSample, mCallback, mCreator));
-    mTaskQueue->Dispatch(r.forget());
+    RefPtr<MediaData> data =
+      mCreator->Create(media::TimeUnit::FromMicroseconds(aSample->mTime),
+                       media::TimeUnit::FromMicroseconds(aSample->mDuration),
+                       aSample->mOffset);
+    if (!data) {
+    mCallback->Error(MediaDataDecoderError::FATAL_ERROR);
+    } else {
+      mCallback->Output(data);
+    }
     return NS_OK;
   }
 
   nsresult Flush() override {
-    mTaskQueue->Flush();
     return NS_OK;
   }
 
@@ -87,9 +65,13 @@ public:
     return NS_OK;
   }
 
+  const char* GetDescriptionName() const override
+  {
+    return "blank media data decoder";
+  }
+
 private:
   nsAutoPtr<BlankMediaDataCreator> mCreator;
-  RefPtr<FlushableTaskQueue> mTaskQueue;
   MediaDataDecoderCallback* mCallback;
   TrackInfo::TrackType mType;
 };
@@ -114,12 +96,12 @@ public:
     // with a U and V plane that are half the size of the Y plane, i.e 8 bit,
     // 2x2 subsampled. Have the data pointers of each frame point to the
     // first plane, they'll always be zero'd memory anyway.
-    nsAutoArrayPtr<uint8_t> frame(new uint8_t[mFrameWidth * mFrameHeight]);
-    memset(frame, 0, mFrameWidth * mFrameHeight);
+    auto frame = MakeUnique<uint8_t[]>(mFrameWidth * mFrameHeight);
+    memset(frame.get(), 0, mFrameWidth * mFrameHeight);
     VideoData::YCbCrBuffer buffer;
 
     // Y plane.
-    buffer.mPlanes[0].mData = frame;
+    buffer.mPlanes[0].mData = frame.get();
     buffer.mPlanes[0].mStride = mFrameWidth;
     buffer.mPlanes[0].mHeight = mFrameHeight;
     buffer.mPlanes[0].mWidth = mFrameWidth;
@@ -127,7 +109,7 @@ public:
     buffer.mPlanes[0].mSkip = 0;
 
     // Cb plane.
-    buffer.mPlanes[1].mData = frame;
+    buffer.mPlanes[1].mData = frame.get();
     buffer.mPlanes[1].mStride = mFrameWidth / 2;
     buffer.mPlanes[1].mHeight = mFrameHeight / 2;
     buffer.mPlanes[1].mWidth = mFrameWidth / 2;
@@ -135,7 +117,7 @@ public:
     buffer.mPlanes[1].mSkip = 0;
 
     // Cr plane.
-    buffer.mPlanes[2].mData = frame;
+    buffer.mPlanes[2].mData = frame.get();
     buffer.mPlanes[2].mStride = mFrameWidth / 2;
     buffer.mPlanes[2].mHeight = mFrameHeight / 2;
     buffer.mPlanes[2].mWidth = mFrameWidth / 2;
@@ -183,7 +165,10 @@ public:
         frames.value() > (UINT32_MAX / mChannelCount)) {
       return nullptr;
     }
-    auto samples = MakeUnique<AudioDataValue[]>(frames.value() * mChannelCount);
+    AlignedAudioBuffer samples(frames.value() * mChannelCount);
+    if (!samples) {
+      return nullptr;
+    }
     // Fill the sound buffer with an A4 tone.
     static const float pi = 3.14159265f;
     static const float noteHz = 440.0f;
@@ -217,13 +202,13 @@ public:
   CreateVideoDecoder(const VideoInfo& aConfig,
                      layers::LayersBackend aLayersBackend,
                      layers::ImageContainer* aImageContainer,
-                     FlushableTaskQueue* aVideoTaskQueue,
-                     MediaDataDecoderCallback* aCallback) override {
+                     TaskQueue* aTaskQueue,
+                     MediaDataDecoderCallback* aCallback,
+                     DecoderDoctorDiagnostics* aDiagnostics) override {
     BlankVideoDataCreator* creator = new BlankVideoDataCreator(
       aConfig.mDisplay.width, aConfig.mDisplay.height, aImageContainer);
     RefPtr<MediaDataDecoder> decoder =
       new BlankMediaDataDecoder<BlankVideoDataCreator>(creator,
-                                                       aVideoTaskQueue,
                                                        aCallback,
                                                        TrackInfo::kVideoTrack);
     return decoder.forget();
@@ -232,21 +217,22 @@ public:
   // Decode thread.
   already_AddRefed<MediaDataDecoder>
   CreateAudioDecoder(const AudioInfo& aConfig,
-                     FlushableTaskQueue* aAudioTaskQueue,
-                     MediaDataDecoderCallback* aCallback) override {
+                     TaskQueue* aTaskQueue,
+                     MediaDataDecoderCallback* aCallback,
+                     DecoderDoctorDiagnostics* aDiagnostics) override {
     BlankAudioDataCreator* creator = new BlankAudioDataCreator(
       aConfig.mChannels, aConfig.mRate);
 
     RefPtr<MediaDataDecoder> decoder =
       new BlankMediaDataDecoder<BlankAudioDataCreator>(creator,
-                                                       aAudioTaskQueue,
                                                        aCallback,
                                                        TrackInfo::kAudioTrack);
     return decoder.forget();
   }
 
   bool
-  SupportsMimeType(const nsACString& aMimeType) override
+  SupportsMimeType(const nsACString& aMimeType,
+                   DecoderDoctorDiagnostics* aDiagnostics) const override
   {
     return true;
   }

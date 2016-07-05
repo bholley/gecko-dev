@@ -28,7 +28,7 @@
 #include "mozilla/Logging.h"
 
 
-extern PRLogModuleInfo* gStorageLog;
+extern mozilla::LazyLogModule gStorageLog;
 
 namespace mozilla {
 namespace storage {
@@ -148,9 +148,10 @@ Statement::initialize(Connection *aDBConnection,
   mResultColumnCount = ::sqlite3_column_count(mDBStatement);
   mColumnNames.Clear();
 
+  nsCString* columnNames = mColumnNames.AppendElements(mResultColumnCount);
   for (uint32_t i = 0; i < mResultColumnCount; i++) {
       const char *name = ::sqlite3_column_name(mDBStatement, i);
-      (void)mColumnNames.AppendElement(nsDependentCString(name));
+      columnNames[i].Assign(name);
   }
 
 #ifdef DEBUG
@@ -445,9 +446,9 @@ Statement::GetParameterName(uint32_t aParamIndex,
                                                    aParamIndex + 1);
   if (name == nullptr) {
     // this thing had no name, so fake one
-    nsAutoCString name(":");
-    name.AppendInt(aParamIndex);
-    _name.Assign(name);
+    nsAutoCString fakeName(":");
+    fakeName.AppendInt(aParamIndex);
+    _name.Assign(fakeName);
   }
   else {
     _name.Assign(nsDependentCString(name));
@@ -544,6 +545,8 @@ Statement::Reset()
 NS_IMETHODIMP
 Statement::BindParameters(mozIStorageBindingParamsArray *aParameters)
 {
+  NS_ENSURE_ARG_POINTER(aParameters);
+
   if (!mDBStatement)
     return NS_ERROR_NOT_INITIALIZED;
 

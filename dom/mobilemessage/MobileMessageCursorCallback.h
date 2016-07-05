@@ -12,7 +12,6 @@
 #include "nsIMobileMessageCursorCallback.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsCOMPtr.h"
-#include "nsAutoPtr.h"
 
 class nsICursorContinueCallback;
 
@@ -34,7 +33,7 @@ public:
 
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(MobileMessageCursor, DOMCursor)
 
-  MobileMessageCursor(nsPIDOMWindow* aWindow,
+  MobileMessageCursor(nsPIDOMWindowInner* aWindow,
                       nsICursorContinueCallback* aCallback);
 
   // Override XPIDL continue function to suppress -Werror,-Woverloaded-virtual.

@@ -18,7 +18,6 @@ using namespace mozilla::dom;
 jclass AndroidGeckoEvent::jGeckoEventClass = 0;
 jfieldID AndroidGeckoEvent::jActionField = 0;
 jfieldID AndroidGeckoEvent::jTypeField = 0;
-jfieldID AndroidGeckoEvent::jAckNeededField = 0;
 jfieldID AndroidGeckoEvent::jTimeField = 0;
 jfieldID AndroidGeckoEvent::jPoints = 0;
 jfieldID AndroidGeckoEvent::jPointIndicies = 0;
@@ -80,12 +79,6 @@ jmethodID AndroidLocation::jGetBearingMethod = 0;
 jmethodID AndroidLocation::jGetSpeedMethod = 0;
 jmethodID AndroidLocation::jGetTimeMethod = 0;
 
-jclass AndroidLayerRendererFrame::jLayerRendererFrameClass = 0;
-jmethodID AndroidLayerRendererFrame::jBeginDrawingMethod = 0;
-jmethodID AndroidLayerRendererFrame::jDrawBackgroundMethod = 0;
-jmethodID AndroidLayerRendererFrame::jDrawForegroundMethod = 0;
-jmethodID AndroidLayerRendererFrame::jEndDrawingMethod = 0;
-
 RefCountedJavaObject::~RefCountedJavaObject() {
     if (mObject)
         GetEnvForThread()->DeleteGlobalRef(mObject);
@@ -100,7 +93,6 @@ mozilla::InitAndroidJavaWrappers(JNIEnv *jEnv)
     AndroidLocation::InitLocationClass(jEnv);
     AndroidRect::InitRectClass(jEnv);
     AndroidRectF::InitRectFClass(jEnv);
-    AndroidLayerRendererFrame::InitLayerRendererFrameClass(jEnv);
 }
 
 void
@@ -111,7 +103,6 @@ AndroidGeckoEvent::InitGeckoEventClass(JNIEnv *jEnv)
 
     jActionField = geckoEvent.getField("mAction", "I");
     jTypeField = geckoEvent.getField("mType", "I");
-    jAckNeededField = geckoEvent.getField("mAckNeeded", "Z");
     jTimeField = geckoEvent.getField("mTime", "J");
     jPoints = geckoEvent.getField("mPoints", "[Landroid/graphics/Point;");
     jPointIndicies = geckoEvent.getField("mPointIndicies", "[I");
@@ -220,18 +211,6 @@ AndroidRectF::InitRectFClass(JNIEnv *jEnv)
     jLeftField = rect.getField("left", "F");
     jTopField = rect.getField("top", "F");
     jRightField = rect.getField("right", "F");
-}
-
-void
-AndroidLayerRendererFrame::InitLayerRendererFrameClass(JNIEnv *jEnv)
-{
-    AutoJNIClass layerRendererFrame(jEnv, "org/mozilla/gecko/gfx/LayerRenderer$Frame");
-    jLayerRendererFrameClass = layerRendererFrame.getGlobalRef();
-
-    jBeginDrawingMethod = layerRendererFrame.getMethod("beginDrawing", "()V");
-    jDrawBackgroundMethod = layerRendererFrame.getMethod("drawBackground", "()V");
-    jDrawForegroundMethod = layerRendererFrame.getMethod("drawForeground", "()V");
-    jEndDrawingMethod = layerRendererFrame.getMethod("endDrawing", "()V");
 }
 
 void
@@ -360,13 +339,8 @@ AndroidGeckoEvent::Init(JNIEnv *jenv, jobject jobj)
 
     mAction = jenv->GetIntField(jobj, jActionField);
     mType = jenv->GetIntField(jobj, jTypeField);
-    mAckNeeded = jenv->GetBooleanField(jobj, jAckNeededField);
 
     switch (mType) {
-        case SIZE_CHANGED:
-            ReadPointArray(mPoints, jenv, jPoints, 2);
-            break;
-
         case NATIVE_GESTURE_EVENT:
             mTime = jenv->GetLongField(jobj, jTimeField);
             mMetaState = jenv->GetIntField(jobj, jMetaStateField);
@@ -399,6 +373,7 @@ AndroidGeckoEvent::Init(JNIEnv *jenv, jobject jobj)
              mW = jenv->GetDoubleField(jobj, jWField);
              mFlags = jenv->GetIntField(jobj, jFlagsField);
              mMetaState = jenv->GetIntField(jobj, jMetaStateField);
+             mTime = jenv->GetLongField(jobj, jTimeField);
              break;
 
         case LOCATION_EVENT: {
@@ -413,8 +388,7 @@ AndroidGeckoEvent::Init(JNIEnv *jenv, jobject jobj)
             break;
         }
 
-        case VIEWPORT:
-        case BROADCAST: {
+        case VIEWPORT: {
             ReadCharactersField(jenv);
             ReadCharactersExtraField(jenv);
             break;
@@ -450,12 +424,6 @@ AndroidGeckoEvent::Init(JNIEnv *jenv, jobject jobj)
         case SCREENORIENTATION_CHANGED: {
             mScreenOrientation = jenv->GetShortField(jobj, jScreenOrientationField);
             mScreenAngle = jenv->GetShortField(jobj, jScreenAngleField);
-            break;
-        }
-
-        case COMPOSITOR_CREATE: {
-            mWidth = jenv->GetIntField(jobj, jWidthField);
-            mHeight = jenv->GetIntField(jobj, jHeightField);
             break;
         }
 
@@ -542,18 +510,6 @@ void
 AndroidGeckoEvent::Init(int aType)
 {
     mType = aType;
-    mAckNeeded = false;
-}
-
-void
-AndroidGeckoEvent::Init(AndroidGeckoEvent *aResizeEvent)
-{
-    NS_ASSERTION(aResizeEvent->Type() == SIZE_CHANGED, "Init called on non-SIZE_CHANGED event");
-
-    mType = FORCED_RESIZE;
-    mAckNeeded = false;
-    mTime = aResizeEvent->mTime;
-    mPoints = aResizeEvent->mPoints; // x,y coordinates
 }
 
 bool
@@ -607,7 +563,9 @@ AndroidGeckoEvent::MakeTouchEvent(nsIWidget* widget)
                 break;
             }
         }
+            MOZ_FALLTHROUGH;
         case AndroidMotionEvent::ACTION_DOWN:
+            MOZ_FALLTHROUGH;
         case AndroidMotionEvent::ACTION_POINTER_DOWN: {
             type = eTouchStart;
             break;
@@ -617,6 +575,7 @@ AndroidGeckoEvent::MakeTouchEvent(nsIWidget* widget)
                 break;
             }
         }
+            MOZ_FALLTHROUGH;
         case AndroidMotionEvent::ACTION_MOVE: {
             type = eTouchMove;
             break;
@@ -626,7 +585,9 @@ AndroidGeckoEvent::MakeTouchEvent(nsIWidget* widget)
                 break;
             }
         }
+            MOZ_FALLTHROUGH;
         case AndroidMotionEvent::ACTION_UP:
+            MOZ_FALLTHROUGH;
         case AndroidMotionEvent::ACTION_POINTER_UP: {
             type = eTouchEnd;
             // for pointer-up events we only want the data from
@@ -636,6 +597,7 @@ AndroidGeckoEvent::MakeTouchEvent(nsIWidget* widget)
             break;
         }
         case AndroidMotionEvent::ACTION_OUTSIDE:
+            MOZ_FALLTHROUGH;
         case AndroidMotionEvent::ACTION_CANCEL: {
             type = eTouchCancel;
             break;
@@ -648,11 +610,11 @@ AndroidGeckoEvent::MakeTouchEvent(nsIWidget* widget)
         return event;
     }
 
-    event.modifiers = DOMModifiers();
-    event.time = Time();
+    event.mModifiers = DOMModifiers();
+    event.mTime = Time();
 
     const LayoutDeviceIntPoint& offset = widget->WidgetToScreenOffset();
-    event.touches.SetCapacity(endIndex - startIndex);
+    event.mTouches.SetCapacity(endIndex - startIndex);
     for (int i = startIndex; i < endIndex; i++) {
         // In this code branch, we are dispatching this event directly
         // into Gecko (as opposed to going through the AsyncPanZoomController),
@@ -670,7 +632,7 @@ AndroidGeckoEvent::MakeTouchEvent(nsIWidget* widget)
                                     radius,
                                     Orientations()[i],
                                     Pressures()[i]);
-        event.touches.AppendElement(t);
+        event.mTouches.AppendElement(t);
     }
 
     return event;
@@ -766,18 +728,19 @@ AndroidGeckoEvent::MakeMouseEvent(nsIWidget* widget)
     // XXX can we synthesize different buttons?
     event.button = WidgetMouseEvent::eLeftButton;
     if (msg != eMouseMove) {
-        event.clickCount = 1;
+        event.mClickCount = 1;
     }
-    event.modifiers = DOMModifiers();
-    event.time = Time();
+    event.mModifiers = DOMModifiers();
+    event.mTime = Time();
 
     // We are dispatching this event directly into Gecko (as opposed to going
     // through the AsyncPanZoomController), and the Points() array has points
     // in CSS pixels, which we need to convert to LayoutDevice pixels.
     const LayoutDeviceIntPoint& offset = widget->WidgetToScreenOffset();
     CSSToLayoutDeviceScale scale = widget->GetDefaultScale();
-    event.refPoint = LayoutDeviceIntPoint((Points()[0].x * scale.scale) - offset.x,
-                                          (Points()[0].y * scale.scale) - offset.y);
+    event.mRefPoint =
+        LayoutDeviceIntPoint((Points()[0].x * scale.scale) - offset.x,
+                             (Points()[0].y * scale.scale) - offset.y);
     return event;
 }
 
@@ -824,80 +787,7 @@ AndroidPoint::Init(JNIEnv *jenv, jobject jobj)
     }
 }
 
-void
-AndroidLayerRendererFrame::Init(JNIEnv *env, jobject jobj)
-{
-    if (!isNull()) {
-        Dispose(env);
-    }
-
-    wrapped_obj = env->NewGlobalRef(jobj);
-}
-
-void
-AndroidLayerRendererFrame::Dispose(JNIEnv *env)
-{
-    if (isNull()) {
-        return;
-    }
-
-    env->DeleteGlobalRef(wrapped_obj);
-    wrapped_obj = 0;
-}
-
 NS_IMPL_ISUPPORTS(nsAndroidDisplayport, nsIAndroidDisplayport)
-
-bool
-AndroidLayerRendererFrame::BeginDrawing(AutoLocalJNIFrame *jniFrame)
-{
-    if (!jniFrame || !jniFrame->GetEnv())
-        return false;
-
-    jniFrame->GetEnv()->CallVoidMethod(wrapped_obj, jBeginDrawingMethod);
-    if (jniFrame->CheckForException())
-        return false;
-
-    return true;
-}
-
-bool
-AndroidLayerRendererFrame::DrawBackground(AutoLocalJNIFrame *jniFrame)
-{
-    if (!jniFrame || !jniFrame->GetEnv())
-        return false;
-
-    jniFrame->GetEnv()->CallVoidMethod(wrapped_obj, jDrawBackgroundMethod);
-    if (jniFrame->CheckForException())
-        return false;
-
-    return true;
-}
-
-bool
-AndroidLayerRendererFrame::DrawForeground(AutoLocalJNIFrame *jniFrame)
-{
-    if (!jniFrame || !jniFrame->GetEnv())
-        return false;
-
-    jniFrame->GetEnv()->CallVoidMethod(wrapped_obj, jDrawForegroundMethod);
-    if (jniFrame->CheckForException())
-        return false;
-
-    return true;
-}
-
-bool
-AndroidLayerRendererFrame::EndDrawing(AutoLocalJNIFrame *jniFrame)
-{
-    if (!jniFrame || !jniFrame->GetEnv())
-        return false;
-
-    jniFrame->GetEnv()->CallVoidMethod(wrapped_obj, jEndDrawingMethod);
-    if (jniFrame->CheckForException())
-        return false;
-
-    return true;
-}
 
 void
 AndroidRect::Init(JNIEnv *jenv, jobject jobj)

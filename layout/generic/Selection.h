@@ -13,6 +13,7 @@
 #include "mozilla/TextRange.h"
 #include "nsISelection.h"
 #include "nsISelectionController.h"
+#include "nsISelectionListener.h"
 #include "nsISelectionPrivate.h"
 #include "nsRange.h"
 #include "nsThreadUtils.h"
@@ -64,6 +65,10 @@ public:
   NS_DECL_NSISELECTION
   NS_DECL_NSISELECTIONPRIVATE
 
+  virtual Selection* AsSelection() override { return this; }
+
+  nsresult EndBatchChangesInternal(int16_t aReason = nsISelectionListener::NO_REASON);
+
   nsIDocument* GetParentObject() const;
 
   // utility methods for scrolling the selection into view
@@ -90,7 +95,8 @@ public:
     SCROLL_SYNCHRONOUS = 1<<1,
     SCROLL_FIRST_ANCESTOR_ONLY = 1<<2,
     SCROLL_DO_FLUSH = 1<<3,
-    SCROLL_OVERFLOW_HIDDEN = 1<<5
+    SCROLL_OVERFLOW_HIDDEN = 1<<5,
+    SCROLL_FOR_CARET_MOVE = 1<<6
   };
   // aDoFlush only matters if aIsSynchronous is true.  If not, we'll just flush
   // when the scroll event fires so we make sure to scroll to the right place.
@@ -131,8 +137,12 @@ public:
   //  NS_IMETHOD   GetPrimaryFrameForRangeEndpoint(nsIDOMNode *aNode, int32_t aOffset, bool aIsEndNode, nsIFrame **aResultFrame);
   NS_IMETHOD   GetPrimaryFrameForAnchorNode(nsIFrame **aResultFrame);
   NS_IMETHOD   GetPrimaryFrameForFocusNode(nsIFrame **aResultFrame, int32_t *aOffset, bool aVisual);
-  NS_IMETHOD   LookUpSelection(nsIContent *aContent, int32_t aContentOffset, int32_t aContentLength,
-                             SelectionDetails **aReturnDetails, SelectionType aType, bool aSlowCheck);
+  NS_IMETHOD   LookUpSelection(nsIContent *aContent,
+                               int32_t aContentOffset,
+                               int32_t aContentLength,
+                               SelectionDetails** aReturnDetails,
+                               SelectionType aSelectionType,
+                               bool aSlowCheck);
   NS_IMETHOD   Repaint(nsPresContext* aPresContext);
 
   // Note: StartAutoScrollTimer might destroy arbitrary frames etc.
@@ -192,7 +202,11 @@ public:
   void RemoveSelectionListener(nsISelectionListener* aListener,
                                mozilla::ErrorResult& aRv);
 
-  int16_t Type() const { return mType; }
+  RawSelectionType RawType() const
+  {
+    return ToRawSelectionType(mSelectionType);
+  }
+  SelectionType Type() const { return mSelectionType; }
 
   void GetRangesForInterval(nsINode& aBeginNode, int32_t aBeginOffset,
                             nsINode& aEndNode, int32_t aEndOffset,
@@ -214,8 +228,11 @@ private:
   nsresult DoAutoScroll(nsIFrame *aFrame, nsPoint& aPoint);
 
 public:
-  SelectionType GetType(){return mType;}
-  void          SetType(SelectionType aType){mType = aType;}
+  SelectionType GetType() const { return mSelectionType; }
+  void SetType(SelectionType aSelectionType)
+  {
+    mSelectionType = aSelectionType;
+  }
 
   nsresult     NotifySelectionListeners();
 
@@ -238,7 +255,7 @@ private:
   class ScrollSelectionIntoViewEvent;
   friend class ScrollSelectionIntoViewEvent;
 
-  class ScrollSelectionIntoViewEvent : public nsRunnable {
+  class ScrollSelectionIntoViewEvent : public Runnable {
   public:
     NS_DECL_NSIRUNNABLE
     ScrollSelectionIntoViewEvent(Selection* aSelection,
@@ -315,7 +332,7 @@ private:
   nsRevocableEventPtr<ScrollSelectionIntoViewEvent> mScrollEvent;
   CachedOffsetForFrame *mCachedOffsetForFrame;
   nsDirection mDirection;
-  SelectionType mType;
+  SelectionType mSelectionType;
   /**
    * True if the current selection operation was initiated by user action.
    * It determines whether we exclude -moz-user-select:none nodes or not,
@@ -345,12 +362,12 @@ public:
   ~SelectionBatcher()
   {
     if (mSelection) {
-      mSelection->EndBatchChanges();
+      mSelection->EndBatchChangesInternal();
     }
   }
 };
 
-class MOZ_STACK_CLASS AutoHideSelectionChanges final
+class MOZ_RAII AutoHideSelectionChanges final
 {
 private:
   RefPtr<Selection> mSelection;

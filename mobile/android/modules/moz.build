@@ -11,6 +11,7 @@ EXTRA_JS_MODULES += [
     'dbg-browser-actors.js',
     'DelayedInit.jsm',
     'DownloadNotifications.jsm',
+    'FxAccountsWebChannel.jsm',
     'HelperApps.jsm',
     'Home.jsm',
     'HomeProvider.jsm',
@@ -19,22 +20,15 @@ EXTRA_JS_MODULES += [
     'LightweightThemeConsumer.jsm',
     'MediaPlayerApp.jsm',
     'Messaging.jsm',
-    'MulticastDNS.jsm',
     'NetErrorHelper.jsm',
     'Notifications.jsm',
     'OrderedBroadcast.jsm',
     'PageActions.jsm',
     'Prompt.jsm',
+    'RuntimePermissions.jsm',
     'Sanitizer.jsm',
     'SharedPreferences.jsm',
     'Snackbars.jsm',
     'SSLExceptions.jsm',
     'TabMirror.jsm',
-    'WebappManager.jsm',
-    'WebappManagerWorker.js',
 ]
-
-if not CONFIG['MOZ_B2GDROID']:
-    EXTRA_JS_MODULES += [
-        'FxAccountsWebChannel.jsm',
-    ]

@@ -109,18 +109,18 @@ CairoAntialiasToGfxAntialias(cairo_antialias_t aAntialias)
 }
 
 static inline cairo_filter_t
-GfxFilterToCairoFilter(Filter filter)
+GfxSamplingFilterToCairoFilter(SamplingFilter filter)
 {
   switch (filter)
   {
-    case Filter::GOOD:
+    case SamplingFilter::GOOD:
       return CAIRO_FILTER_GOOD;
-    case Filter::LINEAR:
+    case SamplingFilter::LINEAR:
       return CAIRO_FILTER_BILINEAR;
-    case Filter::POINT:
+    case SamplingFilter::POINT:
       return CAIRO_FILTER_NEAREST;
     default:
-      MOZ_CRASH("bad filter");
+      MOZ_CRASH("GFX: bad Cairo filter");
   }
 
   return CAIRO_FILTER_BILINEAR;
@@ -133,6 +133,10 @@ GfxExtendToCairoExtend(ExtendMode extend)
   {
     case ExtendMode::CLAMP:
       return CAIRO_EXTEND_PAD;
+    // Cairo doesn't support tiling in only 1 direction,
+    // So we have to fallback and tile in both.
+    case ExtendMode::REPEAT_X:
+    case ExtendMode::REPEAT_Y:
     case ExtendMode::REPEAT:
       return CAIRO_EXTEND_REPEAT;
     case ExtendMode::REFLECT:

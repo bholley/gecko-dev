@@ -27,6 +27,8 @@ public class CodeGenerator {
 
     private final Class<?> cls;
     private final String clsName;
+    private boolean isMultithreaded;
+    private int numNativesInits;
 
     private final HashSet<String> takenMethodNames = new HashSet<String>();
 
@@ -36,30 +38,26 @@ public class CodeGenerator {
 
         final String unqualifiedName = Utils.getUnqualifiedName(clsName);
         header.append(
-                "class " + clsName + " : public mozilla::jni::Class<" + unqualifiedName + ">\n" +
+                "class " + clsName + " : public mozilla::jni::ObjectBase<" +
+                        unqualifiedName + ", jobject>\n" +
                 "{\n" +
                 "public:\n" +
-                "    typedef mozilla::jni::Ref<" + unqualifiedName + "> Ref;\n" +
-                "    typedef mozilla::jni::LocalRef<" + unqualifiedName + "> LocalRef;\n" +
-                "    typedef mozilla::jni::GlobalRef<" + unqualifiedName + "> GlobalRef;\n" +
-                "    typedef const mozilla::jni::Param<" + unqualifiedName + ">& Param;\n" +
-                "\n" +
-                "    static constexpr char name[] =\n" +
-                "            \"" + cls.getName().replace('.', '/') + "\";\n" +
-                "\n" +
-                "protected:\n" +
-                "    " + unqualifiedName + "(jobject instance) : Class(instance) {}\n" +
+                "    explicit " + unqualifiedName + "(const Context& ctx) : ObjectBase<" +
+                        unqualifiedName + ", jobject>(ctx) {}\n" +
                 "\n");
 
         cpp.append(
-                "constexpr char " + clsName + "::name[];\n" +
+                "template<> const char mozilla::jni::Context<" +
+                        clsName + ", jobject>::name[] =\n" +
+                "        \"" + cls.getName().replace('.', '/') + "\";\n" +
                 "\n");
 
         natives.append(
                 "template<class Impl>\n" +
                 "class " + clsName + "::Natives : " +
                         "public mozilla::jni::NativeImpl<" + unqualifiedName + ", Impl>\n" +
-                "{\n");
+                "{\n" +
+                "public:\n");
     }
 
     private String getTraitsName(String uniqueName, boolean includeScope) {
@@ -113,7 +111,6 @@ public class CodeGenerator {
         }
 
         header.append(
-                "public:\n" +
                 "    struct " + getTraitsName(uniqueName, /* includeScope */ false) + " {\n" +
                 "        typedef " + Utils.getUnqualifiedName(clsName) + " Owner;\n" +
                 "        typedef " + getNativeReturnType(type, info) + " ReturnType;\n" +
@@ -124,7 +121,6 @@ public class CodeGenerator {
                 "        static constexpr char signature[] =\n" +
                 "                \"" + Utils.getSignature(member) + "\";\n" +
                 "        static const bool isStatic = " + Utils.isStatic(member) + ";\n" +
-                "        static const bool isMultithreaded = " + info.isMultithreaded + ";\n" +
                 "        static const mozilla::jni::ExceptionMode exceptionMode =\n" +
                 "                " + (
                         info.catchException ? "mozilla::jni::ExceptionMode::NSRESULT" :
@@ -139,6 +135,8 @@ public class CodeGenerator {
                 "constexpr char " + getTraitsName(uniqueName, /* includeScope */ true) +
                         "::signature[];\n" +
                 "\n");
+
+        this.isMultithreaded |= info.isMultithreaded;
     }
 
     private String getUniqueMethodName(String basename) {
@@ -261,7 +259,8 @@ public class CodeGenerator {
         // Generate a call, e.g., Method<Traits>::Call(a0, a1, a2);
 
         def.append(accessorName).append("(")
-           .append(isStatic ? "nullptr" : "this");
+           .append(Utils.getUnqualifiedName(clsName) +
+                   (isStatic ? "::Context()" : "::mCtx"));
 
         if (info.catchException) {
             def.append(", &rv");
@@ -342,9 +341,10 @@ public class CodeGenerator {
         nativesInits.append(
                 "\n" +
                 "\n" +
-                "        mozilla::jni::MakeNativeMethod<" + traits + ">(\n" +
-                "                mozilla::jni::NativeStub<" + traits + ", Impl>\n" +
-                "                ::template Wrap<&Impl::" + info.wrapperName + ">)");
+                "    mozilla::jni::MakeNativeMethod<" + traits + ">(\n" +
+                "            mozilla::jni::NativeStub<" + traits + ", Impl>\n" +
+                "            ::template Wrap<&Impl::" + info.wrapperName + ">)");
+        numNativesInits++;
     }
 
     private String getLiteral(Object val, AnnotationInfo info) {
@@ -400,7 +400,6 @@ public class CodeGenerator {
             if (val != null && type.isPrimitive()) {
                 // For static final primitive fields, we can use a "static const" declaration.
                 header.append(
-                    "public:\n" +
                     "    static const " + Utils.getNativeReturnType(type, info) +
                             ' ' + info.wrapperName + " = " + getLiteral(val, info) + ";\n" +
                     "\n");
@@ -410,7 +409,6 @@ public class CodeGenerator {
                 final String nativeType = info.narrowChars ? "char" : "char16_t";
 
                 header.append(
-                    "public:\n" +
                     "    static const " + nativeType + ' ' + info.wrapperName + "[];\n" +
                     "\n");
 
@@ -519,8 +517,6 @@ public class CodeGenerator {
             return;
         }
 
-        header.append(
-                "public:\n");
         for (final ClassWithOptions cls : classes) {
             // Extract "Inner" from "Outer::Inner".
             header.append(
@@ -544,9 +540,12 @@ public class CodeGenerator {
      * @return The bytes to be written to the header file.
      */
     public String getHeaderFileContents() {
+        header.append(
+                "    static const bool isMultithreaded = " + this.isMultithreaded + ";\n" +
+                "\n");
+
         if (nativesInits.length() > 0) {
             header.append(
-                    "public:\n" +
                     "    template<class Impl> class Natives;\n");
         }
         header.append(
@@ -565,13 +564,12 @@ public class CodeGenerator {
             return "";
         }
         natives.append(
-                "public:\n" +
-                "    static constexpr JNINativeMethod methods[] = {" + nativesInits + '\n' +
-                "    };\n" +
+                "    static const JNINativeMethod methods[" + numNativesInits + "];\n" +
                 "};\n" +
                 "\n" +
                 "template<class Impl>\n" +
-                "constexpr JNINativeMethod " + clsName + "::Natives<Impl>::methods[];\n" +
+                "const JNINativeMethod " + clsName + "::Natives<Impl>::methods[] = {" + nativesInits + '\n' +
+                "};\n" +
                 "\n");
         return natives.toString();
     }

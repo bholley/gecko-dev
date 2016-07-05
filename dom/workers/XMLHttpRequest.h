@@ -7,7 +7,7 @@
 #ifndef mozilla_dom_workers_xmlhttprequest_h__
 #define mozilla_dom_workers_xmlhttprequest_h__
 
-#include "mozilla/dom/workers/bindings/WorkerFeature.h"
+#include "mozilla/dom/workers/bindings/WorkerHolder.h"
 
 // Need this for XMLHttpRequestResponseType.
 #include "mozilla/dom/XMLHttpRequestBinding.h"
@@ -30,7 +30,7 @@ class XMLHttpRequestUpload;
 class WorkerPrivate;
 
 class XMLHttpRequest final: public nsXHREventTarget,
-                            public WorkerFeature
+                            public WorkerHolder
 {
 public:
   struct StateData
@@ -50,6 +50,8 @@ public:
       mResponseTextResult(NS_OK), mStatusResult(NS_OK),
       mResponseResult(NS_OK)
     { }
+
+    void trace(JSTracer* trc);
   };
 
 private:
@@ -107,7 +109,7 @@ public:
   Unpin();
 
   bool
-  Notify(JSContext* aCx, Status aStatus) override;
+  Notify(Status aStatus) override;
 
   IMPL_EVENT_HANDLER(readystatechange)
 
@@ -174,7 +176,7 @@ public:
   Send(Blob& aBody, ErrorResult& aRv);
 
   void
-  Send(nsFormData& aBody, ErrorResult& aRv);
+  Send(FormData& aBody, ErrorResult& aRv);
 
   void
   Send(const ArrayBuffer& aBody, ErrorResult& aRv);

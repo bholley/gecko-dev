@@ -17,9 +17,9 @@
 #include "mozilla/dom/ChromeUtils.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
 #include "mozilla/Move.h"
-#include "mozilla/UniquePtr.h"
 #include "js/Principals.h"
 #include "js/UbiNode.h"
+#include "js/UniquePtr.h"
 
 using namespace mozilla;
 using namespace mozilla::devtools;
@@ -48,9 +48,9 @@ struct DevTools : public ::testing::Test {
     if (!rt)
       return;
 
-    cx = createContext();
-    if (!cx)
-      return;
+    MOZ_RELEASE_ASSERT(!cx);
+    cx = JS_GetContext(rt);
+
     JS_BeginRequest(cx);
 
     global.init(rt, createGlobal());
@@ -93,17 +93,16 @@ struct DevTools : public ::testing::Test {
             message);
   }
 
-  JSContext* createContext() {
-    return JS_NewContext(rt, 8192);
-  }
-
   static const JSClass* getGlobalClass() {
-    static const JSClass globalClass = {
-      "global", JSCLASS_GLOBAL_FLAGS,
+    static const JSClassOps globalClassOps = {
       nullptr, nullptr, nullptr, nullptr,
       nullptr, nullptr, nullptr, nullptr,
       nullptr, nullptr, nullptr,
       JS_GlobalObjectTraceHook
+    };
+    static const JSClass globalClass = {
+      "global", JSCLASS_GLOBAL_FLAGS,
+      &globalClassOps
     };
     return &globalClass;
   }
@@ -113,7 +112,7 @@ struct DevTools : public ::testing::Test {
     /* Create the global object. */
     JS::RootedObject newGlobal(cx);
     JS::CompartmentOptions options;
-    options.setVersion(JSVERSION_LATEST);
+    options.behaviors().setVersion(JSVERSION_LATEST);
     newGlobal = JS_NewGlobalObject(cx, getGlobalClass(), nullptr,
                                    JS::FireOnNewGlobalHook, options);
     if (!newGlobal)
@@ -136,11 +135,8 @@ struct DevTools : public ::testing::Test {
       JS_LeaveCompartment(cx, nullptr);
       global = nullptr;
     }
-    if (cx) {
+    if (cx)
       JS_EndRequest(cx);
-      JS_DestroyContext(cx);
-      cx = nullptr;
-    }
   }
 };
 
@@ -173,8 +169,6 @@ public:
 namespace JS {
 namespace ubi {
 
-using mozilla::UniquePtr;
-
 template<>
 class Concrete<FakeNode> : public Base
 {
@@ -182,8 +176,8 @@ class Concrete<FakeNode> : public Base
     return concreteTypeName;
   }
 
-  UniquePtr<EdgeRange> edges(JSRuntime*, bool) const override {
-    return UniquePtr<EdgeRange>(js_new<PreComputedEdgeRange>(get().edges));
+  js::UniquePtr<EdgeRange> edges(JSRuntime*, bool) const override {
+    return js::UniquePtr<EdgeRange>(js_new<PreComputedEdgeRange>(get().edges));
   }
 
   Size size(mozilla::MallocSizeOf) const override {

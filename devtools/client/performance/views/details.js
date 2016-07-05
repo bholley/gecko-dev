@@ -1,6 +1,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+/* import-globals-from ../performance-controller.js */
+/* import-globals-from ../performance-view.js */
 "use strict";
 
 /**
@@ -42,7 +44,7 @@ var DetailsView = {
   /**
    * Sets up the view with event binding, initializes subviews.
    */
-  initialize: Task.async(function *() {
+  initialize: Task.async(function* () {
     this.el = $("#details-pane");
     this.toolbar = $("#performance-toolbar-controls-detail-views");
 
@@ -64,7 +66,7 @@ var DetailsView = {
   /**
    * Unbinds events, destroys subviews.
    */
-  destroy: Task.async(function *() {
+  destroy: Task.async(function* () {
     for (let button of $$("toolbarbutton[data-view]", this.toolbar)) {
       button.removeEventListener("command", this._onViewToggle);
     }
@@ -108,14 +110,14 @@ var DetailsView = {
     //
     // 2. If we have a finished recording and no panel was selected yet,
     // use a default now that we have the recording configurations
-    if ((this._initialized  && isCompleted && invalidCurrentView) ||
+    if ((this._initialized && isCompleted && invalidCurrentView) ||
         (!this._initialized && isCompleted && recording)) {
       yield this.selectDefaultView();
     }
   }),
 
   /**
-   * Takes a view name and determines if the current recording 
+   * Takes a view name and determines if the current recording
    * can support the view.
    *
    * @param {string} viewName
@@ -142,7 +144,7 @@ var DetailsView = {
    * @param String viewName
    *        Name of the view to be shown.
    */
-  selectView: Task.async(function *(viewName) {
+  selectView: Task.async(function* (viewName) {
     let component = this.components[viewName];
     this.el.selectedPanel = $("#" + component.id);
 
@@ -160,7 +162,7 @@ var DetailsView = {
     // recording's features.
     this._initialized = true;
 
-    this.emit(EVENTS.DETAILS_VIEW_SELECTED, viewName);
+    this.emit(EVENTS.UI_DETAILS_VIEW_SELECTED, viewName);
   }),
 
   /**
@@ -186,7 +188,7 @@ var DetailsView = {
    * @param object viewObject
    * @return boolean
    */
-  isViewSelected: function(viewObject) {
+  isViewSelected: function (viewObject) {
     // If not initialized, and we have no recordings,
     // no views are selected (even though there's a selected panel)
     if (!this._initialized) {
@@ -206,28 +208,13 @@ var DetailsView = {
   },
 
   /**
-   * Resolves when the provided view is selected. If already selected,
-   * the returned promise resolves immediately.
-   *
-   * @param object viewObject
-   * @return object
-   */
-  whenViewSelected: Task.async(function*(viewObject) {
-    if (this.isViewSelected(viewObject)) {
-      return promise.resolve();
-    }
-    yield this.once(EVENTS.DETAILS_VIEW_SELECTED);
-    return this.whenViewSelected(viewObject);
-  }),
-
-  /**
    * Initializes a subview if it wasn't already set up, and makes sure
    * it's populated with recording data if there is some available.
    *
    * @param object component
    *        A component descriptor from DetailsView.components
    */
-  _whenViewInitialized: Task.async(function *(component) {
+  _whenViewInitialized: Task.async(function* (component) {
     if (component.initialized) {
       return;
     }
@@ -247,7 +234,7 @@ var DetailsView = {
   /**
    * Called when recording stops or is selected.
    */
-  _onRecordingStoppedOrSelected: function(_, state, recording) {
+  _onRecordingStoppedOrSelected: function (_, state, recording) {
     if (typeof state === "string" && state !== "recording-stopped") {
       return;
     }

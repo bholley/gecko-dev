@@ -57,7 +57,7 @@ using namespace widget;
  * for debug, log the information with LogLevel::Debug.  In this case, the log
  * should start with "ISM:   <method name>(),".
  */
-PRLogModuleInfo* sISMLog = nullptr;
+LazyLogModule sISMLog("IMEStateManager");
 
 static const char*
 GetBoolName(bool aBool)
@@ -77,6 +77,8 @@ GetActionCauseName(InputContextAction::Cause aCause)
       return "CAUSE_KEY";
     case InputContextAction::CAUSE_MOUSE:
       return "CAUSE_MOUSE";
+    case InputContextAction::CAUSE_TOUCH:
+      return "CAUSE_TOUCH";
     default:
       return "illegal value";
   }
@@ -133,36 +135,10 @@ GetIMEStateSetOpenName(IMEState::Open aOpen)
   }
 }
 
-static const char*
-GetNotifyIMEMessageName(IMEMessage aMessage)
-{
-  switch (aMessage) {
-    case NOTIFY_IME_OF_FOCUS:
-      return "NOTIFY_IME_OF_FOCUS";
-    case NOTIFY_IME_OF_BLUR:
-      return "NOTIFY_IME_OF_BLUR";
-    case NOTIFY_IME_OF_SELECTION_CHANGE:
-      return "NOTIFY_IME_OF_SELECTION_CHANGE";
-    case NOTIFY_IME_OF_TEXT_CHANGE:
-      return "NOTIFY_IME_OF_TEXT_CHANGE";
-    case NOTIFY_IME_OF_COMPOSITION_UPDATE:
-      return "NOTIFY_IME_OF_COMPOSITION_UPDATE";
-    case NOTIFY_IME_OF_POSITION_CHANGE:
-      return "NOTIFY_IME_OF_POSITION_CHANGE";
-    case NOTIFY_IME_OF_MOUSE_BUTTON_EVENT:
-      return "NOTIFY_IME_OF_MOUSE_BUTTON_EVENT";
-    case REQUEST_TO_COMMIT_COMPOSITION:
-      return "REQUEST_TO_COMMIT_COMPOSITION";
-    case REQUEST_TO_CANCEL_COMPOSITION:
-      return "REQUEST_TO_CANCEL_COMPOSITION";
-    default:
-      return "unacceptable IME notification message";
-  }
-}
-
 StaticRefPtr<nsIContent> IMEStateManager::sContent;
 nsPresContext* IMEStateManager::sPresContext = nullptr;
-nsIWidget* IMEStateManager::sFocusedIMEWidget;
+nsIWidget* IMEStateManager::sFocusedIMEWidget = nullptr;
+nsIWidget* IMEStateManager::sActiveInputContextWidget = nullptr;
 StaticRefPtr<TabParent> IMEStateManager::sActiveTabParent;
 StaticRefPtr<IMEContentObserver> IMEStateManager::sActiveIMEContentObserver;
 TextCompositionArray* IMEStateManager::sTextCompositions = nullptr;
@@ -175,10 +151,6 @@ bool IMEStateManager::sRemoteHasFocus = false;
 void
 IMEStateManager::Init()
 {
-  if (!sISMLog) {
-    sISMLog = PR_NewLogModule("IMEStateManager");
-  }
-
   Preferences::AddBoolVarCache(
     &sCheckForIMEUnawareWebApps,
     "intl.ime.hack.on_ime_unaware_apps.fire_key_events_for_composition",
@@ -224,6 +196,9 @@ IMEStateManager::WidgetDestroyed(nsIWidget* aWidget)
   if (sFocusedIMEWidget == aWidget) {
     sFocusedIMEWidget = nullptr;
   }
+  if (sActiveInputContextWidget == aWidget) {
+    sActiveInputContextWidget = nullptr;
+  }
 }
 
 // static
@@ -239,10 +214,44 @@ IMEStateManager::StopIMEStateManagement()
   if (sTextCompositions && sPresContext) {
     NotifyIME(REQUEST_TO_COMMIT_COMPOSITION, sPresContext);
   }
+  sActiveInputContextWidget = nullptr;
   sPresContext = nullptr;
   sContent = nullptr;
   sActiveTabParent = nullptr;
   DestroyIMEContentObserver();
+}
+
+// static
+void
+IMEStateManager::MaybeStartOffsetUpdatedInChild(nsIWidget* aWidget,
+                                                uint32_t aStartOffset)
+{
+  if (NS_WARN_IF(!sTextCompositions)) {
+    MOZ_LOG(sISMLog, LogLevel::Warning,
+      ("ISM: IMEStateManager::MaybeStartOffsetUpdatedInChild("
+       "aWidget=0x%p, aStartOffset=%u), called when there is no "
+       "composition", aWidget, aStartOffset));
+    return;
+  }
+
+  RefPtr<TextComposition> composition = GetTextCompositionFor(aWidget);
+  if (NS_WARN_IF(!composition)) {
+    MOZ_LOG(sISMLog, LogLevel::Warning,
+      ("ISM: IMEStateManager::MaybeStartOffsetUpdatedInChild("
+       "aWidget=0x%p, aStartOffset=%u), called when there is no "
+       "composition", aWidget, aStartOffset));
+    return;
+  }
+
+  if (composition->NativeOffsetOfStartComposition() == aStartOffset) {
+    return;
+  }
+
+  MOZ_LOG(sISMLog, LogLevel::Info,
+    ("ISM: IMEStateManager::MaybeStartOffsetUpdatedInChild("
+     "aWidget=0x%p, aStartOffset=%u), old offset=%u",
+     aWidget, aStartOffset, composition->NativeOffsetOfStartComposition()));
+  composition->OnStartOffsetUpdatedInChild(aStartOffset);
 }
 
 // static
@@ -586,7 +595,7 @@ IMEStateManager::OnMouseButtonEventInEditor(nsPresContext* aPresContext,
   }
 
   WidgetMouseEvent* internalEvent =
-    aMouseEvent->GetInternalNSEvent()->AsMouseEvent();
+    aMouseEvent->AsEvent()->WidgetEventPtr()->AsMouseEvent();
   if (NS_WARN_IF(!internalEvent)) {
     MOZ_LOG(sISMLog, LogLevel::Debug,
       ("ISM:   IMEStateManager::OnMouseButtonEventInEditor(), "
@@ -599,7 +608,7 @@ IMEStateManager::OnMouseButtonEventInEditor(nsPresContext* aPresContext,
 
   if (MOZ_LOG_TEST(sISMLog, LogLevel::Info)) {
     nsAutoString eventType;
-    aMouseEvent->GetType(eventType);
+    aMouseEvent->AsEvent()->GetType(eventType);
     MOZ_LOG(sISMLog, LogLevel::Info,
       ("ISM:   IMEStateManager::OnMouseButtonEventInEditor(), "
        "mouse event (type=%s, button=%d) is %s",
@@ -632,7 +641,7 @@ IMEStateManager::OnClickInEditor(nsPresContext* aPresContext,
   NS_ENSURE_TRUE_VOID(widget);
 
   bool isTrusted;
-  nsresult rv = aMouseEvent->GetIsTrusted(&isTrusted);
+  nsresult rv = aMouseEvent->AsEvent()->GetIsTrusted(&isTrusted);
   NS_ENSURE_SUCCESS_VOID(rv);
   if (!isTrusted) {
     MOZ_LOG(sISMLog, LogLevel::Debug,
@@ -661,8 +670,13 @@ IMEStateManager::OnClickInEditor(nsPresContext* aPresContext,
     return; // should notify only first click event.
   }
 
-  InputContextAction action(InputContextAction::CAUSE_MOUSE,
-                            InputContextAction::FOCUS_NOT_CHANGED);
+  uint16_t inputSource = nsIDOMMouseEvent::MOZ_SOURCE_UNKNOWN;
+  aMouseEvent->GetMozInputSource(&inputSource);
+  InputContextAction::Cause cause =
+    inputSource == nsIDOMMouseEvent::MOZ_SOURCE_TOUCH ?
+      InputContextAction::CAUSE_TOUCH : InputContextAction::CAUSE_MOUSE;
+
+  InputContextAction action(cause, InputContextAction::FOCUS_NOT_CHANGED);
   IMEState newState = GetNewIMEState(aPresContext, aContent);
   SetIMEState(newState, aContent, widget, action);
 }
@@ -886,34 +900,6 @@ IMEStateManager::GetNewIMEState(nsPresContext* aPresContext,
   return newIMEState;
 }
 
-// Helper class, used for IME enabled state change notification
-class IMEEnabledStateChangedEvent : public nsRunnable {
-public:
-  explicit IMEEnabledStateChangedEvent(uint32_t aState)
-    : mState(aState)
-  {
-  }
-
-  NS_IMETHOD Run()
-  {
-    nsCOMPtr<nsIObserverService> observerService =
-      services::GetObserverService();
-    if (observerService) {
-      MOZ_LOG(sISMLog, LogLevel::Info,
-        ("ISM: IMEEnabledStateChangedEvent::Run(), notifies observers of "
-         "\"ime-enabled-state-changed\""));
-      nsAutoString state;
-      state.AppendInt(mState);
-      observerService->NotifyObservers(nullptr, "ime-enabled-state-changed",
-                                       state.get());
-    }
-    return NS_OK;
-  }
-
-private:
-  uint32_t mState;
-};
-
 static bool
 MayBeIMEUnawareWebApp(nsINode* aNode)
 {
@@ -1001,8 +987,6 @@ IMEStateManager::SetIMEState(const IMEState& aState,
 
   NS_ENSURE_TRUE_VOID(aWidget);
 
-  InputContext oldContext = aWidget->GetInputContext();
-
   InputContext context;
   context.mIMEState = aState;
   context.mMayBeIMEUnaware = context.mIMEState.IsEditable() &&
@@ -1031,7 +1015,8 @@ IMEStateManager::SetIMEState(const IMEState& aState,
       context.mHTMLInputType.Assign(nsGkAtoms::textarea->GetUTF16String());
     }
 
-    if (Preferences::GetBool("dom.forms.inputmode", false)) {
+    if (Preferences::GetBool("dom.forms.inputmode", false) ||
+        nsContentUtils::IsChromeDoc(aContent->OwnerDoc())) {
       aContent->GetAttr(kNameSpaceID_None, nsGkAtoms::inputmode,
                         context.mHTMLInputInputmode);
     }
@@ -1049,9 +1034,10 @@ IMEStateManager::SetIMEState(const IMEState& aState,
         inputContent->IsHTMLElement(nsGkAtoms::input)) {
       bool willSubmit = false;
       nsCOMPtr<nsIFormControl> control(do_QueryInterface(inputContent));
-      mozilla::dom::Element* formElement = control->GetFormElement();
+      mozilla::dom::Element* formElement = nullptr;
       nsCOMPtr<nsIForm> form;
       if (control) {
+        formElement = control->GetFormElement();
         // is this a form and does it have a default submit element?
         if ((form = do_QueryInterface(formElement)) &&
             form->GetDefaultSubmitElement()) {
@@ -1104,15 +1090,8 @@ IMEStateManager::SetInputContext(nsIWidget* aWidget,
 
   MOZ_RELEASE_ASSERT(aWidget);
 
-  InputContext oldContext = aWidget->GetInputContext();
-
   aWidget->SetInputContext(aInputContext, aAction);
-  if (oldContext.mIMEState.mEnabled == aInputContext.mIMEState.mEnabled) {
-    return;
-  }
-
-  nsContentUtils::AddScriptRunner(
-    new IMEEnabledStateChangedEvent(aInputContext.mIMEState.mEnabled));
+  sActiveInputContextWidget = aWidget;
 }
 
 // static
@@ -1141,17 +1120,27 @@ IMEStateManager::DispatchCompositionEvent(
 
   MOZ_LOG(sISMLog, LogLevel::Info,
     ("ISM: IMEStateManager::DispatchCompositionEvent(aNode=0x%p, "
-     "aPresContext=0x%p, aCompositionEvent={ message=%s, "
+     "aPresContext=0x%p, aCompositionEvent={ mMessage=%s, "
+     "mNativeIMEContext={ mRawNativeIMEContext=0x%X, "
+     "mOriginProcessID=0x%X }, mWidget(0x%p)={ "
+     "GetNativeIMEContext()={ mRawNativeIMEContext=0x%X, "
+     "mOriginProcessID=0x%X }, Destroyed()=%s }, "
      "mFlags={ mIsTrusted=%s, mPropagationStopped=%s } }, "
      "aIsSynthesized=%s), tabParent=%p",
      aEventTargetNode, aPresContext,
      ToChar(aCompositionEvent->mMessage),
+     aCompositionEvent->mNativeIMEContext.mRawNativeIMEContext,
+     aCompositionEvent->mNativeIMEContext.mOriginProcessID,
+     aCompositionEvent->mWidget.get(),
+     aCompositionEvent->mWidget->GetNativeIMEContext().mRawNativeIMEContext,
+     aCompositionEvent->mWidget->GetNativeIMEContext().mOriginProcessID,
+     GetBoolName(aCompositionEvent->mWidget->Destroyed()),
      GetBoolName(aCompositionEvent->mFlags.mIsTrusted),
      GetBoolName(aCompositionEvent->mFlags.mPropagationStopped),
      GetBoolName(aIsSynthesized), tabParent.get()));
 
-  if (!aCompositionEvent->mFlags.mIsTrusted ||
-      aCompositionEvent->mFlags.mPropagationStopped) {
+  if (!aCompositionEvent->IsTrusted() ||
+      aCompositionEvent->PropagationStopped()) {
     return;
   }
 
@@ -1161,7 +1150,7 @@ IMEStateManager::DispatchCompositionEvent(
   EnsureTextCompositionArray();
 
   RefPtr<TextComposition> composition =
-    sTextCompositions->GetCompositionFor(aCompositionEvent->widget);
+    sTextCompositions->GetCompositionFor(aCompositionEvent);
   if (!composition) {
     // If synthesized event comes after delayed native composition events
     // for request of commit or cancel, we should ignore it.
@@ -1203,7 +1192,7 @@ IMEStateManager::DispatchCompositionEvent(
        composition->WasNativeCompositionEndEventDiscarded()) &&
       aCompositionEvent->CausesDOMCompositionEndEvent()) {
     TextCompositionArray::index_type i =
-      sTextCompositions->IndexOf(aCompositionEvent->widget);
+      sTextCompositions->IndexOf(aCompositionEvent->mWidget);
     if (i != TextCompositionArray::NoIndex) {
       MOZ_LOG(sISMLog, LogLevel::Debug,
         ("ISM:   IMEStateManager::DispatchCompositionEvent(), "
@@ -1213,6 +1202,13 @@ IMEStateManager::DispatchCompositionEvent(
       sTextCompositions->RemoveElementAt(i);
     }
   }
+}
+
+// static
+IMEContentObserver*
+IMEStateManager::GetActiveContentObserver()
+{
+  return sActiveIMEContentObserver;
 }
 
 // static
@@ -1247,12 +1243,12 @@ IMEStateManager::HandleSelectionEvent(nsPresContext* aPresContext,
      GetBoolName(aSelectionEvent->mFlags.mIsTrusted),
      tabParent.get()));
 
-  if (!aSelectionEvent->mFlags.mIsTrusted) {
+  if (!aSelectionEvent->IsTrusted()) {
     return;
   }
 
   RefPtr<TextComposition> composition = sTextCompositions ?
-    sTextCompositions->GetCompositionFor(aSelectionEvent->widget) : nullptr;
+    sTextCompositions->GetCompositionFor(aSelectionEvent->mWidget) : nullptr;
   if (composition) {
     // When there is a composition, TextComposition should guarantee that the
     // selection event will be handled in same target as composition events.
@@ -1275,11 +1271,21 @@ IMEStateManager::OnCompositionEventDiscarded(
 
   MOZ_LOG(sISMLog, LogLevel::Info,
     ("ISM: IMEStateManager::OnCompositionEventDiscarded(aCompositionEvent={ "
-     "mMessage=%s, mFlags={ mIsTrusted=%s } })",
+     "mMessage=%s, mNativeIMEContext={ mRawNativeIMEContext=0x%X, "
+     "mOriginProcessID=0x%X }, mWidget(0x%p)={ "
+     "GetNativeIMEContext()={ mRawNativeIMEContext=0x%X, "
+     "mOriginProcessID=0x%X }, Destroyed()=%s }, "
+     "mFlags={ mIsTrusted=%s } })",
      ToChar(aCompositionEvent->mMessage),
+     aCompositionEvent->mNativeIMEContext.mRawNativeIMEContext,
+     aCompositionEvent->mNativeIMEContext.mOriginProcessID,
+     aCompositionEvent->mWidget.get(),
+     aCompositionEvent->mWidget->GetNativeIMEContext().mRawNativeIMEContext,
+     aCompositionEvent->mWidget->GetNativeIMEContext().mOriginProcessID,
+     GetBoolName(aCompositionEvent->mWidget->Destroyed()),
      GetBoolName(aCompositionEvent->mFlags.mIsTrusted)));
 
-  if (!aCompositionEvent->mFlags.mIsTrusted) {
+  if (!aCompositionEvent->IsTrusted()) {
     return;
   }
 
@@ -1290,7 +1296,7 @@ IMEStateManager::OnCompositionEventDiscarded(
   }
 
   RefPtr<TextComposition> composition =
-    sTextCompositions->GetCompositionFor(aCompositionEvent->widget);
+    sTextCompositions->GetCompositionFor(aCompositionEvent->mWidget);
   if (!composition) {
     // If the PresShell has been being destroyed during composition,
     // a TextComposition instance for the composition was already removed from
@@ -1324,7 +1330,7 @@ IMEStateManager::NotifyIME(const IMENotification& aNotification,
     ("ISM: IMEStateManager::NotifyIME(aNotification={ mMessage=%s }, "
      "aWidget=0x%p, aOriginIsRemote=%s), sFocusedIMEWidget=0x%p, "
      "sRemoteHasFocus=%s",
-     GetNotifyIMEMessageName(aNotification.mMessage), aWidget,
+     ToChar(aNotification.mMessage), aWidget,
      GetBoolName(aOriginIsRemote), sFocusedIMEWidget,
      GetBoolName(sRemoteHasFocus)));
 
@@ -1448,7 +1454,7 @@ IMEStateManager::NotifyIME(const IMENotification& aNotification,
     case REQUEST_TO_CANCEL_COMPOSITION:
       return composition ?
         composition->RequestToCommit(aWidget, true) : NS_OK;
-    case NOTIFY_IME_OF_COMPOSITION_UPDATE:
+    case NOTIFY_IME_OF_COMPOSITION_EVENT_HANDLED:
       if (!aOriginIsRemote && (!composition || isSynthesizedForTests)) {
         MOZ_LOG(sISMLog, LogLevel::Info,
           ("ISM:   IMEStateManager::NotifyIME(), FAILED, received content "
@@ -1479,8 +1485,7 @@ IMEStateManager::NotifyIME(IMEMessage aMessage,
   MOZ_LOG(sISMLog, LogLevel::Info,
     ("ISM: IMEStateManager::NotifyIME(aMessage=%s, aPresContext=0x%p, "
      "aOriginIsRemote=%s)",
-     GetNotifyIMEMessageName(aMessage), aPresContext,
-     GetBoolName(aOriginIsRemote)));
+     ToChar(aMessage), aPresContext, GetBoolName(aOriginIsRemote)));
 
   NS_ENSURE_TRUE(aPresContext, NS_ERROR_INVALID_ARG);
 
@@ -1646,11 +1651,27 @@ IMEStateManager::GetTextCompositionFor(nsIWidget* aWidget)
 
 // static
 already_AddRefed<TextComposition>
-IMEStateManager::GetTextCompositionFor(WidgetGUIEvent* aGUIEvent)
+IMEStateManager::GetTextCompositionFor(
+                   const WidgetCompositionEvent* aCompositionEvent)
 {
-  MOZ_ASSERT(aGUIEvent->AsCompositionEvent() || aGUIEvent->AsKeyboardEvent(),
-    "aGUIEvent has to be WidgetCompositionEvent or WidgetKeyboardEvent");
-  return GetTextCompositionFor(aGUIEvent->widget);
+  if (!sTextCompositions) {
+    return nullptr;
+  }
+  RefPtr<TextComposition> textComposition =
+    sTextCompositions->GetCompositionFor(aCompositionEvent);
+  return textComposition.forget();
+}
+
+// static
+already_AddRefed<TextComposition>
+IMEStateManager::GetTextCompositionFor(nsPresContext* aPresContext)
+{
+  if (!sTextCompositions) {
+    return nullptr;
+  }
+  RefPtr<TextComposition> textComposition =
+    sTextCompositions->GetCompositionFor(aPresContext);
+  return textComposition.forget();
 }
 
 } // namespace mozilla

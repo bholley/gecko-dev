@@ -7,6 +7,7 @@ this.EXPORTED_SYMBOLS = ["WebrtcUI"];
 
 XPCOMUtils.defineLazyModuleGetter(this, "Notifications", "resource://gre/modules/Notifications.jsm");
 XPCOMUtils.defineLazyServiceGetter(this, "ParentalControls", "@mozilla.org/parental-controls-service;1", "nsIParentalControlsService");
+XPCOMUtils.defineLazyModuleGetter(this, "RuntimePermissions", "resource://gre/modules/RuntimePermissions.jsm");
 
 var WebrtcUI = {
   _notificationId: null,
@@ -28,7 +29,14 @@ var WebrtcUI = {
 
   observe: function(aSubject, aTopic, aData) {
     if (aTopic === "getUserMedia:request") {
-      this.handleGumRequest(aSubject, aTopic, aData);
+      RuntimePermissions
+        .waitForPermissions(this._determineNeededRuntimePermissions(aSubject))
+        .then((permissionGranted) => {
+          if (permissionGranted) {
+            WebrtcUI.handleGumRequest(aSubject, aTopic, aData);
+          } else {
+            Services.obs.notifyObservers(null, "getUserMedia:response:deny", aSubject.callID);
+          }});
     } else if (aTopic === "PeerConnection:request") {
       this.handlePCRequest(aSubject, aTopic, aData);
     } else if (aTopic === "recording-device-events") {
@@ -121,10 +129,11 @@ var WebrtcUI = {
       function (error) {
         Cu.reportError(error);
       },
-      aSubject.innerWindowID);
+      aSubject.innerWindowID,
+      aSubject.callID);
   },
 
-  getDeviceButtons: function(audioDevices, videoDevices, aCallID) {
+  getDeviceButtons: function(audioDevices, videoDevices, aCallID, aUri) {
     return [{
       label: Strings.browser.GetStringFromName("getUserMedia.denyRequest.label"),
       callback: function() {
@@ -145,13 +154,32 @@ var WebrtcUI = {
         let videoId = 0;
         if (inputs && inputs.videoSource != undefined)
           videoId = inputs.videoSource;
-        if (videoDevices[videoId])
+        if (videoDevices[videoId]) {
           allowedDevices.AppendElement(videoDevices[videoId]);
+          let perms = Services.perms;
+          // Although the lifetime is "session" it will be removed upon
+          // use so it's more of a one-shot.
+          perms.add(aUri, "camera", perms.ALLOW_ACTION, perms.EXPIRE_SESSION);
+        }
 
         Services.obs.notifyObservers(allowedDevices, "getUserMedia:response:allow", aCallID);
       },
       positive: true
     }];
+  },
+
+  _determineNeededRuntimePermissions: function(aSubject) {
+    let permissions = [];
+
+    let constraints = aSubject.getConstraints();
+    if (constraints.video) {
+      permissions.push(RuntimePermissions.CAMERA);
+    }
+    if (constraints.audio) {
+      permissions.push(RuntimePermissions.RECORD_AUDIO);
+    }
+
+    return permissions;
   },
 
   // Get a list of string names for devices. Ensures that none of the strings are blank
@@ -174,13 +202,11 @@ var WebrtcUI = {
       }, this);
   },
 
-  _addDevicesToOptions: function(aDevices, aType, aOptions, extraOptions) {
+  _addDevicesToOptions: function(aDevices, aType, aOptions) {
     if (aDevices.length) {
 
       // Filter out empty items from the list
       let list = this._getList(aDevices, aType);
-      if (extraOptions)
-        list = list.concat(extraOptions);
 
       if (list.length > 0) {
         aOptions.inputs.push({
@@ -247,32 +273,23 @@ var WebrtcUI = {
     else
       return;
 
-    let host = aContentWindow.document.documentURIObject.host;
+    let uri = aContentWindow.document.documentURIObject;
+    let host = uri.host;
     let requestor = BrowserApp.manifest ? "'" + BrowserApp.manifest.name  + "'" : host;
     let message = Strings.browser.formatStringFromName("getUserMedia.share" + requestType + ".message", [ requestor ], 1);
 
     let options = { inputs: [] };
-    // if the users only option would be to select "No Audio" or "No Video"
-    // i.e. we're only showing audio or only video and there is only one device for that type
-    // don't bother showing a menulist to select from
-    var extraItems = null;
     if (videoDevices.length > 1 || audioDevices.length > 0) {
-      // Only show the No Video option if there are also Audio devices to choose from
-      if (audioDevices.length > 0)
-        extraItems = [ Strings.browser.GetStringFromName("getUserMedia.videoSource.none") ];
       // videoSource is both the string used for l10n lookup and the object that will be returned
-      this._addDevicesToOptions(videoDevices, "videoSource", options, extraItems);
+      this._addDevicesToOptions(videoDevices, "videoSource", options);
     }
 
     if (audioDevices.length > 1 || videoDevices.length > 0) {
-      // Only show the No Audio option if there are also Video devices to choose from
-      if (videoDevices.length > 0)
-        extraItems = [ Strings.browser.GetStringFromName("getUserMedia.audioDevice.none") ];
-      this._addDevicesToOptions(audioDevices, "audioDevice", options, extraItems);
+      this._addDevicesToOptions(audioDevices, "audioDevice", options);
     }
 
-    let buttons = this.getDeviceButtons(audioDevices, videoDevices, aCallID);
+    let buttons = this.getDeviceButtons(audioDevices, videoDevices, aCallID, uri);
 
-    NativeWindow.doorhanger.show(message, "webrtc-request", buttons, BrowserApp.selectedTab.id, options);
+    NativeWindow.doorhanger.show(message, "webrtc-request", buttons, BrowserApp.selectedTab.id, options, "WEBRTC");
   }
 }

@@ -73,21 +73,20 @@ AppendPercentHex(char16_t* aBuffer, char16_t aChar)
 }
 
 //----------------------------------------------------------------------------------------
-static char*
-nsEscapeCount(const char* aStr, nsEscapeMask aFlags, size_t* aOutLen)
+char*
+nsEscape(const char* aStr, size_t aLength, size_t* aOutputLength,
+         nsEscapeMask aFlags)
 //----------------------------------------------------------------------------------------
 {
   if (!aStr) {
-    return 0;
+    return nullptr;
   }
 
-  size_t len = 0;
   size_t charsToEscape = 0;
 
   const unsigned char* src = (const unsigned char*)aStr;
-  while (*src) {
-    len++;
-    if (!IS_OK(*src++)) {
+  for (size_t i = 0; i < aLength; ++i) {
+    if (!IS_OK(src[i])) {
       charsToEscape++;
     }
   }
@@ -95,29 +94,29 @@ nsEscapeCount(const char* aStr, nsEscapeMask aFlags, size_t* aOutLen)
   // calculate how much memory should be allocated
   // original length + 2 bytes for each escaped character + terminating '\0'
   // do the sum in steps to check for overflow
-  size_t dstSize = len + 1 + charsToEscape;
-  if (dstSize <= len) {
-    return 0;
+  size_t dstSize = aLength + 1 + charsToEscape;
+  if (dstSize <= aLength) {
+    return nullptr;
   }
   dstSize += charsToEscape;
-  if (dstSize < len) {
-    return 0;
+  if (dstSize < aLength) {
+    return nullptr;
   }
 
   // fail if we need more than 4GB
   if (dstSize > UINT32_MAX) {
-    return 0;
+    return nullptr;
   }
 
   char* result = (char*)moz_xmalloc(dstSize);
   if (!result) {
-    return 0;
+    return nullptr;
   }
 
   unsigned char* dst = (unsigned char*)result;
   src = (const unsigned char*)aStr;
   if (aFlags == url_XPAlphas) {
-    for (size_t i = 0; i < len; ++i) {
+    for (size_t i = 0; i < aLength; ++i) {
       unsigned char c = *src++;
       if (IS_OK(c)) {
         *dst++ = c;
@@ -130,7 +129,7 @@ nsEscapeCount(const char* aStr, nsEscapeMask aFlags, size_t* aOutLen)
       }
     }
   } else {
-    for (size_t i = 0; i < len; ++i) {
+    for (size_t i = 0; i < aLength; ++i) {
       unsigned char c = *src++;
       if (IS_OK(c)) {
         *dst++ = c;
@@ -143,21 +142,11 @@ nsEscapeCount(const char* aStr, nsEscapeMask aFlags, size_t* aOutLen)
   }
 
   *dst = '\0';     /* tack on eos */
-  if (aOutLen) {
-    *aOutLen = dst - (unsigned char*)result;
+  if (aOutputLength) {
+    *aOutputLength = dst - (unsigned char*)result;
   }
-  return result;
-}
 
-//----------------------------------------------------------------------------------------
-char*
-nsEscape(const char* aStr, nsEscapeMask aFlags)
-//----------------------------------------------------------------------------------------
-{
-  if (!aStr) {
-    return nullptr;
-  }
-  return nsEscapeCount(aStr, aFlags, nullptr);
+  return result;
 }
 
 //----------------------------------------------------------------------------------------
@@ -548,28 +537,26 @@ NS_UnescapeURL(const char* aStr, int32_t aLen, uint32_t aFlags,
   bool ignoreAscii = !!(aFlags & esc_OnlyNonASCII);
   bool writing = !!(aFlags & esc_AlwaysCopy);
   bool skipControl = !!(aFlags & esc_SkipControl);
+  bool skipInvalidHostChar = !!(aFlags & esc_Host);
 
   const char* last = aStr;
   const char* p = aStr;
 
   for (int i = 0; i < aLen; ++i, ++p) {
-    //printf("%c [i=%d of aLen=%d]\n", *p, i, aLen);
     if (*p == HEX_ESCAPE && i < aLen - 2) {
-      unsigned char* p1 = (unsigned char*)p + 1;
-      unsigned char* p2 = (unsigned char*)p + 2;
-      if (ISHEX(*p1) && ISHEX(*p2) &&
-          ((*p1 < '8' && !ignoreAscii) || (*p1 >= '8' && !ignoreNonAscii)) &&
+      unsigned char c1 = *((unsigned char*)p + 1);
+      unsigned char c2 = *((unsigned char*)p + 2);
+      unsigned char u = (UNHEX(c1) << 4) + UNHEX(c2);
+      if (ISHEX(c1) && ISHEX(c2) &&
+          (!skipInvalidHostChar || dontNeedEscape(u, aFlags) || c1 >= '8') &&
+          ((c1 < '8' && !ignoreAscii) || (c1 >= '8' && !ignoreNonAscii)) &&
           !(skipControl &&
-            (*p1 < '2' || (*p1 == '7' && (*p2 == 'f' || *p2 == 'F'))))) {
-        //printf("- p1=%c p2=%c\n", *p1, *p2);
+            (c1 < '2' || (c1 == '7' && (c2 == 'f' || c2 == 'F'))))) {
         writing = true;
         if (p > last) {
-          //printf("- p=%p, last=%p\n", p, last);
           aResult.Append(last, p - last);
           last = p;
         }
-        char u = (UNHEX(*p1) << 4) + UNHEX(*p2);
-        //printf("- u=%c\n", u);
         aResult.Append(u);
         i += 2;
         p += 2;

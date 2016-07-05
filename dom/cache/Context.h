@@ -8,7 +8,6 @@
 #define mozilla_dom_cache_Context_h
 
 #include "mozilla/dom/cache/Types.h"
-#include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
 #include "nsISupportsImpl.h"
 #include "nsProxyRelease.h"
@@ -190,7 +189,8 @@ private:
   void Start();
   void DispatchAction(Action* aAction, bool aDoomData = false);
   void OnQuotaInit(nsresult aRv, const QuotaInfo& aQuotaInfo,
-                   nsMainThreadPtrHandle<DirectoryLock>& aDirectoryLock);
+                   already_AddRefed<DirectoryLock> aDirectoryLock);
+
 
   already_AddRefed<ThreadsafeHandle>
   CreateThreadsafeHandle();
@@ -221,7 +221,7 @@ private:
   // when ThreadsafeHandle::AllowToClose() is called.
   RefPtr<ThreadsafeHandle> mThreadsafeHandle;
 
-  nsMainThreadPtrHandle<DirectoryLock> mDirectoryLock;
+  RefPtr<DirectoryLock> mDirectoryLock;
   RefPtr<Context> mNextContext;
 
 public:

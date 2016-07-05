@@ -6,7 +6,7 @@
 #ifndef MOZILLA_GFX_TYPES_H_
 #define MOZILLA_GFX_TYPES_H_
 
-#include "mozilla/Endian.h"
+#include "mozilla/EndianUtils.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -43,6 +43,9 @@ enum class SurfaceFormat : int8_t {
   A8R8G8B8,     // [AA, RR, GG, BB]     0xBBGGRRAA        0xAARRGGBB
   X8R8G8B8,     // [00, RR, GG, BB]     0xBBGGRR00        0x00RRGGBB
 
+  R8G8B8,
+  B8G8R8,
+
   // The _UINT16 suffix here indicates that the name reflects the layout when
   // viewed as a uint16_t value. In memory these values are stored using native
   // endianness.
@@ -54,6 +57,10 @@ enum class SurfaceFormat : int8_t {
   // These ones are their own special cases.
   YUV,
   NV12,
+  YUV422,
+  HSV,
+  Lab,
+  Depth,
 
   // This represents the unknown format.
   UNKNOWN,
@@ -80,6 +87,7 @@ inline bool IsOpaque(SurfaceFormat aFormat)
   case SurfaceFormat::R5G6B5_UINT16:
   case SurfaceFormat::YUV:
   case SurfaceFormat::NV12:
+  case SurfaceFormat::YUV422:
     return true;
   default:
     return false;
@@ -123,7 +131,7 @@ enum class DrawTargetType : int8_t {
 
 enum class BackendType : int8_t {
   NONE = 0,
-  DIRECT2D,
+  DIRECT2D, // Used for version independent D2D objects.
   COREGRAPHICS,
   COREGRAPHICS_ACCELERATED,
   CAIRO,
@@ -143,7 +151,6 @@ enum class FontType : int8_t {
 
 enum class NativeSurfaceType : int8_t {
   D3D10_TEXTURE,
-  CAIRO_SURFACE,
   CAIRO_CONTEXT,
   CGCONTEXT,
   CGCONTEXT_ACCELERATED,
@@ -202,10 +209,18 @@ enum class CompositionOp : int8_t {
   OP_COUNT
 };
 
+enum class Axis : int8_t {
+  X_AXIS,
+  Y_AXIS,
+  BOTH
+};
+
 enum class ExtendMode : int8_t {
-  CLAMP,
-  REPEAT,
-  REFLECT
+  CLAMP,    // Do not repeat
+  REPEAT,   // Repeat in both axis
+  REPEAT_X, // Only X axis
+  REPEAT_Y, // Only Y axis
+  REFLECT   // Mirror the image
 };
 
 enum class FillRule : int8_t {
@@ -220,7 +235,8 @@ enum class AntialiasMode : int8_t {
   DEFAULT
 };
 
-enum class Filter : int8_t {
+// See https://en.wikipedia.org/wiki/Texture_filtering
+enum class SamplingFilter : int8_t {
   GOOD,
   LINEAR,
   POINT,
@@ -334,6 +350,9 @@ enum class JobStatus {
 
 } // namespace gfx
 } // namespace mozilla
+
+// XXX: temporary
+typedef mozilla::gfx::SurfaceFormat gfxImageFormat;
 
 #if defined(XP_WIN) && defined(MOZ_GFX)
 #ifdef GFX2D_INTERNAL

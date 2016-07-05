@@ -1,5 +1,7 @@
+/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
+/* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* Any copyright is dedicated to the Public Domain.
-   http://creativecommons.org/publicdomain/zero/1.0/ */
+ * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 /**
  * Tests that checking/unchecking an event listener's group in the view will
@@ -10,19 +12,19 @@
 const TAB_URL = EXAMPLE_URL + "doc_event-listeners-02.html";
 
 function test() {
-  initDebugger(TAB_URL).then(([aTab,, aPanel]) => {
+  let options = {
+    source: TAB_URL,
+    line: 1
+  };
+  initDebugger(TAB_URL, options).then(([aTab,, aPanel]) => {
     let gDebugger = aPanel.panelWin;
     let gView = gDebugger.DebuggerView;
-    let gController = gDebugger.DebuggerController
+    let gController = gDebugger.DebuggerController;
     let gEvents = gView.EventListeners;
-    let gStore = gDebugger.store;
-    let getState = gStore.getState;
-    let constants = gDebugger.require('./content/constants');
+    let constants = gDebugger.require("./content/constants");
 
-    Task.spawn(function*() {
-      yield waitForSourceShown(aPanel, ".html");
-
-      let fetched = afterDispatch(gStore, constants.FETCH_EVENT_LISTENERS);
+    Task.spawn(function* () {
+      let fetched = waitForDispatch(aPanel, constants.FETCH_EVENT_LISTENERS);
       gView.toggleInstrumentsPane({ visible: true, animated: false }, 1);
       yield fetched;
 
@@ -35,7 +37,7 @@ function test() {
       testEventGroup("mouseEvents", false);
       testEventArrays("change,click,keydown,keyup", "");
 
-      let updated = afterDispatch(gStore, constants.UPDATE_EVENT_BREAKPOINTS);
+      let updated = waitForDispatch(aPanel, constants.UPDATE_EVENT_BREAKPOINTS);
       EventUtils.sendMouseEvent({ type: "click" }, getGroupCheckboxNode("interactionEvents"), gDebugger);
       yield updated;
 
@@ -48,7 +50,7 @@ function test() {
       testEventGroup("mouseEvents", false);
       testEventArrays("change,click,keydown,keyup", "change");
 
-      updated = afterDispatch(gStore, constants.UPDATE_EVENT_BREAKPOINTS);
+      updated = waitForDispatch(aPanel, constants.UPDATE_EVENT_BREAKPOINTS);
       EventUtils.sendMouseEvent({ type: "click" }, getGroupCheckboxNode("interactionEvents"), gDebugger);
       yield updated;
 
@@ -61,7 +63,7 @@ function test() {
       testEventGroup("mouseEvents", false);
       testEventArrays("change,click,keydown,keyup", "");
 
-      updated = afterDispatch(gStore, constants.UPDATE_EVENT_BREAKPOINTS);
+      updated = waitForDispatch(aPanel, constants.UPDATE_EVENT_BREAKPOINTS);
       EventUtils.sendMouseEvent({ type: "click" }, getGroupCheckboxNode("keyboardEvents"), gDebugger);
       yield updated;
 
@@ -74,7 +76,7 @@ function test() {
       testEventGroup("mouseEvents", false);
       testEventArrays("change,click,keydown,keyup", "keydown,keyup");
 
-      updated = afterDispatch(gStore, constants.UPDATE_EVENT_BREAKPOINTS);
+      updated = waitForDispatch(aPanel, constants.UPDATE_EVENT_BREAKPOINTS);
       EventUtils.sendMouseEvent({ type: "click" }, getGroupCheckboxNode("keyboardEvents"), gDebugger);
       yield updated;
 
@@ -119,7 +121,7 @@ function test() {
         "The getAllEvents() method returns the correct stuff.");
       is(gEvents.getCheckedEvents().toString(), checked,
         "The getCheckedEvents() method returns the correct stuff.");
-      is(getState().eventListeners.activeEventNames.toString(), checked,
+      is(gController.getState().eventListeners.activeEventNames.toString(), checked,
         "The correct event names are listed as being active breakpoints.");
     }
   });

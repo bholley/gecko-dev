@@ -39,11 +39,11 @@ public:
   NS_DECL_NSILOADCONTEXT
   NS_DECL_NSIINTERFACEREQUESTOR
 
-  // AppId/inBrowser arguments override those in SerializedLoadContext provided
-  // by child process.
+  // appId/inIsolatedMozBrowser arguments override those in SerializedLoadContext
+  // provided by child process.
   LoadContext(const IPC::SerializedLoadContext& aToCopy,
               dom::Element* aTopFrameElement,
-              OriginAttributes& aAttrs)
+              DocShellOriginAttributes& aAttrs)
     : mTopFrameElement(do_GetWeakReference(aTopFrameElement))
     , mNestedFrameId(0)
     , mIsContent(aToCopy.mIsContent)
@@ -54,13 +54,14 @@ public:
     , mIsNotNull(aToCopy.mIsNotNull)
 #endif
   {
+    MOZ_ASSERT(aToCopy.mUsePrivateBrowsing == (aAttrs.mPrivateBrowsingId != 0));
   }
 
-  // AppId/inBrowser arguments override those in SerializedLoadContext provided
-  // by child process.
+  // appId/inIsolatedMozBrowser arguments override those in SerializedLoadContext
+  // provided by child process.
   LoadContext(const IPC::SerializedLoadContext& aToCopy,
               uint64_t aNestedFrameId,
-              OriginAttributes& aAttrs)
+              DocShellOriginAttributes& aAttrs)
     : mTopFrameElement(nullptr)
     , mNestedFrameId(aNestedFrameId)
     , mIsContent(aToCopy.mIsContent)
@@ -71,13 +72,14 @@ public:
     , mIsNotNull(aToCopy.mIsNotNull)
 #endif
   {
+    MOZ_ASSERT(aToCopy.mUsePrivateBrowsing == (aAttrs.mPrivateBrowsingId != 0));
   }
 
   LoadContext(dom::Element* aTopFrameElement,
               bool aIsContent,
               bool aUsePrivateBrowsing,
               bool aUseRemoteTabs,
-              const OriginAttributes& aAttrs)
+              const DocShellOriginAttributes& aAttrs)
     : mTopFrameElement(do_GetWeakReference(aTopFrameElement))
     , mNestedFrameId(0)
     , mIsContent(aIsContent)
@@ -88,6 +90,7 @@ public:
     , mIsNotNull(true)
 #endif
   {
+    MOZ_ASSERT(aUsePrivateBrowsing == (aAttrs.mPrivateBrowsingId != 0));
   }
 
   // Constructor taking reserved appId for the safebrowsing cookie.
@@ -117,7 +120,7 @@ private:
   bool mIsContent;
   bool mUsePrivateBrowsing;
   bool mUseRemoteTabs;
-  OriginAttributes mOriginAttributes;
+  DocShellOriginAttributes mOriginAttributes;
 #ifdef DEBUG
   bool mIsNotNull;
 #endif

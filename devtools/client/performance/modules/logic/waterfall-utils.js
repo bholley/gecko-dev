@@ -7,10 +7,8 @@
  * Utility functions for collapsing markers into a waterfall.
  */
 
-loader.lazyRequireGetter(this, "extend",
-  "sdk/util/object", true);
-loader.lazyRequireGetter(this, "MarkerUtils",
-  "devtools/client/performance/modules/logic/marker-utils");
+const { extend } = require("sdk/util/object");
+const { MarkerBlueprintUtils } = require("devtools/client/performance/modules/marker-blueprint-utils");
 
 /**
  * Creates a parent marker, which functions like a regular marker,
@@ -20,7 +18,7 @@ loader.lazyRequireGetter(this, "MarkerUtils",
  * @param object marker
  * @return object
  */
-function createParentNode (marker) {
+function createParentNode(marker) {
   return extend(marker, { submarkers: [] });
 }
 
@@ -42,12 +40,12 @@ function collapseMarkersIntoNode({ rootNode, markersList, filter }) {
     let curr = markersList[i];
 
     // If this marker type should not be displayed, just skip
-    if (!MarkerUtils.isMarkerValid(curr, filter)) {
+    if (!MarkerBlueprintUtils.shouldDisplayMarker(curr, filter)) {
       continue;
     }
 
     let parentNode = getCurrentParentNode();
-    let blueprint = MarkerUtils.getBlueprintFor(curr);
+    let blueprint = MarkerBlueprintUtils.getBlueprintFor(curr);
 
     let nestable = "nestable" in blueprint ? blueprint.nestable : true;
     let collapsible = "collapsible" in blueprint ? blueprint.collapsible : true;
@@ -112,7 +110,7 @@ function collapseMarkersIntoNode({ rootNode, markersList, filter }) {
  * @param {object} root
  * @return {object}
  */
-function createParentNodeFactory (root) {
+function createParentNodeFactory(root) {
   let parentMarkers = [];
   let factory = {
     /**

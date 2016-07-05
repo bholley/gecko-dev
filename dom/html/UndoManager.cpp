@@ -28,7 +28,6 @@
 // Includes for mutation observer.
 #include "nsIDOMHTMLElement.h"
 #include "nsStubMutationObserver.h"
-#include "nsAutoPtr.h"
 #include "nsTransactionManager.h"
 
 // Includes for attribute changed transaction.
@@ -379,7 +378,7 @@ UndoContentAppend::UndoTransaction()
 {
   for (int32_t i = mChildren.Count() - 1; i >= 0; i--) {
     if (mChildren[i]->GetParentNode() == mContent) {
-      ErrorResult error;
+      IgnoredErrorResult error;
       mContent->RemoveChild(*mChildren[i], error);
     }
   }
@@ -443,7 +442,7 @@ UndoContentInsert::RedoTransaction()
     return NS_OK;
   }
 
-  ErrorResult error;
+  IgnoredErrorResult error;
   mContent->InsertBefore(*mChild, mNextNode, error);
   return NS_OK;
 }
@@ -470,7 +469,7 @@ UndoContentInsert::UndoTransaction()
     return NS_OK;
   }
 
-  ErrorResult error;
+  IgnoredErrorResult error;
   mContent->RemoveChild(*mChild, error);
   return NS_OK;
 }
@@ -537,7 +536,7 @@ UndoContentRemove::UndoTransaction()
     return NS_OK;
   }
 
-  ErrorResult error;
+  IgnoredErrorResult error;
   mContent->InsertBefore(*mChild, mNextNode, error);
   return NS_OK;
 }
@@ -564,7 +563,7 @@ UndoContentRemove::RedoTransaction()
     return NS_OK;
   }
 
-  ErrorResult error;
+  IgnoredErrorResult error;
   mContent->RemoveChild(*mChild, error);
   return NS_OK;
 }
@@ -768,13 +767,13 @@ FunctionCallTxn::RedoTransaction()
     return NS_OK;
   }
 
-  ErrorResult rv;
+  // We ignore rv because we want to avoid the rollback behavior of the
+  // nsITransactionManager.
+  IgnoredErrorResult rv;
   RefPtr<DOMTransactionCallback> redo = mTransaction->GetRedo(rv);
   if (!rv.Failed() && redo) {
     redo->Call(mTransaction.get(), rv);
   }
-  // We ignore rv because we want to avoid the rollback behavior of the
-  // nsITransactionManager.
 
   return NS_OK;
 }
@@ -786,13 +785,13 @@ FunctionCallTxn::UndoTransaction()
     return NS_OK;
   }
 
-  ErrorResult rv;
+  // We ignore rv because we want to avoid the rollback behavior of the
+  // nsITransactionManager.
+  IgnoredErrorResult rv;
   RefPtr<DOMTransactionCallback> undo = mTransaction->GetUndo(rv);
   if (!rv.Failed() && undo) {
     undo->Call(mTransaction.get(), rv);
   }
-  // We ignore rv because we want to avoid the rollback behavior of the
-  // nsITransactionManager.
 
   return NS_OK;
 }

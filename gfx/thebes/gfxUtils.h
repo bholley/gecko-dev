@@ -15,6 +15,7 @@
 #include "nsPrintfCString.h"
 #include "nsRegionFwd.h"
 #include "mozilla/gfx/Rect.h"
+#include "mozilla/CheckedInt.h"
 
 class gfxASurface;
 class gfxDrawable;
@@ -48,7 +49,7 @@ public:
      * If aDestSurface is given, it must have identical format, dimensions, and
      * stride as the source.
      *
-     * If the source is not gfxImageFormat::ARGB32, no operation is performed.  If
+     * If the source is not SurfaceFormat::A8R8G8B8_UINT32, no operation is performed.  If
      * aDestSurface is given, the data is copied over.
      */
     static bool PremultiplyDataSurface(DataSourceSurface* srcSurf,
@@ -81,7 +82,7 @@ public:
                                  const gfxSize&     aImageSize,
                                  const ImageRegion& aRegion,
                                  const mozilla::gfx::SurfaceFormat aFormat,
-                                 mozilla::gfx::Filter aFilter,
+                                 mozilla::gfx::SamplingFilter aSamplingFilter,
                                  uint32_t           aImageFlags = imgIContainer::FLAG_NONE,
                                  gfxFloat           aOpacity = 1.0);
 
@@ -94,11 +95,6 @@ public:
      * Clip aTarget to the region aRegion.
      */
     static void ClipToRegion(mozilla::gfx::DrawTarget* aTarget, const nsIntRegion& aRegion);
-
-    /**
-     * Create a path consisting of rectangles in |aRegion|.
-     */
-    static void PathFromRegion(gfxContext* aContext, const nsIntRegion& aRegion);
 
     /*
      * Convert image format to depth value
@@ -132,32 +128,6 @@ public:
      * aVal.
      */
     static gfxFloat ClampToScaleFactor(gfxFloat aVal);
-
-    /**
-     * Helper function for ConvertYCbCrToRGB that finds the
-     * RGB buffer size and format for given YCbCrImage.
-     * @param aSuggestedFormat will be set to gfxImageFormat::RGB24
-     *   if the desired format is not supported.
-     * @param aSuggestedSize will be set to the picture size from aData
-     *   if either the suggested size was {0,0}
-     *   or simultaneous scaling and conversion is not supported.
-     */
-    static void
-    GetYCbCrToRGBDestFormatAndSize(const mozilla::layers::PlanarYCbCrData& aData,
-                                   gfxImageFormat& aSuggestedFormat,
-                                   mozilla::gfx::IntSize& aSuggestedSize);
-
-    /**
-     * Convert YCbCrImage into RGB aDestBuffer
-     * Format and Size parameters must have
-     *   been passed to GetYCbCrToRGBDestFormatAndSize
-     */
-    static void
-    ConvertYCbCrToRGB(const mozilla::layers::PlanarYCbCrData& aData,
-                      const gfxImageFormat& aDestFormat,
-                      const mozilla::gfx::IntSize& aDestSize,
-                      unsigned char* aDestBuffer,
-                      int32_t aStride);
 
     /**
      * Clears surface to aColor (which defaults to transparent black).
@@ -295,6 +265,7 @@ public:
 
     static nsresult ThreadSafeGetFeatureStatus(const nsCOMPtr<nsIGfxInfo>& gfxInfo,
                                                int32_t feature,
+                                               nsACString& failureId,
                                                int32_t* status);
 
     /**
@@ -335,8 +306,8 @@ IsPowerOfTwo(int aNumber)
 }
 
 /**
- * Returns the first integer greater than |aNumber| which is a power of two
- * Undefined for |aNumber| < 0
+ * Returns the first integer greater than or equal to |aNumber| which is a
+ * power of two. Undefined for |aNumber| < 0.
  */
 static inline int
 NextPowerOfTwo(int aNumber)
@@ -352,6 +323,19 @@ NextPowerOfTwo(int aNumber)
     aNumber |= aNumber >> 16;
     return ++aNumber;
 #endif
+}
+
+/**
+ * Performs a checked multiply of the given width, height, and bytes-per-pixel
+ * values.
+ */
+static inline CheckedInt<uint32_t>
+SafeBytesForBitmap(uint32_t aWidth, uint32_t aHeight, unsigned aBytesPerPixel)
+{
+  MOZ_ASSERT(aBytesPerPixel > 0);
+  CheckedInt<uint32_t> width = uint32_t(aWidth);
+  CheckedInt<uint32_t> height = uint32_t(aHeight);
+  return width * height * aBytesPerPixel;
 }
 
 } // namespace gfx

@@ -11,6 +11,7 @@
 #include "MediaDataDecoderProxy.h"
 #include "PlatformDecoderModule.h"
 #include "mozIGeckoMediaPluginService.h"
+#include "nsAutoPtr.h"
 
 namespace mozilla {
 
@@ -74,6 +75,10 @@ public:
   nsresult Flush() override;
   nsresult Drain() override;
   nsresult Shutdown() override;
+  const char* GetDescriptionName() const override
+  {
+    return "GMP audio decoder";
+  }
 
 protected:
   virtual void InitTags(nsTArray<nsCString>& aTags);
@@ -99,7 +104,7 @@ private:
   };
   void GMPInitDone(GMPAudioDecoderProxy* aGMP);
 
-  const AudioInfo& mConfig;
+  const AudioInfo mConfig;
   MediaDataDecoderCallbackProxy* mCallback;
   nsCOMPtr<mozIGeckoMediaPluginService> mMPS;
   GMPAudioDecoderProxy* mGMP;

@@ -19,6 +19,7 @@
 #include "nsComponentManagerUtils.h"
 #include "nsIURL.h"
 #include "mozilla/BasePrincipal.h"
+#include "HttpLog.h"
 
 static const short kResourceHashType = nsICryptoHash::SHA256;
 
@@ -81,7 +82,7 @@ NS_IMETHODIMP PackagedAppVerifier::Init(nsIPackagedAppVerifierListener* aListene
   mIsFirstResource = true;
   mManifest = EmptyCString();
 
-  OriginAttributes().PopulateFromOrigin(aPackageOrigin, mPackageOrigin);
+  NeckoOriginAttributes().PopulateFromOrigin(aPackageOrigin, mPackageOrigin);
   mBypassVerification = (mPackageOrigin ==
       Preferences::GetCString("network.http.signed-packages.trusted-origin"));
 
@@ -247,13 +248,13 @@ PackagedAppVerifier::FireVerifiedEvent(bool aForManifest, bool aSuccess)
   nsCOMPtr<nsIRunnable> r;
 
   if (aForManifest) {
-    r = NS_NewRunnableMethodWithArgs<bool>(this,
-                                           &PackagedAppVerifier::OnManifestVerified,
-                                           aSuccess);
+    r = NewRunnableMethod<bool>(this,
+                                &PackagedAppVerifier::OnManifestVerified,
+                                aSuccess);
   } else {
-    r = NS_NewRunnableMethodWithArgs<bool>(this,
-                                           &PackagedAppVerifier::OnResourceVerified,
-                                           aSuccess);
+    r = NewRunnableMethod<bool>(this,
+                                &PackagedAppVerifier::OnResourceVerified,
+                                aSuccess);
   }
 
   NS_DispatchToMainThread(r);

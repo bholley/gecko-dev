@@ -2,9 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+"use strict";
+
 const Ci = Components.interfaces;
 const Cu = Components.utils;
-Cu.import("resource://gre/modules/Services.jsm");
+const { Services } = Cu.import("resource://gre/modules/Services.jsm", {});
 
 this.EXPORTED_SYMBOLS = ["DOMHelpers"];
 
@@ -137,12 +139,12 @@ DOMHelpers.prototype = {
    * chrome iframes are loaded in content docshells (in Firefox
    * tabs for example).
    */
-  onceDOMReady: function Helpers_onLocationChange(callback) {
+  onceDOMReady: function Helpers_onLocationChange(callback, targetURL) {
     let window = this.window;
     let docShell = window.QueryInterface(Ci.nsIInterfaceRequestor)
                          .getInterface(Ci.nsIWebNavigation)
                          .QueryInterface(Ci.nsIDocShell);
-    let onReady = function(event) {
+    let onReady = function (event) {
       if (event.target == window.document) {
         docShell.chromeEventHandler.removeEventListener("DOMContentLoaded", onReady, false);
         // If in `callback` the URL of the window is changed and a listener to DOMContentLoaded
@@ -150,7 +152,13 @@ DOMHelpers.prototype = {
         // We want to avoid that so we execute the callback in the next queue.
         Services.tm.mainThread.dispatch(callback, 0);
       }
+    };
+    if ((window.document.readyState == "complete" ||
+         window.document.readyState == "interactive") &&
+         window.location.href == targetURL) {
+      Services.tm.mainThread.dispatch(callback, 0);
+    } else {
+      docShell.chromeEventHandler.addEventListener("DOMContentLoaded", onReady, false);
     }
-    docShell.chromeEventHandler.addEventListener("DOMContentLoaded", onReady, false);
   }
 };

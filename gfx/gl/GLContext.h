@@ -41,7 +41,6 @@
 #include "GLLibraryLoader.h"
 #include "nsISupportsImpl.h"
 #include "plstr.h"
-#include "nsAutoPtr.h"
 #include "GLContextTypes.h"
 //#include "GLTextureImage.h"
 #include "SurfaceTypes.h"
@@ -50,6 +49,8 @@
 #include "mozilla/GenericRefCounted.h"
 #include "gfx2DGlue.h"
 #include "GeckoProfiler.h"
+
+class nsIWidget;
 
 namespace android {
     class GraphicBuffer;
@@ -93,6 +94,7 @@ enum class GLFeature {
     element_index_uint,
     ES2_compatibility,
     ES3_compatibility,
+    EXT_color_buffer_float,
     frag_color_float,
     frag_depth,
     framebuffer_blit,
@@ -124,6 +126,8 @@ enum class GLFeature {
     sRGB_framebuffer,
     sRGB_texture,
     sampler_objects,
+    seamless_cube_map_opt_in,
+    shader_texture_lod,
     split_framebuffer,
     standard_derivatives,
     sync,
@@ -135,6 +139,7 @@ enum class GLFeature {
     texture_half_float,
     texture_half_float_linear,
     texture_non_power_of_two,
+    texture_rg,
     texture_storage,
     texture_swizzle,
     transform_feedback2,
@@ -282,8 +287,8 @@ public:
         }
 
         if (profile == ContextProfile::OpenGL) {
-            return profile == ContextProfile::OpenGLCore ||
-                   profile == ContextProfile::OpenGLCompatibility;
+            return mProfile == ContextProfile::OpenGLCore ||
+                   mProfile == ContextProfile::OpenGLCompatibility;
         }
 
         return profile == mProfile;
@@ -300,6 +305,10 @@ public:
 
     const char* VersionString() const {
         return mVersionString.get();
+    }
+
+    inline uint32_t ShadingLanguageVersion() const {
+        return mShadingLanguageVersion;
     }
 
     GLVendor Vendor() const {
@@ -333,9 +342,7 @@ public:
     }
 
 protected:
-    bool mInitialized;
     bool mIsOffscreen;
-    bool mIsGlobalSharedContext;
     bool mContextLost;
 
     /**
@@ -346,12 +353,14 @@ protected:
     nsCString mVersionString;
     ContextProfile mProfile;
 
+    uint32_t mShadingLanguageVersion;
+
     GLVendor mVendor;
     GLRenderer mRenderer;
 
     void SetProfileVersion(ContextProfile profile, uint32_t version) {
-        MOZ_ASSERT(!mInitialized, "SetProfileVersion can only be called before"
-                                  " initialization!");
+        MOZ_ASSERT(!mSymbols.fBindFramebuffer,
+                   "SetProfileVersion can only be called before initialization!");
         MOZ_ASSERT(profile != ContextProfile::Unknown &&
                    profile != ContextProfile::OpenGL,
                    "Invalid `profile` for SetProfileVersion");
@@ -413,11 +422,14 @@ public:
         ARB_pixel_buffer_object,
         ARB_robustness,
         ARB_sampler_objects,
+        ARB_seamless_cube_map,
+        ARB_shader_texture_lod,
         ARB_sync,
         ARB_texture_compression,
         ARB_texture_float,
         ARB_texture_non_power_of_two,
         ARB_texture_rectangle,
+        ARB_texture_rg,
         ARB_texture_storage,
         ARB_texture_swizzle,
         ARB_timer_query,
@@ -468,6 +480,7 @@ public:
         NV_geometry_program4,
         NV_half_float,
         NV_instanced_arrays,
+        NV_texture_barrier,
         NV_transform_feedback,
         NV_transform_feedback2,
         OES_EGL_image,
@@ -543,23 +556,16 @@ private:
 
 // -----------------------------------------------------------------------------
 // Robustness handling
-public:
-    bool HasRobustness() const {
-        return mHasRobustness;
-    }
-
+private:
     /**
      * The derived class is expected to provide information on whether or not it
      * supports robustness.
      */
     virtual bool SupportsRobustness() const = 0;
 
-private:
-    bool mHasRobustness;
-
+public:
 // -----------------------------------------------------------------------------
 // Error handling
-public:
     static const char* GLErrorToString(GLenum aError) {
         switch (aError) {
             case LOCAL_GL_INVALID_ENUM:
@@ -647,7 +653,11 @@ public:
             MOZ_ASSERT(!mHasBeenChecked);
             mHasBeenChecked = true;
 
-            return mGL.fGetError();
+            const GLenum ret = mGL.fGetError();
+
+            while (mGL.fGetError()) {}
+
+            return ret;
         }
 
         ~LocalErrorScope() {
@@ -710,31 +720,32 @@ private:
     void BeforeGLCall(const char* funcName) {
         MOZ_ASSERT(IsCurrent());
 
-        if (DebugMode()) {
+        if (mDebugFlags) {
             FlushErrors();
 
-            if (DebugMode() & DebugTrace)
+            if (mDebugFlags & DebugFlagTrace) {
                 printf_stderr("[gl:%p] > %s\n", this, funcName);
+            }
 
             GLContext* tlsContext = (GLContext*)PR_GetThreadPrivate(sCurrentGLContextTLS);
             if (this != tlsContext) {
                 printf_stderr("Fatal: %s called on non-current context %p. The"
                               " current context for this thread is %p.\n",
                               funcName, this, tlsContext);
-                MOZ_CRASH("GLContext is not current.");
+                MOZ_CRASH("GFX: GLContext is not current.");
             }
         }
     }
 
     void AfterGLCall(const char* funcName) {
-        if (DebugMode()) {
+        if (mDebugFlags) {
             // calling fFinish() immediately after every GL call makes sure that if this GL command crashes,
             // the stack trace will actually point to it. Otherwise, OpenGL being an asynchronous API, stack traces
             // tend to be meaningless
             mSymbols.fFinish();
             GLenum err = FlushErrors();
 
-            if (DebugMode() & DebugTrace) {
+            if (mDebugFlags & DebugFlagTrace) {
                 printf_stderr("[gl:%p] < %s [%s (0x%04x)]\n", this, funcName,
                               GLErrorToString(err), err);
             }
@@ -746,15 +757,17 @@ private:
                               " (0x%04x)\n", this, funcName,
                               GLErrorToString(err), err);
 
-                if (DebugMode() & DebugAbortOnError)
-                    MOZ_CRASH("MOZ_GL_DEBUG_ABORT_ON_ERROR");
+                if (mDebugFlags & DebugFlagAbortOnError) {
+                    MOZ_CRASH("Unexpected error with MOZ_GL_DEBUG_ABORT_ON_ERROR. (Run"
+                              " with MOZ_GL_DEBUG_ABORT_ON_ERROR=0 to disable)");
+                }
             }
         }
     }
 
-    GLContext *TrackingContext()
+    GLContext* TrackingContext()
     {
-        GLContext *tip = this;
+        GLContext* tip = this;
         while (tip->mSharedContext)
             tip = tip->mSharedContext;
         return tip;
@@ -806,7 +819,7 @@ private:
                 MOZ_ASSERT(strstr(MOZ_FUNCTION_NAME, #func) != nullptr, "Mismatched symbol check.");\
                 if (MOZ_UNLIKELY(!mSymbols.func)) {\
                     printf_stderr("RUNTIME ASSERT: Uninitialized GL function: %s\n", #func);\
-                    MOZ_CRASH();\
+                    MOZ_CRASH("GFX: Uninitialized GL function");\
                 }\
             } while (0)
 
@@ -1008,7 +1021,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const GLvoid *pixels) {
+    void fCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const GLvoid* pixels) {
         ASSERT_NOT_PASSING_STACK_BUFFER_TO_GL(pixels);
         BEFORE_GL_CALL;
         mSymbols.fCompressedTexImage2D(target, level, internalformat, width, height, border, imageSize, pixels);
@@ -1016,7 +1029,7 @@ public:
         mHeavyGLCallsSinceLastFlush = true;
     }
 
-    void fCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const GLvoid *pixels) {
+    void fCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const GLvoid* pixels) {
         ASSERT_NOT_PASSING_STACK_BUFFER_TO_GL(pixels);
         BEFORE_GL_CALL;
         mSymbols.fCompressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, imageSize, pixels);
@@ -1110,7 +1123,7 @@ private:
         AFTER_GL_CALL;
     }
 
-    void raw_fDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices) {
+    void raw_fDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
         BEFORE_GL_CALL;
         mSymbols.fDrawElements(mode, count, type, indices);
         AFTER_GL_CALL;
@@ -1123,7 +1136,7 @@ public:
         AfterGLDrawCall();
     }
 
-    void fDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices) {
+    void fDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
         BeforeGLDrawCall();
         raw_fDrawElements(mode, count, type, indices);
         AfterGLDrawCall();
@@ -1210,7 +1223,7 @@ public:
 
     void fGetIntegerv(GLenum pname, GLint* params);
 
-    void GetUIntegerv(GLenum pname, GLuint *params) {
+    void GetUIntegerv(GLenum pname, GLuint* params) {
         fGetIntegerv(pname, reinterpret_cast<GLint*>(params));
     }
 
@@ -1299,19 +1312,19 @@ public:
 
     const GLubyte* fGetString(GLenum name) {
         BEFORE_GL_CALL;
-        const GLubyte *result = mSymbols.fGetString(name);
+        const GLubyte* result = mSymbols.fGetString(name);
         AFTER_GL_CALL;
         return result;
     }
 
-    void fGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid *img) {
+    void fGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* img) {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGetTexImage);
         mSymbols.fGetTexImage(target, level, format, type, img);
         AFTER_GL_CALL;
     }
 
-    void fGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params)
+    void fGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGetTexLevelParameteriv);
@@ -1448,7 +1461,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fLoadMatrixf(const GLfloat *matrix) {
+    void fLoadMatrixf(const GLfloat* matrix) {
         BEFORE_GL_CALL;
         mSymbols.fLoadMatrixf(matrix);
         AFTER_GL_CALL;
@@ -1466,7 +1479,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fTextureRangeAPPLE(GLenum target, GLsizei length, GLvoid *pointer) {
+    void fTextureRangeAPPLE(GLenum target, GLsizei length, GLvoid* pointer) {
         ASSERT_NOT_PASSING_STACK_BUFFER_TO_GL(pointer);
         BEFORE_GL_CALL;
         mSymbols.fTextureRangeAPPLE(target, length, pointer);
@@ -1505,7 +1518,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void raw_fReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels) {
+    void raw_fReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* pixels) {
         ASSERT_NOT_PASSING_STACK_BUFFER_TO_GL(pixels);
         BEFORE_GL_CALL;
         mSymbols.fReadPixels(x, y, width, height, format, type, pixels);
@@ -1588,14 +1601,14 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fTexGenfv(GLenum coord, GLenum pname, const GLfloat *params) {
+    void fTexGenfv(GLenum coord, GLenum pname, const GLfloat* params) {
         BEFORE_GL_CALL;
         mSymbols.fTexGenfv(coord, pname, params);
         AFTER_GL_CALL;
     }
 
 private:
-    void raw_fTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels) {
+    void raw_fTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid* pixels) {
         ASSERT_NOT_PASSING_STACK_BUFFER_TO_GL(pixels);
         BEFORE_GL_CALL;
         mSymbols.fTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
@@ -1604,7 +1617,7 @@ private:
     }
 
 public:
-    void fTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels) {
+    void fTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid* pixels) {
         if (!IsTextureSizeSafeToPassToDriver(target, width, height)) {
             // pass wrong values to cause the GL to generate GL_INVALID_VALUE.
             // See bug 737182 and the comment in IsTextureSizeSafeToPassToDriver.
@@ -2053,7 +2066,7 @@ public:
     void* fMapBuffer(GLenum target, GLenum access) {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fMapBuffer);
-        void *ret = mSymbols.fMapBuffer(target, access);
+        void* ret = mSymbols.fMapBuffer(target, access);
         AFTER_GL_CALL;
         return ret;
     }
@@ -2206,8 +2219,6 @@ public:
     }
 
     GLenum fGetGraphicsResetStatus() {
-        MOZ_ASSERT(mHasRobustness);
-
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGetGraphicsResetStatus);
         GLenum ret = mSymbols.fGetGraphicsResetStatus();
@@ -2257,14 +2268,14 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fGetInteger64v(GLenum pname, GLint64 *params) {
+    void fGetInteger64v(GLenum pname, GLint64* params) {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGetInteger64v);
         mSymbols.fGetInteger64v(pname, params);
         AFTER_GL_CALL;
     }
 
-    void fGetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei *length, GLint *values) {
+    void fGetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values) {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGetSynciv);
         mSymbols.fGetSynciv(sync, pname, bufSize, length, values);
@@ -2309,6 +2320,7 @@ public:
 public:
     void fDrawBuffers(GLsizei n, const GLenum* bufs) {
         BEFORE_GL_CALL;
+        ASSERT_SYMBOL_PRESENT(fDrawBuffers);
         mSymbols.fDrawBuffers(n, bufs);
         AFTER_GL_CALL;
     }
@@ -2787,7 +2799,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fDeleteVertexArrays(GLsizei n, const GLuint *arrays)
+    void fDeleteVertexArrays(GLsizei n, const GLuint* arrays)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fDeleteVertexArrays);
@@ -2795,7 +2807,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fGenVertexArrays(GLsizei n, GLuint *arrays)
+    void fGenVertexArrays(GLsizei n, GLuint* arrays)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGenVertexArrays);
@@ -2873,6 +2885,17 @@ public:
         AFTER_GL_CALL;
     }
 
+// -----------------------------------------------------------------------------
+// Extension NV_texture_barrier
+public:
+    void fTextureBarrier()
+    {
+        ASSERT_SYMBOL_PRESENT(fTextureBarrier);
+        BEFORE_GL_CALL;
+        mSymbols.fTextureBarrier();
+        AFTER_GL_CALL;
+    }
+
 // Core GL & Extension ARB_copy_buffer
 public:
     void fCopyBufferSubData(GLenum readtarget, GLenum writetarget,
@@ -2910,7 +2933,7 @@ public:
 // -----------------------------------------------------------------------------
 // Core GL & Extension ARB_sampler_objects
 public:
-    void fGenSamplers(GLsizei count, GLuint *samplers)
+    void fGenSamplers(GLsizei count, GLuint* samplers)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGenSamplers);
@@ -2918,7 +2941,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fDeleteSamplers(GLsizei count, const GLuint *samplers)
+    void fDeleteSamplers(GLsizei count, const GLuint* samplers)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fDeleteSamplers);
@@ -2951,7 +2974,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fSamplerParameteriv(GLuint sampler, GLenum pname, const GLint *param)
+    void fSamplerParameteriv(GLuint sampler, GLenum pname, const GLint* param)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fSamplerParameteriv);
@@ -2967,7 +2990,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fSamplerParameterfv(GLuint sampler, GLenum pname, const GLfloat *param)
+    void fSamplerParameterfv(GLuint sampler, GLenum pname, const GLfloat* param)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fSamplerParameterfv);
@@ -2975,7 +2998,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fGetSamplerParameteriv(GLuint sampler, GLenum pname, GLint *params)
+    void fGetSamplerParameteriv(GLuint sampler, GLenum pname, GLint* params)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGetSamplerParameteriv);
@@ -2983,7 +3006,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void fGetSamplerParameterfv(GLuint sampler, GLenum pname, GLfloat *params)
+    void fGetSamplerParameterfv(GLuint sampler, GLenum pname, GLfloat* params)
     {
         BEFORE_GL_CALL;
         ASSERT_SYMBOL_PRESENT(fGetSamplerParameterfv);
@@ -3154,7 +3177,7 @@ public:
 // -----------------------------------------------------------------------------
 // Constructor
 protected:
-    explicit GLContext(const SurfaceCaps& caps,
+    explicit GLContext(CreateContextFlags flags, const SurfaceCaps& caps,
                        GLContext* sharedContext = nullptr,
                        bool isOffscreen = false);
 
@@ -3214,7 +3237,7 @@ public:
         return mSymbols.fUseProgram == nullptr;
     }
 
-    GLContext *GetSharedContext() { return mSharedContext; }
+    GLContext* GetSharedContext() { return mSharedContext; }
 
     /**
      * Returns true if the thread on which this context was created is the currently
@@ -3319,11 +3342,11 @@ public:
 
     virtual GLenum GetPreferredARGB32Format() const { return LOCAL_GL_RGBA; }
 
-    virtual bool RenewSurface() { return false; }
+    virtual bool RenewSurface(nsIWidget* aWidget) { return false; }
 
     // Shared code for GL extensions and GLX extensions.
-    static bool ListHasExtension(const GLubyte *extensions,
-                                 const char *extension);
+    static bool ListHasExtension(const GLubyte* extensions,
+                                 const char* extension);
 
     GLint GetMaxTextureImageSize() { return mMaxTextureImageSize; }
 
@@ -3331,20 +3354,12 @@ public:
     std::map<GLuint, SharedSurface*> mFBOMapping;
 
     enum {
-        DebugEnabled = 1 << 0,
-        DebugTrace = 1 << 1,
-        DebugAbortOnError = 1 << 2
+        DebugFlagEnabled = 1 << 0,
+        DebugFlagTrace = 1 << 1,
+        DebugFlagAbortOnError = 1 << 2
     };
 
-    static uint32_t sDebugMode;
-
-    static uint32_t DebugMode() {
-#ifdef MOZ_GL_DEBUG
-        return sDebugMode;
-#else
-        return 0;
-#endif
-    }
+    const uint8_t mDebugFlags;
 
 protected:
     RefPtr<GLContext> mSharedContext;
@@ -3355,11 +3370,11 @@ protected:
     GLContextSymbols mSymbols;
 
 #ifdef MOZ_GL_DEBUG
-    // GLDebugMode will check that we don't send call
+    // Non-zero debug flags will check that we don't send call
     // to a GLContext that isn't current on the current
     // thread.
     // Store the current context when binding to thread local
-    // storage to support DebugMode on an arbitrary thread.
+    // storage to support debug flags on an arbitrary thread.
     static unsigned sCurrentGLContextTLS;
 #endif
 
@@ -3406,7 +3421,6 @@ public:
 
 protected:
     SurfaceCaps mCaps;
-    nsAutoPtr<GLFormats> mGLFormats;
 
 public:
     const SurfaceCaps& Caps() const {
@@ -3415,14 +3429,6 @@ public:
 
     // Only varies based on bpp16 and alpha.
     GLFormats ChooseGLFormats(const SurfaceCaps& caps) const;
-    void UpdateGLFormats(const SurfaceCaps& caps) {
-        mGLFormats = new GLFormats(ChooseGLFormats(caps));
-    }
-
-    const GLFormats& GetGLFormats() const {
-        MOZ_ASSERT(mGLFormats);
-        return *mGLFormats;
-    }
 
     bool IsFramebufferComplete(GLuint fb, GLenum* status = nullptr);
 
@@ -3442,8 +3448,6 @@ public:
 protected:
     friend class GLScreenBuffer;
     UniquePtr<GLScreenBuffer> mScreen;
-
-    void DestroyScreenBuffer();
 
     SharedSurface* mLockedSurface;
 
@@ -3494,8 +3498,17 @@ public:
     bool IsOffscreenSizeAllowed(const gfx::IntSize& aSize) const;
 
 protected:
-    bool InitWithPrefix(const char *prefix, bool trygl);
+    bool InitWithPrefix(const char* prefix, bool trygl);
 
+private:
+    bool InitWithPrefixImpl(const char* prefix, bool trygl);
+    void LoadMoreSymbols(const char* prefix, bool trygl);
+    bool LoadExtSymbols(const char* prefix, bool trygl, const SymLoadStruct* list,
+                        GLExtensions ext);
+    bool LoadFeatureSymbols(const char* prefix, bool trygl, const SymLoadStruct* list,
+                            GLFeature feature);
+
+protected:
     void InitExtensions();
 
     GLint mViewportRect[4];
@@ -3555,22 +3568,22 @@ public:
 #undef ASSERT_SYMBOL_PRESENT
 
 #ifdef MOZ_GL_DEBUG
-    void CreatedProgram(GLContext *aOrigin, GLuint aName);
-    void CreatedShader(GLContext *aOrigin, GLuint aName);
-    void CreatedBuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
-    void CreatedQueries(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
-    void CreatedTextures(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
-    void CreatedFramebuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
-    void CreatedRenderbuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
-    void DeletedProgram(GLContext *aOrigin, GLuint aName);
-    void DeletedShader(GLContext *aOrigin, GLuint aName);
-    void DeletedBuffers(GLContext *aOrigin, GLsizei aCount, const GLuint *aNames);
-    void DeletedQueries(GLContext *aOrigin, GLsizei aCount, const GLuint *aNames);
-    void DeletedTextures(GLContext *aOrigin, GLsizei aCount, const GLuint *aNames);
-    void DeletedFramebuffers(GLContext *aOrigin, GLsizei aCount, const GLuint *aNames);
-    void DeletedRenderbuffers(GLContext *aOrigin, GLsizei aCount, const GLuint *aNames);
+    void CreatedProgram(GLContext* aOrigin, GLuint aName);
+    void CreatedShader(GLContext* aOrigin, GLuint aName);
+    void CreatedBuffers(GLContext* aOrigin, GLsizei aCount, GLuint* aNames);
+    void CreatedQueries(GLContext* aOrigin, GLsizei aCount, GLuint* aNames);
+    void CreatedTextures(GLContext* aOrigin, GLsizei aCount, GLuint* aNames);
+    void CreatedFramebuffers(GLContext* aOrigin, GLsizei aCount, GLuint* aNames);
+    void CreatedRenderbuffers(GLContext* aOrigin, GLsizei aCount, GLuint* aNames);
+    void DeletedProgram(GLContext* aOrigin, GLuint aName);
+    void DeletedShader(GLContext* aOrigin, GLuint aName);
+    void DeletedBuffers(GLContext* aOrigin, GLsizei aCount, const GLuint* aNames);
+    void DeletedQueries(GLContext* aOrigin, GLsizei aCount, const GLuint* aNames);
+    void DeletedTextures(GLContext* aOrigin, GLsizei aCount, const GLuint* aNames);
+    void DeletedFramebuffers(GLContext* aOrigin, GLsizei aCount, const GLuint* aNames);
+    void DeletedRenderbuffers(GLContext* aOrigin, GLsizei aCount, const GLuint* aNames);
 
-    void SharedContextDestroyed(GLContext *aChild);
+    void SharedContextDestroyed(GLContext* aChild);
     void ReportOutstandingNames();
 
     struct NamedResource {
@@ -3578,11 +3591,11 @@ public:
             : origin(nullptr), name(0), originDeleted(false)
         { }
 
-        NamedResource(GLContext *aOrigin, GLuint aName)
+        NamedResource(GLContext* aOrigin, GLuint aName)
             : origin(aOrigin), name(aName), originDeleted(false)
         { }
 
-        GLContext *origin;
+        GLContext* origin;
         GLuint name;
         bool originDeleted;
 
@@ -3621,14 +3634,14 @@ public:
     void Readback(SharedSurface* src, gfx::DataSourceSurface* dest);
 };
 
-bool DoesStringMatch(const char* aString, const char *aWantedString);
+bool DoesStringMatch(const char* aString, const char* aWantedString);
 
 void SplitByChar(const nsACString& str, const char delim,
                  std::vector<nsCString>* const out);
 
 template<size_t N>
 bool
-MarkBitfieldByString(const nsACString& str, const char* (&markStrList)[N],
+MarkBitfieldByString(const nsACString& str, const char* const (&markStrList)[N],
                      std::bitset<N>* const out_markList)
 {
     for (size_t i = 0; i < N; i++) {
@@ -3643,7 +3656,7 @@ MarkBitfieldByString(const nsACString& str, const char* (&markStrList)[N],
 template<size_t N>
 void
 MarkBitfieldByStrings(const std::vector<nsCString>& strList,
-                      bool dumpStrings, const char* (&markStrList)[N],
+                      bool dumpStrings, const char* const (&markStrList)[N],
                       std::bitset<N>* const out_markList)
 {
     for (auto itr = strList.begin(); itr != strList.end(); ++itr) {

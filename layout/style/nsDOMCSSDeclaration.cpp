@@ -19,6 +19,7 @@
 #include "mozilla/dom/BindingUtils.h"
 #include "nsContentUtils.h"
 #include "nsQueryObject.h"
+#include "mozilla/layers/ScrollLinkedEffectDetector.h"
 
 using namespace mozilla;
 
@@ -77,6 +78,30 @@ NS_IMETHODIMP
 nsDOMCSSDeclaration::SetPropertyValue(const nsCSSProperty aPropID,
                                       const nsAString& aValue)
 {
+  switch (aPropID) {
+    case eCSSProperty_background_position:
+    case eCSSProperty_background_position_x:
+    case eCSSProperty_background_position_y:
+    case eCSSProperty_transform:
+    case eCSSProperty_top:
+    case eCSSProperty_left:
+    case eCSSProperty_bottom:
+    case eCSSProperty_right:
+    case eCSSProperty_margin:
+    case eCSSProperty_margin_top:
+    case eCSSProperty_margin_left:
+    case eCSSProperty_margin_bottom:
+    case eCSSProperty_margin_right:
+    case eCSSProperty_margin_inline_start:
+    case eCSSProperty_margin_inline_end:
+    case eCSSProperty_margin_block_start:
+    case eCSSProperty_margin_block_end:
+      mozilla::layers::ScrollLinkedEffectDetector::PositioningPropertyMutated();
+      break;
+    default:
+      break;
+  }
+
   if (aValue.IsEmpty()) {
     // If the new value of the property is an empty string we remove the
     // property.
@@ -171,8 +196,7 @@ nsDOMCSSDeclaration::GetPropertyValue(const nsAString& aPropertyName,
                                       nsAString& aReturn)
 {
   const nsCSSProperty propID =
-    nsCSSProps::LookupProperty(aPropertyName,
-                               nsCSSProps::eEnabledForAllContent);
+    nsCSSProps::LookupProperty(aPropertyName, CSSEnabledState::eForAllContent);
   if (propID == eCSSProperty_UNKNOWN) {
     aReturn.Truncate();
     return NS_OK;
@@ -191,8 +215,7 @@ nsDOMCSSDeclaration::GetAuthoredPropertyValue(const nsAString& aPropertyName,
                                               nsAString& aReturn)
 {
   const nsCSSProperty propID =
-    nsCSSProps::LookupProperty(aPropertyName,
-                               nsCSSProps::eEnabledForAllContent);
+    nsCSSProps::LookupProperty(aPropertyName, CSSEnabledState::eForAllContent);
   if (propID == eCSSProperty_UNKNOWN) {
     aReturn.Truncate();
     return NS_OK;
@@ -233,8 +256,7 @@ nsDOMCSSDeclaration::SetProperty(const nsAString& aPropertyName,
 {
   // In the common (and fast) cases we can use the property id
   nsCSSProperty propID =
-    nsCSSProps::LookupProperty(aPropertyName,
-                               nsCSSProps::eEnabledForAllContent);
+    nsCSSProps::LookupProperty(aPropertyName, CSSEnabledState::eForAllContent);
   if (propID == eCSSProperty_UNKNOWN) {
     return NS_OK;
   }
@@ -270,8 +292,7 @@ nsDOMCSSDeclaration::RemoveProperty(const nsAString& aPropertyName,
                                     nsAString& aReturn)
 {
   const nsCSSProperty propID =
-    nsCSSProps::LookupProperty(aPropertyName,
-                               nsCSSProps::eEnabledForAllContent);
+    nsCSSProps::LookupProperty(aPropertyName, CSSEnabledState::eForAllContent);
   if (propID == eCSSProperty_UNKNOWN) {
     aReturn.Truncate();
     return NS_OK;
@@ -292,9 +313,8 @@ nsDOMCSSDeclaration::RemoveProperty(const nsAString& aPropertyName,
 nsDOMCSSDeclaration::GetCSSParsingEnvironmentForRule(css::Rule* aRule,
                                                      CSSParsingEnvironment& aCSSParseEnv)
 {
-  nsIStyleSheet* sheet = aRule ? aRule->GetStyleSheet() : nullptr;
-  RefPtr<CSSStyleSheet> cssSheet(do_QueryObject(sheet));
-  if (!cssSheet) {
+  CSSStyleSheet* sheet = aRule ? aRule->GetStyleSheet() : nullptr;
+  if (!sheet) {
     aCSSParseEnv.mPrincipal = nullptr;
     return;
   }
@@ -302,7 +322,7 @@ nsDOMCSSDeclaration::GetCSSParsingEnvironmentForRule(css::Rule* aRule,
   nsIDocument* document = sheet->GetOwningDocument();
   aCSSParseEnv.mSheetURI = sheet->GetSheetURI();
   aCSSParseEnv.mBaseURI = sheet->GetBaseURI();
-  aCSSParseEnv.mPrincipal = cssSheet->Principal();
+  aCSSParseEnv.mPrincipal = sheet->Principal();
   aCSSParseEnv.mCSSLoader = document ? document->CSSLoader() : nullptr;
 }
 

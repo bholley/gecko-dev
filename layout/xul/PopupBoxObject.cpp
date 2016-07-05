@@ -283,11 +283,11 @@ PopupBoxObject::GetOuterScreenRect()
   if (view) {
     nsIWidget* widget = view->GetWidget();
     if (widget) {
-      nsIntRect screenRect;
-      widget->GetScreenBoundsUntyped(screenRect);
+      LayoutDeviceIntRect screenRect;
+      widget->GetScreenBounds(screenRect);
 
       int32_t pp = menuPopupFrame->PresContext()->AppUnitsPerDevPixel();
-      rect->SetLayoutRect(ToAppUnits(screenRect, pp));
+      rect->SetLayoutRect(LayoutDeviceIntRect::ToAppUnits(screenRect, pp));
     }
   }
   return rect.forget();
@@ -355,6 +355,16 @@ PopupBoxObject::AlignmentOffset()
   nsPoint appOffset(menuPopupFrame->GetAlignmentOffset(), 0);
   nsIntPoint popupOffset = appOffset.ToNearestPixels(pp);
   return popupOffset.x;
+}
+
+void
+PopupBoxObject::SetConstraintRect(dom::DOMRectReadOnly& aRect)
+{
+  nsMenuPopupFrame *menuPopupFrame = do_QueryFrame(GetFrame(false));
+  if (menuPopupFrame) {
+    menuPopupFrame->SetOverrideConstraintRect(
+      LayoutDeviceIntRect(aRect.Left(), aRect.Top(), aRect.Width(), aRect.Height()));
+  }
 }
 
 } // namespace dom

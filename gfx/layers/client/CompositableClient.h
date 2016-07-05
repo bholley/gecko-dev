@@ -23,7 +23,6 @@ namespace mozilla {
 namespace layers {
 
 class CompositableClient;
-class BufferTextureClient;
 class ImageBridgeChild;
 class ImageContainer;
 class CompositableForwarder;
@@ -136,7 +135,7 @@ public:
 
   LayersBackend GetCompositorBackendType() const;
 
-  already_AddRefed<BufferTextureClient>
+  already_AddRefed<TextureClient>
   CreateBufferTextureClient(gfx::SurfaceFormat aFormat,
                             gfx::IntSize aSize,
                             gfx::BackendType aMoz2dBackend = gfx::BackendType::NONE,
@@ -155,6 +154,8 @@ public:
   virtual bool Connect(ImageContainer* aImageContainer = nullptr);
 
   void Destroy();
+
+  static bool DestroyFallback(PCompositableChild* aActor);
 
   bool IsConnected() const;
 
@@ -195,6 +196,12 @@ public:
   virtual void ClearCachedResources();
 
   /**
+   * Shrink memory usage.
+   * Called when "memory-pressure" is observed.
+   */
+  virtual void HandleMemoryPressure();
+
+  /**
    * Should be called when deataching a TextureClient from a Compositable, because
    * some platforms need to do some extra book keeping when this happens (for
    * example to properly keep track of fences on Gonk).
@@ -218,12 +225,6 @@ public:
   static bool DestroyIPDLActor(PCompositableChild* actor);
 
   void InitIPDLActor(PCompositableChild* aActor, uint64_t aAsyncID = 0);
-
-  static void TransactionCompleteted(PCompositableChild* aActor, uint64_t aTransactionId);
-
-  static void HoldUntilComplete(PCompositableChild* aActor, AsyncTransactionTracker* aTracker);
-
-  static uint64_t GetTrackersHolderId(PCompositableChild* aActor);
 
   TextureFlags GetTextureFlags() const { return mTextureFlags; }
 

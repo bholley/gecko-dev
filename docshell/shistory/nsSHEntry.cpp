@@ -32,6 +32,7 @@ nsSHEntry::nsSHEntry()
   , mParent(nullptr)
   , mURIWasModified(false)
   , mIsSrcdocEntry(false)
+  , mScrollRestorationIsManual(false)
 {
 }
 
@@ -39,7 +40,6 @@ nsSHEntry::nsSHEntry(const nsSHEntry& aOther)
   : mShared(aOther.mShared)
   , mURI(aOther.mURI)
   , mOriginalURI(aOther.mOriginalURI)
-  , mLoadReplace(aOther.mLoadReplace)
   , mReferrerURI(aOther.mReferrerURI)
   , mReferrerPolicy(aOther.mReferrerPolicy)
   , mTitle(aOther.mTitle)
@@ -52,6 +52,7 @@ nsSHEntry::nsSHEntry(const nsSHEntry& aOther)
   , mURIWasModified(aOther.mURIWasModified)
   , mStateData(aOther.mStateData)
   , mIsSrcdocEntry(aOther.mIsSrcdocEntry)
+  , mScrollRestorationIsManual(false)
   , mSrcdocData(aOther.mSrcdocData)
   , mBaseURI(aOther.mBaseURI)
 {
@@ -131,20 +132,6 @@ NS_IMETHODIMP
 nsSHEntry::SetOriginalURI(nsIURI* aOriginalURI)
 {
   mOriginalURI = aOriginalURI;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsSHEntry::GetLoadReplace(bool* aLoadReplace)
-{
-  *aLoadReplace = mLoadReplace;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsSHEntry::SetLoadReplace(bool aLoadReplace)
-{
-  mLoadReplace = aLoadReplace;
   return NS_OK;
 }
 
@@ -594,6 +581,20 @@ NS_IMETHODIMP
 nsSHEntry::SetBaseURI(nsIURI* aBaseURI)
 {
   mBaseURI = aBaseURI;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSHEntry::GetScrollRestorationIsManual(bool* aIsManual)
+{
+  *aIsManual = mScrollRestorationIsManual;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSHEntry::SetScrollRestorationIsManual(bool aIsManual)
+{
+  mScrollRestorationIsManual = aIsManual;
   return NS_OK;
 }
 

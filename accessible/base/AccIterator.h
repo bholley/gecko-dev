@@ -10,6 +10,8 @@
 #include "DocAccessible.h"
 #include "Filters.h"
 
+#include <memory>
+
 class nsITreeView;
 
 namespace mozilla {
@@ -26,7 +28,7 @@ public:
 
 private:
   friend class Relation;
-  nsAutoPtr<AccIterable> mNextIter;
+  std::unique_ptr<AccIterable> mNextIter;
 };
 
 /**
@@ -129,6 +131,8 @@ private:
   HTMLLabelIterator();
   HTMLLabelIterator(const HTMLLabelIterator&);
   HTMLLabelIterator& operator = (const HTMLLabelIterator&);
+
+  bool IsLabel(Accessible* aLabel);
 
   RelatedAccIterator mRelIter;
   // XXX: replace it on weak reference (bug 678429), it's safe to use raw

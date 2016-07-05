@@ -43,18 +43,6 @@ TouchList::PrefEnabled(JSContext* aCx, JSObject* aGlobal)
   return TouchEvent::PrefEnabled(aCx, aGlobal);
 }
 
-Touch*
-TouchList::IdentifiedTouch(int32_t aIdentifier) const
-{
-  for (uint32_t i = 0; i < mPoints.Length(); ++i) {
-    Touch* point = mPoints[i];
-    if (point && point->Identifier() == aIdentifier) {
-      return point;
-    }
-  }
-  return nullptr;
-}
-
 /******************************************************************************
  * TouchEvent
  *****************************************************************************/
@@ -69,13 +57,13 @@ TouchEvent::TouchEvent(EventTarget* aOwner,
   if (aEvent) {
     mEventIsInternal = false;
 
-    for (uint32_t i = 0; i < aEvent->touches.Length(); ++i) {
-      Touch* touch = aEvent->touches[i];
+    for (uint32_t i = 0; i < aEvent->mTouches.Length(); ++i) {
+      Touch* touch = aEvent->mTouches[i];
       touch->InitializePoints(mPresContext, aEvent);
     }
   } else {
     mEventIsInternal = true;
-    mEvent->time = PR_Now();
+    mEvent->mTime = PR_Now();
   }
 }
 
@@ -94,7 +82,7 @@ void
 TouchEvent::InitTouchEvent(const nsAString& aType,
                            bool aCanBubble,
                            bool aCancelable,
-                           nsIDOMWindow* aView,
+                           nsGlobalWindow* aView,
                            int32_t aDetail,
                            bool aCtrlKey,
                            bool aAltKey,
@@ -118,9 +106,9 @@ TouchEvent::Touches()
   if (!mTouches) {
     WidgetTouchEvent* touchEvent = mEvent->AsTouchEvent();
     if (mEvent->mMessage == eTouchEnd || mEvent->mMessage == eTouchCancel) {
-      // for touchend events, remove any changed touches from the touches array
+      // for touchend events, remove any changed touches from mTouches
       WidgetTouchEvent::AutoTouchArray unchangedTouches;
-      const WidgetTouchEvent::TouchArray& touches = touchEvent->touches;
+      const WidgetTouchEvent::TouchArray& touches = touchEvent->mTouches;
       for (uint32_t i = 0; i < touches.Length(); ++i) {
         if (!touches[i]->mChanged) {
           unchangedTouches.AppendElement(touches[i]);
@@ -128,7 +116,7 @@ TouchEvent::Touches()
       }
       mTouches = new TouchList(ToSupports(this), unchangedTouches);
     } else {
-      mTouches = new TouchList(ToSupports(this), touchEvent->touches);
+      mTouches = new TouchList(ToSupports(this), touchEvent->mTouches);
     }
   }
   return mTouches;
@@ -140,13 +128,13 @@ TouchEvent::TargetTouches()
   if (!mTargetTouches) {
     WidgetTouchEvent::AutoTouchArray targetTouches;
     WidgetTouchEvent* touchEvent = mEvent->AsTouchEvent();
-    const WidgetTouchEvent::TouchArray& touches = touchEvent->touches;
+    const WidgetTouchEvent::TouchArray& touches = touchEvent->mTouches;
     for (uint32_t i = 0; i < touches.Length(); ++i) {
       // for touchend/cancel events, don't append to the target list if this is a
       // touch that is ending
       if ((mEvent->mMessage != eTouchEnd && mEvent->mMessage != eTouchCancel) ||
           !touches[i]->mChanged) {
-        if (touches[i]->mTarget == mEvent->originalTarget) {
+        if (touches[i]->mTarget == mEvent->mOriginalTarget) {
           targetTouches.AppendElement(touches[i]);
         }
       }
@@ -162,7 +150,7 @@ TouchEvent::ChangedTouches()
   if (!mChangedTouches) {
     WidgetTouchEvent::AutoTouchArray changedTouches;
     WidgetTouchEvent* touchEvent = mEvent->AsTouchEvent();
-    const WidgetTouchEvent::TouchArray& touches = touchEvent->touches;
+    const WidgetTouchEvent::TouchArray& touches = touchEvent->mTouches;
     for (uint32_t i = 0; i < touches.Length(); ++i) {
       if (touches[i]->mChanged) {
         changedTouches.AppendElement(touches[i]);
@@ -177,31 +165,71 @@ TouchEvent::ChangedTouches()
 bool
 TouchEvent::PrefEnabled(JSContext* aCx, JSObject* aGlobal)
 {
+  static bool sPrefCached = false;
+  static int32_t sPrefCacheValue = 0;
+
+  if (!sPrefCached) {
+    sPrefCached = true;
+    Preferences::AddIntVarCache(&sPrefCacheValue, "dom.w3c_touch_events.enabled");
+  }
+
   bool prefValue = false;
-  int32_t flag = 0;
-  if (NS_SUCCEEDED(Preferences::GetInt("dom.w3c_touch_events.enabled", &flag))) {
-    if (flag == 2) {
-#if defined(XP_WIN) || MOZ_WIDGET_GTK == 3
-      static bool sDidCheckTouchDeviceSupport = false;
-      static bool sIsTouchDeviceSupportPresent = false;
-      // On Windows and GTK3 we auto-detect based on device support.
-      if (!sDidCheckTouchDeviceSupport) {
-        sDidCheckTouchDeviceSupport = true;
-        sIsTouchDeviceSupportPresent = WidgetUtils::IsTouchDeviceSupportPresent();
-      }
-      prefValue = sIsTouchDeviceSupportPresent;
-#else
-      NS_WARNING("dom.w3c_touch_events.enabled=2 not implemented!");
-      prefValue = false;
-#endif
-    } else {
-      prefValue = !!flag;
+  if (sPrefCacheValue == 2) {
+#if defined(MOZ_B2G) || defined(MOZ_WIDGET_ANDROID)
+    // Touch support is always enabled on B2G and android.
+    prefValue = true;
+#elif defined(XP_WIN) || MOZ_WIDGET_GTK == 3
+    static bool sDidCheckTouchDeviceSupport = false;
+    static bool sIsTouchDeviceSupportPresent = false;
+    // On Windows and GTK3 we auto-detect based on device support.
+    if (!sDidCheckTouchDeviceSupport) {
+      sDidCheckTouchDeviceSupport = true;
+      sIsTouchDeviceSupportPresent = WidgetUtils::IsTouchDeviceSupportPresent();
     }
+    prefValue = sIsTouchDeviceSupportPresent;
+#else
+    prefValue = false;
+#endif
+  } else {
+    prefValue = !!sPrefCacheValue;
   }
   if (prefValue) {
     nsContentUtils::InitializeTouchEventTable();
   }
   return prefValue;
+}
+
+// static
+already_AddRefed<Event>
+TouchEvent::Constructor(const GlobalObject& aGlobal,
+                        const nsAString& aType,
+                        const TouchEventInit& aParam,
+                        ErrorResult& aRv)
+{
+  nsCOMPtr<EventTarget> t = do_QueryInterface(aGlobal.GetAsSupports());
+  RefPtr<TouchEvent> e = new TouchEvent(t, nullptr, nullptr);
+  bool trusted = e->Init(t);
+  RefPtr<TouchList> touches = e->CopyTouches(aParam.mTouches);
+  RefPtr<TouchList> targetTouches = e->CopyTouches(aParam.mTargetTouches);
+  RefPtr<TouchList> changedTouches = e->CopyTouches(aParam.mChangedTouches);
+  e->InitTouchEvent(aType, aParam.mBubbles, aParam.mCancelable, aParam.mView,
+                    aParam.mDetail, aParam.mCtrlKey, aParam.mAltKey,
+                    aParam.mShiftKey, aParam.mMetaKey, touches, targetTouches,
+                    changedTouches);
+  e->SetTrusted(trusted);
+  return e.forget();
+}
+
+
+already_AddRefed<TouchList>
+TouchEvent::CopyTouches(const Sequence<OwningNonNull<Touch>>& aTouches)
+{
+  RefPtr<TouchList> list = new TouchList(GetParentObject());
+  size_t len = aTouches.Length();
+  for (size_t i = 0; i < len; ++i) {
+    list->Append(aTouches[i]);
+  }
+  return list.forget();
 }
 
 bool

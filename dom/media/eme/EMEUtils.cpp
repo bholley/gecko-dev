@@ -5,6 +5,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/EMEUtils.h"
+#include "mozilla/dom/UnionTypes.h"
 
 namespace mozilla {
 
@@ -82,6 +83,7 @@ ParseKeySystem(const nsAString& aExpectedKeySystem,
 static const char16_t* sKeySystems[] = {
   MOZ_UTF16("org.w3.clearkey"),
   MOZ_UTF16("com.adobe.primetime"),
+  MOZ_UTF16("com.widevine.alpha"),
 };
 
 bool
@@ -102,14 +104,48 @@ ParseKeySystem(const nsAString& aInputKeySystem,
   return false;
 }
 
-void
-ConstructKeySystem(const nsAString& aKeySystem,
-                   const nsAString& aCDMVersion,
-                   nsAString& aOutKeySystem)
+ArrayData
+GetArrayBufferViewOrArrayBufferData(const dom::ArrayBufferViewOrArrayBuffer& aBufferOrView)
 {
-  aOutKeySystem.Append(aKeySystem);
-  aOutKeySystem.AppendLiteral(".");
-  aOutKeySystem.Append(aCDMVersion);
+  MOZ_ASSERT(aBufferOrView.IsArrayBuffer() || aBufferOrView.IsArrayBufferView());
+  if (aBufferOrView.IsArrayBuffer()) {
+    const dom::ArrayBuffer& buffer = aBufferOrView.GetAsArrayBuffer();
+    buffer.ComputeLengthAndData();
+    return ArrayData(buffer.Data(), buffer.Length());
+  } else if (aBufferOrView.IsArrayBufferView()) {
+    const dom::ArrayBufferView& bufferview = aBufferOrView.GetAsArrayBufferView();
+    bufferview.ComputeLengthAndData();
+    return ArrayData(bufferview.Data(), bufferview.Length());
+  }
+  return ArrayData(nullptr, 0);
+}
+
+void
+CopyArrayBufferViewOrArrayBufferData(const dom::ArrayBufferViewOrArrayBuffer& aBufferOrView,
+                                     nsTArray<uint8_t>& aOutData)
+{
+  ArrayData data = GetArrayBufferViewOrArrayBufferData(aBufferOrView);
+  aOutData.Clear();
+  if (!data.IsValid()) {
+    return;
+  }
+  aOutData.AppendElements(data.mData, data.mLength);
+}
+
+nsString
+KeySystemToGMPName(const nsAString& aKeySystem)
+{
+  if (aKeySystem.EqualsLiteral("com.adobe.primetime")) {
+    return NS_LITERAL_STRING("gmp-eme-adobe");
+  }
+  if (aKeySystem.EqualsLiteral("org.w3.clearkey")) {
+    return NS_LITERAL_STRING("gmp-clearkey");
+  }
+  if (aKeySystem.EqualsLiteral("com.widevine.alpha")) {
+    return NS_LITERAL_STRING("gmp-widevinecdm");
+  }
+  MOZ_ASSERT(false, "We should only call this for known GMPs");
+  return EmptyString();
 }
 
 } // namespace mozilla

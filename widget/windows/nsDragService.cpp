@@ -11,6 +11,7 @@
 // shellapi.h is needed to build with WIN32_LEAN_AND_MEAN
 #include <shellapi.h>
 
+#include "mozilla/RefPtr.h"
 #include "nsDragService.h"
 #include "nsITransferable.h"
 #include "nsDataObj.h"
@@ -22,8 +23,6 @@
 #include "nsISupportsArray.h"
 #include "nsIDocument.h"
 #include "nsDataObjCollection.h"
-
-#include "nsAutoPtr.h"
 
 #include "nsString.h"
 #include "nsEscape.h"
@@ -37,7 +36,7 @@
 #include "gfxContext.h"
 #include "nsRect.h"
 #include "nsMathUtils.h"
-#include "gfxWindowsPlatform.h"
+#include "WinUtils.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/DataSurfaceHelpers.h"
 #include "mozilla/gfx/Tools.h"
@@ -208,6 +207,7 @@ nsDragService::InvokeDragSessionImpl(nsISupportsArray* anArrayTransferables,
       if (trans) {
         // set the requestingNode on the transferable
         trans->SetRequestingNode(mSourceNode);
+        trans->SetContentPolicyType(mContentPolicyType);
         RefPtr<IDataObject> dataObj;
         rv = nsClipboard::CreateNativeDataObject(trans,
                                                  getter_AddRefs(dataObj), uri);
@@ -227,6 +227,7 @@ nsDragService::InvokeDragSessionImpl(nsISupportsArray* anArrayTransferables,
     if (trans) {
       // set the requestingNode on the transferable
       trans->SetRequestingNode(mSourceNode);
+      trans->SetContentPolicyType(mContentPolicyType);
       rv = nsClipboard::CreateNativeDataObject(trans,
                                                getter_AddRefs(itemToDrag),
                                                uri);
@@ -325,7 +326,9 @@ nsDragService::StartInvokingDragSession(IDataObject * aDataObj,
   // Note that we must convert this from device pixels back to Windows logical
   // pixels (bug 818927).
   DWORD pos = ::GetMessagePos();
-  FLOAT dpiScale = gfxWindowsPlatform::GetPlatform()->GetDPIScale();
+  POINT pt = { GET_X_LPARAM(pos), GET_Y_LPARAM(pos) };
+  HMONITOR monitor = ::MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY);
+  double dpiScale = widget::WinUtils::LogToPhysFactor(monitor);
   nsIntPoint logPos(NSToIntRound(GET_X_LPARAM(pos) / dpiScale),
                     NSToIntRound(GET_Y_LPARAM(pos) / dpiScale));
   SetDragEndPoint(logPos);

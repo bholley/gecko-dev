@@ -84,8 +84,10 @@ nsJAR::nsJAR(): mZip(new nsZipArchive()),
                 mReleaseTime(PR_INTERVAL_NO_TIMEOUT),
                 mCache(nullptr),
                 mLock("nsJAR::mLock"),
+                mMtime(0),
                 mTotalItemsInManifest(0),
-                mOpened(false)
+                mOpened(false),
+                mIsOmnijar(false)
 {
 }
 
@@ -140,6 +142,7 @@ nsJAR::Open(nsIFile* zipFile)
   RefPtr<nsZipArchive> zip = mozilla::Omnijar::GetReader(zipFile);
   if (zip) {
     mZip = zip;
+    mIsOmnijar = true;
     return NS_OK;
   }
   return mZip->OpenArchive(zipFile);
@@ -200,19 +203,23 @@ nsJAR::GetFile(nsIFile* *result)
 NS_IMETHODIMP
 nsJAR::Close()
 {
+  if (!mOpened) {
+    return NS_ERROR_FAILURE; // Never opened or already closed.
+  }
+
   mOpened = false;
   mParsedManifest = false;
   mManifestData.Clear();
   mGlobalStatus = JAR_MANIFEST_NOT_PARSED;
   mTotalItemsInManifest = 0;
 
-  RefPtr<nsZipArchive> greOmni = mozilla::Omnijar::GetReader(mozilla::Omnijar::GRE);
-  RefPtr<nsZipArchive> appOmni = mozilla::Omnijar::GetReader(mozilla::Omnijar::APP);
-
-  if (mZip == greOmni || mZip == appOmni) {
+  if (mIsOmnijar) {
+    // Reset state, but don't close the omnijar because we did not open it.
+    mIsOmnijar = false;
     mZip = new nsZipArchive();
     return NS_OK;
   }
+
   return mZip->CloseArchive();
 }
 
@@ -1055,6 +1062,7 @@ NS_IMPL_ISUPPORTS(nsZipReaderCache, nsIZipReaderCache, nsIObserver, nsISupportsW
 
 nsZipReaderCache::nsZipReaderCache()
   : mLock("nsZipReaderCache.mLock")
+  , mCacheSize(0)
   , mZips()
 #ifdef ZIP_CACHE_HIT_RATE
     ,
@@ -1331,16 +1339,6 @@ nsZipReaderCache::ReleaseZip(nsJAR* zip)
   return NS_OK;
 }
 
-static PLDHashOperator
-FindFlushableZip(const nsACString &aKey, RefPtr<nsJAR>& aCurrent, void*)
-{
-  if (aCurrent->GetReleaseTime() != PR_INTERVAL_NO_TIMEOUT) {
-    aCurrent->SetZipReaderCache(nullptr);
-    return PL_DHASH_REMOVE;
-  }
-  return PL_DHASH_NEXT;
-}
-
 NS_IMETHODIMP
 nsZipReaderCache::Observe(nsISupports *aSubject,
                           const char *aTopic,
@@ -1348,7 +1346,13 @@ nsZipReaderCache::Observe(nsISupports *aSubject,
 {
   if (strcmp(aTopic, "memory-pressure") == 0) {
     MutexAutoLock lock(mLock);
-    mZips.Enumerate(FindFlushableZip, nullptr);
+    for (auto iter = mZips.Iter(); !iter.Done(); iter.Next()) {
+      RefPtr<nsJAR>& current = iter.Data();
+      if (current->GetReleaseTime() != PR_INTERVAL_NO_TIMEOUT) {
+        current->SetZipReaderCache(nullptr);
+        iter.Remove();
+      }
+    }
   }
   else if (strcmp(aTopic, "chrome-flush-caches") == 0) {
     MutexAutoLock lock(mLock);

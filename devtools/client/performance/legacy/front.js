@@ -4,33 +4,22 @@
 "use strict";
 
 const { Cu } = require("chrome");
-const { Task } = require("resource://gre/modules/Task.jsm");
+const { Task } = require("devtools/shared/task");
 
-loader.lazyRequireGetter(this, "Services");
-loader.lazyRequireGetter(this, "promise");
-loader.lazyRequireGetter(this, "extend",
-  "sdk/util/object", true);
+const Services = require("Services");
+const promise = require("promise");
+const { extend } = require("sdk/util/object");
 
-loader.lazyRequireGetter(this, "Actors",
-  "devtools/client/performance/legacy/actors");
-loader.lazyRequireGetter(this, "LegacyPerformanceRecording",
-  "devtools/client/performance/legacy/recording", true);
-loader.lazyRequireGetter(this, "importRecording",
-  "devtools/client/performance/legacy/recording", true);
-loader.lazyRequireGetter(this, "normalizePerformanceFeatures",
-  "devtools/shared/performance/recording-utils", true);
-loader.lazyRequireGetter(this, "DevToolsUtils",
-  "devtools/shared/DevToolsUtils");
-loader.lazyRequireGetter(this, "getDeviceFront",
-  "devtools/server/actors/device", true);
-loader.lazyRequireGetter(this, "getSystemInfo",
-  "devtools/shared/system", true);
-loader.lazyRequireGetter(this, "events",
-  "sdk/event/core");
-loader.lazyRequireGetter(this, "EventTarget",
-  "sdk/event/target", true);
-loader.lazyRequireGetter(this, "Class",
-  "sdk/core/heritage", true);
+const Actors = require("devtools/client/performance/legacy/actors");
+const { LegacyPerformanceRecording } = require("devtools/client/performance/legacy/recording");
+const { importRecording } = require("devtools/client/performance/legacy/recording");
+const { normalizePerformanceFeatures } = require("devtools/shared/performance/recording-utils");
+const DevToolsUtils = require("devtools/shared/DevToolsUtils");
+const { getDeviceFront } = require("devtools/shared/device/device");
+const { getSystemInfo } = require("devtools/shared/system");
+const events = require("sdk/event/core");
+const { EventTarget } = require("sdk/event/target");
+const { Class } = require("sdk/core/heritage");
 
 /**
  * A connection to underlying actors (profiler, framerate, etc.)
@@ -50,7 +39,6 @@ const LegacyPerformanceFront = Class({
       withGCEvents: false,
       withDocLoadingEvents: false,
       withAllocations: false,
-      withJITOptimizations: false,
     },
   },
 
@@ -78,7 +66,7 @@ const LegacyPerformanceFront = Class({
    * @return object
    *         A promise that is resolved once the connection is established.
    */
-  connect: Task.async(function*() {
+  connect: Task.async(function* () {
     if (this._connecting) {
       return this._connecting.promise;
     }
@@ -100,7 +88,7 @@ const LegacyPerformanceFront = Class({
   /**
    * Destroys this connection.
    */
-  destroy: Task.async(function*() {
+  destroy: Task.async(function* () {
     if (this._connecting) {
       yield this._connecting.promise;
     } else {
@@ -122,7 +110,7 @@ const LegacyPerformanceFront = Class({
    * Initializes fronts and connects to the underlying actors using the facades
    * found in ./actors.js.
    */
-  _connectActors: Task.async(function*() {
+  _connectActors: Task.async(function* () {
     this._profiler = new Actors.LegacyProfilerFront(this._target);
     this._timeline = new Actors.LegacyTimelineFront(this._target);
 
@@ -178,7 +166,7 @@ const LegacyPerformanceFront = Class({
    *        The time (in milliseconds) when the call was made, relative to when
    *        the nsIProfiler module was started.
    */
-  _onConsoleProfileStart: Task.async(function *(_, { profileLabel, currentTime: startTime }) {
+  _onConsoleProfileStart: Task.async(function* (_, { profileLabel, currentTime: startTime }) {
     let recordings = this._recordings;
 
     // Abort if a profile with this label already exists.
@@ -203,7 +191,7 @@ const LegacyPerformanceFront = Class({
    *        The time (in milliseconds) when the call was made, relative to when
    *        the nsIProfiler module was started.
    */
-  _onConsoleProfileStop: Task.async(function *(_, data) {
+  _onConsoleProfileStop: Task.async(function* (_, data) {
     // If no data, abort; can occur if profiler isn't running and we get a surprise
     // call to console.profileEnd()
     if (!data) {
@@ -230,7 +218,7 @@ const LegacyPerformanceFront = Class({
     // If `profileEnd()` was called with a label, and there are no matching
     // sessions, abort.
     if (!model) {
-      Cu.reportError("console.profileEnd() called with label that does not match a recording.");
+      console.error("console.profileEnd() called with label that does not match a recording.");
       return;
     }
 
@@ -241,7 +229,7 @@ const LegacyPerformanceFront = Class({
   * TODO handle bug 1144438
   */
   _onProfilerUnexpectedlyStopped: function () {
-    Cu.reportError("Profiler unexpectedly stopped.", arguments);
+    console.error("Profiler unexpectedly stopped.", arguments);
   },
 
   /**
@@ -280,7 +268,7 @@ const LegacyPerformanceFront = Class({
    * @return object
    *         A promise that is resolved once recording has started.
    */
-  startRecording: Task.async(function*(options = {}) {
+  startRecording: Task.async(function* (options = {}) {
     let model = new LegacyPerformanceRecording(normalizePerformanceFeatures(options, this.traits.features));
 
     // All actors are started asynchronously over the remote debugging protocol.
@@ -315,7 +303,7 @@ const LegacyPerformanceFront = Class({
    * @return LegacyPerformanceRecording
    *         Returns the same model, populated with the profiling data.
    */
-  stopRecording: Task.async(function*(model) {
+  stopRecording: Task.async(function* (model) {
     // If model isn't in the LegacyPerformanceFront internal store,
     // then do nothing.
     if (this._recordings.indexOf(model) === -1) {
@@ -356,10 +344,8 @@ const LegacyPerformanceFront = Class({
     }
 
     let systemDeferred = promise.defer();
-    this._client.listTabs(form => {
-      systemDeferred.resolve(getDeviceFront(this._client, form).getDescription());
-    });
-    let systemHost = yield systemDeferred.promise;
+    let form = yield this._client.listTabs();
+    let systemHost = yield getDeviceFront(this._client, form).getDescription();
     let systemClient = yield getSystemInfo();
 
     // Set the results on the LegacyPerformanceRecording itself.
@@ -425,7 +411,7 @@ const LegacyPerformanceFront = Class({
    *
    * @return {object}
    */
-  getConfiguration: Task.async(function *() {
+  getConfiguration: Task.async(function* () {
     let profilerConfig = yield this._request("profiler", "getStartOptions");
     return profilerConfig;
   }),
@@ -467,13 +453,12 @@ const LegacyPerformanceFront = Class({
 /**
  * Creates an object of configurations based off of preferences for a LegacyPerformanceRecording.
  */
-function getLegacyPerformanceRecordingPrefs () {
+function getLegacyPerformanceRecordingPrefs() {
   return {
     withMarkers: true,
     withMemory: Services.prefs.getBoolPref("devtools.performance.ui.enable-memory"),
     withTicks: Services.prefs.getBoolPref("devtools.performance.ui.enable-framerate"),
     withAllocations: Services.prefs.getBoolPref("devtools.performance.ui.enable-allocations"),
-    withJITOptimizations: Services.prefs.getBoolPref("devtools.performance.ui.enable-jit-optimizations"),
     allocationsSampleProbability: +Services.prefs.getCharPref("devtools.performance.memory.sample-probability"),
     allocationsMaxLogLength: Services.prefs.getIntPref("devtools.performance.memory.max-log-length")
   };

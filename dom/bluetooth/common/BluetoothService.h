@@ -10,7 +10,6 @@
 #include "BluetoothCommon.h"
 #include "BluetoothInterface.h"
 #include "BluetoothProfileManagerBase.h"
-#include "nsAutoPtr.h"
 #include "nsClassHashtable.h"
 #include "nsIObserver.h"
 #include "nsTObserverArray.h"
@@ -42,7 +41,7 @@ class BluetoothService : public nsIObserver
   friend class StartupTask;
 
 public:
-  class ToggleBtAck : public nsRunnable
+  class ToggleBtAck : public Runnable
   {
   public:
     ToggleBtAck(bool aEnabled);
@@ -105,6 +104,46 @@ public:
    */
   void
   DistributeSignal(const nsAString& aName, const nsAString& aPath,
+                   const BluetoothValue& aValue);
+
+  /**
+   * Create a signal without value and distribute it to the observer list
+   *
+   * @param aName Name of the signal
+   * @param aAddress Path of the signal to distribute to
+   */
+  void
+  DistributeSignal(const nsAString& aName, const BluetoothAddress& aAddress);
+
+  /**
+   * Create a signal and distribute it to the observer list
+   *
+   * @param aName Name of the signal
+   * @param aAddress Path of the signal to distribute to
+   * @param aValue Value of the signal to carry
+   */
+  void
+  DistributeSignal(const nsAString& aName, const BluetoothAddress& aAddress,
+                   const BluetoothValue& aValue);
+
+  /**
+   * Create a signal without value and distribute it to the observer list
+   *
+   * @param aName Name of the signal
+   * @param aUuid Path of the signal to distribute to
+   */
+  void
+  DistributeSignal(const nsAString& aName, const BluetoothUuid& aUuid);
+
+  /**
+   * Create a signal and distribute it to the observer list
+   *
+   * @param aName Name of the signal
+   * @param aUuid Path of the signal to distribute to
+   * @param aValue Value of the signal to carry
+   */
+  void
+  DistributeSignal(const nsAString& aName, const BluetoothUuid& aUuid,
                    const BluetoothValue& aValue);
 
   /**
@@ -198,6 +237,18 @@ public:
   virtual void
   StartLeScanInternal(const nsTArray<BluetoothUuid>& aServiceUuids,
                       BluetoothReplyRunnable* aRunnable) = 0;
+
+  /**
+   * Start/Stop advertising.
+   */
+  virtual void
+  StartAdvertisingInternal(const BluetoothUuid& aAppUuid,
+                           const BluetoothGattAdvertisingData& aAdvData,
+                           BluetoothReplyRunnable* aRunnable) { }
+
+  virtual void
+  StopAdvertisingInternal(const BluetoothUuid& aAppUuid,
+                          BluetoothReplyRunnable* aRunnable) { }
 
   /**
    * Set a property for the specified object
@@ -544,6 +595,11 @@ public:
     const BluetoothGattId& aCharacteristicId,
     const BluetoothGattId& aDescriptorId,
     const nsTArray<uint8_t>& aValue,
+    BluetoothReplyRunnable* aRunnable) = 0;
+
+  virtual void
+  GattServerRegisterInternal(
+    const BluetoothUuid& aAppUuid,
     BluetoothReplyRunnable* aRunnable) = 0;
 
   virtual void

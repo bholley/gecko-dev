@@ -2,6 +2,7 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 "use strict";
+
 var Cc = Components.classes;
 var Ci = Components.interfaces;
 var Cu = Components.utils;
@@ -10,8 +11,9 @@ var CC = Components.Constructor;
 
 const { require } =
   Cu.import("resource://devtools/shared/Loader.jsm", {});
+const { NetUtil } = require("resource://gre/modules/NetUtil.jsm");
 const promise = require("promise");
-const { Task } = Cu.import("resource://gre/modules/Task.jsm", {});
+const { Task } = require("devtools/shared/task");
 
 const Services = require("Services");
 const DevToolsUtils = require("devtools/shared/DevToolsUtils");
@@ -31,8 +33,8 @@ const { DebuggerClient } = require("devtools/shared/client/main");
 function testExceptionHook(ex) {
   try {
     do_report_unexpected_exception(ex);
-  } catch(ex) {
-    return {throw: ex}
+  } catch (ex) {
+    return {throw: ex};
   }
   return undefined;
 }
@@ -160,7 +162,7 @@ function attachTestThread(aClient, aTitle, aCallback) {
 // the 'resume' packet, a TabClient for the tab, and a ThreadClient for the
 // thread.
 function attachTestTabAndResume(aClient, aTitle, aCallback) {
-  attachTestThread(aClient, aTitle, function(aResponse, aTabClient, aThreadClient) {
+  attachTestThread(aClient, aTitle, function (aResponse, aTabClient, aThreadClient) {
     aThreadClient.resume(function (aResponse) {
       aCallback(aResponse, aTabClient, aThreadClient);
     });
@@ -182,7 +184,7 @@ function initTestDebuggerServer() {
 }
 
 function finishClient(aClient) {
-  aClient.close(function() {
+  aClient.close(function () {
     do_test_finished();
   });
 }
@@ -190,7 +192,7 @@ function finishClient(aClient) {
 /**
  * Takes a relative file path and returns the absolute file url for it.
  */
-function getFileUrl(aName, aAllowMissing=false) {
+function getFileUrl(aName, aAllowMissing = false) {
   let file = do_get_file(aName, aAllowMissing);
   return Services.io.newFileURI(file).spec;
 }
@@ -199,7 +201,7 @@ function getFileUrl(aName, aAllowMissing=false) {
  * Returns the full path of the file with the specified name in a
  * platform-independent and URL-like form.
  */
-function getFilePath(aName, aAllowMissing=false) {
+function getFilePath(aName, aAllowMissing = false) {
   let file = do_get_file(aName, aAllowMissing);
   let path = Services.io.newFileURI(file).spec;
   let filePrePath = "file://";
@@ -209,8 +211,6 @@ function getFilePath(aName, aAllowMissing=false) {
   }
   return path.slice(filePrePath.length);
 }
-
-Cu.import("resource://gre/modules/NetUtil.jsm");
 
 /**
  * Wrapper around do_get_file to prefix files with the name of current test to
@@ -238,9 +238,9 @@ function writeTestTempFile(aFileName, aContent) {
   }
 }
 
-/*** Transport Factories ***/
+/** * Transport Factories ***/
 
-var socket_transport = Task.async(function*() {
+var socket_transport = Task.async(function* () {
   if (!DebuggerServer.listeningSockets) {
     let AuthenticatorType = DebuggerServer.Authenticators.get("PROMPT");
     let authenticator = new AuthenticatorType.Server();
@@ -248,7 +248,7 @@ var socket_transport = Task.async(function*() {
       return DebuggerServer.AuthenticationResult.ALLOW;
     };
     let listener = DebuggerServer.createListener();
-    listener.portOrPath = -1 /* any available port */;
+    listener.portOrPath = -1;
     listener.authenticator = authenticator;
     yield listener.open();
   }
@@ -261,7 +261,7 @@ function local_transport() {
   return promise.resolve(DebuggerServer.connectPipe());
 }
 
-/*** Sample Data ***/
+/** * Sample Data ***/
 
 var gReallyLong;
 function really_long() {

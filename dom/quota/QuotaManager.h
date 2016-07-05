@@ -9,9 +9,6 @@
 
 #include "QuotaCommon.h"
 
-#include "nsIObserver.h"
-#include "nsIQuotaManager.h"
-
 #include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/ipc/IdType.h"
 #include "mozilla/Mutex.h"
@@ -24,18 +21,14 @@
 
 #define QUOTA_MANAGER_CONTRACTID "@mozilla.org/dom/quota/manager;1"
 
+class mozIStorageConnection;
+class nsIEventTarget;
 class nsIPrincipal;
 class nsIThread;
 class nsITimer;
 class nsIURI;
-class nsPIDOMWindow;
+class nsPIDOMWindowOuter;
 class nsIRunnable;
-
-namespace mozilla {
-namespace dom {
-class OptionalContentId;
-} // namespace dom
-} // namespace mozilla
 
 BEGIN_QUOTA_NAMESPACE
 
@@ -56,10 +49,8 @@ public:
   Release() = 0;
 };
 
-// nsISupports is needed for nsMainThreadPtrHandle<DirectoryLock>
-// XXX RemoveMe once bug 1164581 gets fixed.
 class DirectoryLock
-  : public nsISupports
+  : public RefCountedObject
 {
   friend class DirectoryLockImpl;
 
@@ -101,42 +92,37 @@ struct OriginParams
   bool mIsApp;
 };
 
-class QuotaManager final : public nsIQuotaManager,
-                           public nsIObserver
+class QuotaManager final
+  : public BackgroundThreadObject
 {
   friend class DirectoryLockImpl;
   friend class GroupInfo;
   friend class OriginInfo;
   friend class QuotaObject;
 
-  enum MozBrowserPatternFlag
-  {
-    MozBrowser = 0,
-    NotMozBrowser,
-    IgnoreMozBrowser
-  };
-
   typedef nsClassHashtable<nsCStringHashKey,
                            nsTArray<DirectoryLockImpl*>> DirectoryLockTable;
 
 public:
-  NS_DECL_ISUPPORTS
-  NS_DECL_NSIQUOTAMANAGER
-  NS_DECL_NSIOBSERVER
+  class CreateRunnable;
+
+private:
+  class ShutdownRunnable;
+  class ShutdownObserver;
+
+public:
+  NS_INLINE_DECL_REFCOUNTING(QuotaManager)
+
+  static const bool kRunningXPCShellTests;
 
   static const char kReplaceChars[];
 
-  // Returns a non-owning reference.
-  static QuotaManager*
-  GetOrCreate();
+  static void
+  GetOrCreate(nsIRunnable* aCallback);
 
   // Returns a non-owning reference.
   static QuotaManager*
   Get();
-
-  // Returns an owning reference! No one should call this but the factory.
-  static QuotaManager*
-  FactoryCreate();
 
   // Returns true if we've begun the shutdown process.
   static bool IsShuttingDown();
@@ -210,6 +196,34 @@ public:
                         const nsACString& aASCIIOrigin,
                         nsIFile** aDirectory) const;
 
+  nsresult
+  RestoreDirectoryMetadata2(nsIFile* aDirectory, bool aPersistent);
+
+  nsresult
+  GetDirectoryMetadata2(nsIFile* aDirectory,
+                        int64_t* aTimestamp,
+                        nsACString& aSuffix,
+                        nsACString& aGroup,
+                        nsACString& aOrigin,
+                        bool* aIsApp);
+
+  nsresult
+  GetDirectoryMetadata2WithRestore(nsIFile* aDirectory,
+                                   bool aPersistent,
+                                   int64_t* aTimestamp,
+                                   nsACString& aSuffix,
+                                   nsACString& aGroup,
+                                   nsACString& aOrigin,
+                                   bool* aIsApp);
+
+  nsresult
+  GetDirectoryMetadata2(nsIFile* aDirectory, int64_t* aTimestamp);
+
+  nsresult
+  GetDirectoryMetadata2WithRestore(nsIFile* aDirectory,
+                                   bool aPersistent,
+                                   int64_t* aTimestamp);
+
   // This is the main entry point into the QuotaManager API.
   // Any storage API implementation (quota client) that participates in
   // centralized quota and storage handling should call this method to get
@@ -238,6 +252,7 @@ public:
   void
   OpenDirectoryInternal(Nullable<PersistenceType> aPersistenceType,
                         const OriginScope& aOriginScope,
+                        Nullable<Client::Type> aClientType,
                         bool aExclusive,
                         OpenDirectoryListener* aOpenListener);
 
@@ -247,7 +262,11 @@ public:
                             nsTArray<RefPtr<DirectoryLockImpl>>& aLocks);
 
   nsresult
+  EnsureStorageIsInitialized();
+
+  nsresult
   EnsureOriginIsInitialized(PersistenceType aPersistenceType,
+                            const nsACString& aSuffix,
                             const nsACString& aGroup,
                             const nsACString& aOrigin,
                             bool aIsApp,
@@ -260,6 +279,26 @@ public:
 
   void
   ResetOrClearCompleted();
+
+  void
+  StartIdleMaintenance()
+  {
+    AssertIsOnOwningThread();
+
+    for (auto& client : mClients) {
+      client->StartIdleMaintenance();
+    }
+  }
+
+  void
+  StopIdleMaintenance()
+  {
+    AssertIsOnOwningThread();
+
+    for (auto& client : mClients) {
+      client->StopIdleMaintenance();
+    }
+  }
 
   void
   AssertCurrentThreadOwnsQuotaMutex()
@@ -276,6 +315,12 @@ public:
 
   Client*
   GetClient(Client::Type aClientType);
+
+  const nsString&
+  GetBasePath() const
+  {
+    return mBasePath;
+  }
 
   const nsString&
   GetStoragePath() const
@@ -310,18 +355,21 @@ public:
 
   static nsresult
   GetInfoFromPrincipal(nsIPrincipal* aPrincipal,
+                       nsACString* aSuffix,
                        nsACString* aGroup,
                        nsACString* aOrigin,
                        bool* aIsApp);
 
   static nsresult
-  GetInfoFromWindow(nsPIDOMWindow* aWindow,
+  GetInfoFromWindow(nsPIDOMWindowOuter* aWindow,
+                    nsACString* aSuffix,
                     nsACString* aGroup,
                     nsACString* aOrigin,
                     bool* aIsApp);
 
   static void
-  GetInfoForChrome(nsACString* aGroup,
+  GetInfoForChrome(nsACString* aSuffix,
+                   nsACString* aGroup,
                    nsACString* aOrigin,
                    bool* aIsApp);
 
@@ -341,38 +389,16 @@ public:
   static void
   ChromeOrigin(nsACString& aOrigin);
 
-  static void
-  GetOriginPatternString(uint32_t aAppId, bool aBrowserOnly,
-                         const nsACString& aOrigin, nsAutoCString& _retval)
-  {
-    return GetOriginPatternString(aAppId,
-                                  aBrowserOnly ? MozBrowser : NotMozBrowser,
-                                  aOrigin, _retval);
-  }
-
-  static void
-  GetOriginPatternStringMaybeIgnoreBrowser(uint32_t aAppId, bool aBrowserOnly,
-                                           nsAutoCString& _retval)
-  {
-    return GetOriginPatternString(aAppId,
-                                  aBrowserOnly ? MozBrowser : IgnoreMozBrowser,
-                                  EmptyCString(), _retval);
-  }
-
-  static nsresult
-  GetDirectoryMetadata(nsIFile* aDirectory,
-                       int64_t* aTimestamp,
-                       nsACString& aGroup,
-                       nsACString& aOrigin,
-                       bool* aIsApp);
-
 private:
   QuotaManager();
 
   virtual ~QuotaManager();
 
   nsresult
-  Init();
+  Init(const nsAString& aBaseDirPath);
+
+  void
+  Shutdown();
 
   already_AddRefed<DirectoryLockImpl>
   CreateDirectoryLock(Nullable<PersistenceType> aPersistenceType,
@@ -416,7 +442,15 @@ private:
   MaybeUpgradePersistentStorageDirectory();
 
   nsresult
-  MaybeUpgradeStorageArea();
+  MaybeRemoveOldDirectories();
+
+  nsresult
+  UpgradeStorageFrom0ToCurrent(mozIStorageConnection* aConnection);
+
+#if 0
+  nsresult
+  UpgradeStorageFrom1To2(mozIStorageConnection* aConnection);
+#endif
 
   nsresult
   InitializeRepository(PersistenceType aPersistenceType);
@@ -428,9 +462,6 @@ private:
                    bool aIsApp,
                    int64_t aAccessTime,
                    nsIFile* aDirectory);
-
-  nsresult
-  ClearStoragesForApp(uint32_t aAppId, bool aBrowserOnly);
 
   void
   CheckTemporaryStorageLimits();
@@ -456,10 +487,7 @@ private:
   GetDirectoryLockTable(PersistenceType aPersistenceType);
 
   static void
-  GetOriginPatternString(uint32_t aAppId,
-                         MozBrowserPatternFlag aBrowserFlag,
-                         const nsACString& aOrigin,
-                         nsAutoCString& _retval);
+  ShutdownTimerCallback(nsITimer* aTimer, void* aClosure);
 
   mozilla::Mutex mQuotaMutex;
 
@@ -485,8 +513,9 @@ private:
   // by any mutex but it is only ever touched on the IO thread.
   nsTArray<nsCString> mInitializedOrigins;
 
-  nsAutoTArray<RefPtr<Client>, Client::TYPE_MAX> mClients;
+  AutoTArray<RefPtr<Client>, Client::TYPE_MAX> mClients;
 
+  nsString mBasePath;
   nsString mIndexedDBPath;
   nsString mStoragePath;
   nsString mPermanentStoragePath;
@@ -497,7 +526,7 @@ private:
   uint64_t mTemporaryStorageUsage;
   bool mTemporaryStorageInitialized;
 
-  bool mStorageAreaInitialized;
+  bool mStorageInitialized;
 };
 
 END_QUOTA_NAMESPACE

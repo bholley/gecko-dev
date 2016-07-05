@@ -3,14 +3,13 @@
 "use strict";
 
 add_task(function* testDisabled() {
-
   let extension = ExtensionTestUtils.loadExtension({
     manifest: {
-      "browser_action": {}
+      "browser_action": {},
     },
 
-    background: function () {
-      var clicked = false;
+    background: function() {
+      let clicked = false;
 
       browser.browserAction.onClicked.addListener(() => {
         browser.test.log("Got click event");
@@ -38,18 +37,10 @@ add_task(function* testDisabled() {
     },
   });
 
-  let browserActionId = makeWidgetId(extension.id) + "-browser-action";
+  yield extension.startup();
+  yield extension.awaitMessage("ready");
 
-  yield Promise.all([extension.startup(), extension.awaitMessage("ready")]);
-
-  let elem = document.getElementById(browserActionId);
-
-  function click() {
-    EventUtils.synthesizeMouseAtCenter(elem, {}, window);
-    return new Promise(SimpleTest.executeSoon);
-  }
-
-  yield click();
+  yield clickBrowserAction(extension);
 
   extension.sendMessage("check-clicked", true);
   yield extension.awaitMessage("next-test");
@@ -57,7 +48,7 @@ add_task(function* testDisabled() {
   extension.sendMessage("disable");
   yield extension.awaitMessage("next-test");
 
-  yield click();
+  yield clickBrowserAction(extension);
 
   extension.sendMessage("check-clicked", false);
   yield extension.awaitMessage("next-test");
@@ -65,7 +56,7 @@ add_task(function* testDisabled() {
   extension.sendMessage("enable");
   yield extension.awaitMessage("next-test");
 
-  yield click();
+  yield clickBrowserAction(extension);
 
   extension.sendMessage("check-clicked", true);
   yield extension.awaitMessage("next-test");

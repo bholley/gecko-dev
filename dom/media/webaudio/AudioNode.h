@@ -10,7 +10,6 @@
 #include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/dom/AudioNodeBinding.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsAutoPtr.h"
 #include "nsTArray.h"
 #include "AudioContext.h"
 #include "MediaStreamGraph.h"
@@ -256,11 +255,6 @@ private:
   // Whether the node just passes through its input.  This is a devtools API that
   // only works for some node types.
   bool mPassThrough;
-#ifdef DEBUG
-  // In debug builds, check to make sure that the node demise notification has
-  // been properly sent before the node is destroyed.
-  bool mDemiseNotified;
-#endif
 };
 
 } // namespace dom

@@ -11,14 +11,20 @@
 
 #include "WorkerPrivate.h"
 
+#define NOTIFICATION_CLICK_EVENT_NAME "notificationclick"
+#define NOTIFICATION_CLOSE_EVENT_NAME "notificationclose"
+
+class nsIInterceptedChannel;
+
 namespace mozilla {
 namespace dom {
 namespace workers {
 
 class ServiceWorkerInfo;
+class ServiceWorkerRegistrationInfo;
 class KeepAliveToken;
 
-class LifeCycleEventCallback : public nsRunnable
+class LifeCycleEventCallback : public Runnable
 {
 public:
   // Called on the worker thread.
@@ -72,11 +78,9 @@ public:
                    UniquePtr<ServiceWorkerClientInfo>&& aClientInfo);
 
   // This is used to validate the worker script and continue the installation
-  // process. Note that the callback is dispatched to the main thread
-  // ONLY if the evaluation was successful. Failure is handled by the JS
-  // exception handler which will call ServiceWorkerManager::HandleError.
+  // process.
   nsresult
-  ContinueOnSuccessfulScriptEvaluation(nsRunnable* aCallback);
+  CheckScriptEvaluation(LifeCycleEventCallback* aCallback);
 
   nsresult
   SendLifeCycleEvent(const nsAString& aEventType,
@@ -84,28 +88,30 @@ public:
                      nsIRunnable* aLoadFailure);
 
   nsresult
-  SendPushEvent(const Maybe<nsTArray<uint8_t>>& aData,
+  SendPushEvent(const nsAString& aMessageId,
+                const Maybe<nsTArray<uint8_t>>& aData,
                 ServiceWorkerRegistrationInfo* aRegistration);
 
   nsresult
   SendPushSubscriptionChangeEvent();
 
   nsresult
-  SendNotificationClickEvent(const nsAString& aID,
-                             const nsAString& aTitle,
-                             const nsAString& aDir,
-                             const nsAString& aLang,
-                             const nsAString& aBody,
-                             const nsAString& aTag,
-                             const nsAString& aIcon,
-                             const nsAString& aData,
-                             const nsAString& aBehavior,
-                             const nsAString& aScope);
+  SendNotificationEvent(const nsAString& aEventName,
+                        const nsAString& aID,
+                        const nsAString& aTitle,
+                        const nsAString& aDir,
+                        const nsAString& aLang,
+                        const nsAString& aBody,
+                        const nsAString& aTag,
+                        const nsAString& aIcon,
+                        const nsAString& aData,
+                        const nsAString& aBehavior,
+                        const nsAString& aScope);
 
   nsresult
   SendFetchEvent(nsIInterceptedChannel* aChannel,
                  nsILoadGroup* aLoadGroup,
-                 UniquePtr<ServiceWorkerClientInfo>&& aClientInfo,
+                 const nsAString& aDocumentId,
                  bool aIsReload);
 
   void
@@ -128,6 +134,18 @@ public:
   void
   NoteStoppedControllingDocuments();
 
+  void
+  Activated();
+
+  nsresult
+  GetDebugger(nsIWorkerDebugger** aResult);
+
+  nsresult
+  AttachDebugger();
+
+  nsresult
+  DetachDebugger();
+
 private:
   enum WakeUpReason {
     FetchEvent = 0,
@@ -135,7 +153,9 @@ private:
     PushSubscriptionChangeEvent,
     MessageEvent,
     NotificationClickEvent,
-    LifeCycleEvent
+    NotificationCloseEvent,
+    LifeCycleEvent,
+    AttachEvent
   };
 
   // Timer callbacks
@@ -146,7 +166,10 @@ private:
   TerminateWorkerCallback(nsITimer* aTimer, void *aPrivate);
 
   void
-  ResetIdleTimeout(WakeUpReason aWhy);
+  RenewKeepAliveToken(WakeUpReason aWhy);
+
+  void
+  ResetIdleTimeout();
 
   void
   AddToken();
@@ -175,14 +198,11 @@ private:
 
   nsCOMPtr<nsITimer> mIdleWorkerTimer;
 
-  // We keep track if this worker received any push events since it was last
-  // woken up. The flag is reset to false every time a new WorkerPrivate
-  // is created.
-  bool mIsPushWorker;
-
   // We keep a token for |dom.serviceWorkers.idle_timeout| seconds to give the
   // worker a grace period after each event.
   RefPtr<KeepAliveToken> mKeepAliveToken;
+
+  uint64_t mDebuggerCount;
 
   uint64_t mTokenCount;
 
@@ -191,6 +211,10 @@ private:
   // |StoreISupports| and |RemoveISupports|. Note that the array is also
   // cleared whenever the worker is terminated.
   nsTArray<nsCOMPtr<nsISupports>> mSupportsArray;
+
+  // Array of function event worker runnables that are pending due to
+  // the worker activating.  Main thread only.
+  nsTArray<RefPtr<WorkerRunnable>> mPendingFunctionalEvents;
 };
 
 } // namespace workers

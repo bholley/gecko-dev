@@ -1,5 +1,7 @@
+/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
+/* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* Any copyright is dedicated to the Public Domain.
-   http://creativecommons.org/publicdomain/zero/1.0/ */
+ * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 /**
  * Make sure that pausing on exceptions works after reload.
@@ -11,7 +13,11 @@ var gTab, gPanel, gDebugger;
 var gFrames, gVariables, gPrefs, gOptions;
 
 function test() {
-  initDebugger(TAB_URL).then(([aTab,, aPanel]) => {
+  let options = {
+    source: TAB_URL,
+    line: 1
+  };
+  initDebugger(TAB_URL, options).then(([aTab,, aPanel]) => {
     gTab = aTab;
     gPanel = aPanel;
     gDebugger = gPanel.panelWin;
@@ -28,6 +34,9 @@ function test() {
     enablePauseOnExceptions()
       .then(disableIgnoreCaughtExceptions)
       .then(() => reloadActiveTab(gPanel, gDebugger.EVENTS.SOURCE_SHOWN))
+      .then(() => {
+        generateMouseClickInTab(gTab, "content.document.querySelector('button')");
+      })
       .then(testPauseOnExceptionsAfterReload)
       .then(disablePauseOnExceptions)
       .then(enableIgnoreCaughtExceptions)
@@ -124,7 +133,6 @@ function enablePauseOnExceptions() {
 
   gOptions._pauseOnExceptionsItem.setAttribute("checked", "true");
   gOptions._togglePauseOnExceptions();
-
   return deferred.promise;
 }
 
@@ -185,7 +193,7 @@ function disableIgnoreCaughtExceptions() {
   return deferred.promise;
 }
 
-registerCleanupFunction(function() {
+registerCleanupFunction(function () {
   gTab = null;
   gPanel = null;
   gDebugger = null;

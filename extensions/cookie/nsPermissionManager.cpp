@@ -104,13 +104,43 @@ LogToConsole(const nsAString& aMsg)
 namespace {
 
 nsresult
+GetOriginFromPrincipal(nsIPrincipal* aPrincipal, nsACString& aOrigin)
+{
+  nsresult rv = aPrincipal->GetOriginNoSuffix(aOrigin);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsAutoCString suffix;
+  rv = aPrincipal->GetOriginSuffix(suffix);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  mozilla::PrincipalOriginAttributes attrs;
+  if (!attrs.PopulateFromSuffix(suffix)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  // mPrivateBrowsingId must be set to false because PermissionManager is not supposed to have
+  // any knowledge of private browsing. Allowing it to be true changes the suffix being hashed.
+  attrs.mPrivateBrowsingId = 0;
+
+  // set to default to disable user context isolation for permissions
+  attrs.mUserContextId = nsIScriptSecurityManager::DEFAULT_USER_CONTEXT_ID;
+
+  attrs.CreateSuffix(suffix);
+  aOrigin.Append(suffix);
+  return NS_OK;
+}
+
+nsresult
 GetPrincipalFromOrigin(const nsACString& aOrigin, nsIPrincipal** aPrincipal)
 {
   nsAutoCString originNoSuffix;
-  mozilla::OriginAttributes attrs;
+  mozilla::PrincipalOriginAttributes attrs;
   if (!attrs.PopulateFromOrigin(aOrigin, originNoSuffix)) {
     return NS_ERROR_FAILURE;
   }
+
+  // set to default to disable user context isolation for permissions
+  attrs.mUserContextId = nsIScriptSecurityManager::DEFAULT_USER_CONTEXT_ID;
 
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_NewURI(getter_AddRefs(uri), originNoSuffix);
@@ -123,10 +153,10 @@ GetPrincipalFromOrigin(const nsACString& aOrigin, nsIPrincipal** aPrincipal)
 
 
 nsresult
-GetPrincipal(nsIURI* aURI, uint32_t aAppId, bool aIsInBrowserElement, nsIPrincipal** aPrincipal)
+GetPrincipal(nsIURI* aURI, uint32_t aAppId, bool aIsInIsolatedMozBrowserElement, nsIPrincipal** aPrincipal)
 {
   // TODO: Bug 1165267 - Use OriginAttributes for nsCookieService
-  mozilla::OriginAttributes attrs(aAppId, aIsInBrowserElement);
+  mozilla::PrincipalOriginAttributes attrs(aAppId, aIsInIsolatedMozBrowserElement);
   nsCOMPtr<nsIPrincipal> principal = mozilla::BasePrincipal::CreateCodebasePrincipal(aURI, attrs);
   NS_ENSURE_TRUE(principal, NS_ERROR_FAILURE);
 
@@ -137,7 +167,7 @@ GetPrincipal(nsIURI* aURI, uint32_t aAppId, bool aIsInBrowserElement, nsIPrincip
 nsresult
 GetPrincipal(nsIURI* aURI, nsIPrincipal** aPrincipal)
 {
-  mozilla::OriginAttributes attrs;
+  mozilla::PrincipalOriginAttributes attrs;
   nsCOMPtr<nsIPrincipal> principal = mozilla::BasePrincipal::CreateCodebasePrincipal(aURI, attrs);
   NS_ENSURE_TRUE(principal, NS_ERROR_FAILURE);
 
@@ -363,7 +393,7 @@ private:
 nsresult
 UpgradeHostToOriginAndInsert(const nsACString& aHost, const nsAFlatCString& aType,
                              uint32_t aPermission, uint32_t aExpireType, int64_t aExpireTime,
-                             int64_t aModificationTime, uint32_t aAppId, bool aIsInBrowserElement,
+                             int64_t aModificationTime, uint32_t aAppId, bool aIsInIsolatedMozBrowserElement,
                              UpgradeHostToOriginHelper* aHelper)
 {
   if (aHost.EqualsLiteral("<file>")) {
@@ -387,11 +417,11 @@ UpgradeHostToOriginAndInsert(const nsACString& aHost, const nsAFlatCString& aTyp
     }
 
     nsCOMPtr<nsIPrincipal> principal;
-    rv = GetPrincipal(uri, aAppId, aIsInBrowserElement, getter_AddRefs(principal));
+    rv = GetPrincipal(uri, aAppId, aIsInIsolatedMozBrowserElement, getter_AddRefs(principal));
     NS_ENSURE_SUCCESS(rv, rv);
 
     nsAutoCString origin;
-    rv = principal->GetOrigin(origin);
+    rv = GetOriginFromPrincipal(principal, origin);
     NS_ENSURE_SUCCESS(rv, rv);
 
     return aHelper->Insert(origin, aType, aPermission,
@@ -495,11 +525,11 @@ UpgradeHostToOriginAndInsert(const nsACString& aHost, const nsAFlatCString& aTyp
 
       // We now have a URI which we can make a nsIPrincipal out of
       nsCOMPtr<nsIPrincipal> principal;
-      rv = GetPrincipal(uri, aAppId, aIsInBrowserElement, getter_AddRefs(principal));
+      rv = GetPrincipal(uri, aAppId, aIsInIsolatedMozBrowserElement, getter_AddRefs(principal));
       if (NS_WARN_IF(NS_FAILED(rv))) continue;
 
       nsAutoCString origin;
-      rv = principal->GetOrigin(origin);
+      rv = GetOriginFromPrincipal(principal, origin);
       if (NS_WARN_IF(NS_FAILED(rv))) continue;
 
       // Ensure that we don't insert the same origin repeatedly
@@ -541,10 +571,10 @@ UpgradeHostToOriginAndInsert(const nsACString& aHost, const nsAFlatCString& aTyp
     rv = NS_NewURI(getter_AddRefs(uri), NS_LITERAL_CSTRING("http://") + hostSegment);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = GetPrincipal(uri, aAppId, aIsInBrowserElement, getter_AddRefs(principal));
+    rv = GetPrincipal(uri, aAppId, aIsInIsolatedMozBrowserElement, getter_AddRefs(principal));
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = principal->GetOrigin(origin);
+    rv = GetOriginFromPrincipal(principal, origin);
     NS_ENSURE_SUCCESS(rv, rv);
 
     aHelper->Insert(origin, aType, aPermission,
@@ -554,10 +584,10 @@ UpgradeHostToOriginAndInsert(const nsACString& aHost, const nsAFlatCString& aTyp
     rv = NS_NewURI(getter_AddRefs(uri), NS_LITERAL_CSTRING("https://") + hostSegment);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = GetPrincipal(uri, aAppId, aIsInBrowserElement, getter_AddRefs(principal));
+    rv = GetPrincipal(uri, aAppId, aIsInIsolatedMozBrowserElement, getter_AddRefs(principal));
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = principal->GetOrigin(origin);
+    rv = GetOriginFromPrincipal(principal, origin);
     NS_ENSURE_SUCCESS(rv, rv);
 
     aHelper->Insert(origin, aType, aPermission,
@@ -580,7 +610,7 @@ IsExpandedPrincipal(nsIPrincipal* aPrincipal)
 
 nsPermissionManager::PermissionKey::PermissionKey(nsIPrincipal* aPrincipal)
 {
-  MOZ_ALWAYS_TRUE(NS_SUCCEEDED(aPrincipal->GetOrigin(mOrigin)));
+  MOZ_ALWAYS_SUCCEEDS(GetOriginFromPrincipal(aPrincipal, mOrigin));
 }
 
 /**
@@ -1539,7 +1569,7 @@ nsPermissionManager::AddInternal(nsIPrincipal* aPrincipal,
                                  const bool            aIgnoreSessionPermissions)
 {
   nsAutoCString origin;
-  nsresult rv = aPrincipal->GetOrigin(origin);
+  nsresult rv = GetOriginFromPrincipal(aPrincipal, origin);
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (!IsChildProcess()) {
@@ -1571,7 +1601,7 @@ nsPermissionManager::AddInternal(nsIPrincipal* aPrincipal,
   PermissionHashKey* entry = mPermissionTable.PutEntry(key);
   if (!entry) return NS_ERROR_FAILURE;
   if (!entry->GetKey()) {
-    mPermissionTable.RawRemoveEntry(entry);
+    mPermissionTable.RemoveEntry(entry);
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
@@ -1694,7 +1724,7 @@ nsPermissionManager::AddInternal(nsIPrincipal* aPrincipal,
 
       // If there are no more permissions stored for that entry, clear it.
       if (entry->GetPermissions().IsEmpty()) {
-        mPermissionTable.RawRemoveEntry(entry);
+        mPermissionTable.RemoveEntry(entry);
       }
 
       break;
@@ -1773,14 +1803,6 @@ nsPermissionManager::AddInternal(nsIPrincipal* aPrincipal,
 
       // If requested, create the entry in the DB.
       if (aDBOperation == eWriteToDB) {
-        uint32_t appId;
-        rv = aPrincipal->GetAppId(&appId);
-        NS_ENSURE_SUCCESS(rv, rv);
-
-        bool isInBrowserElement;
-        rv = aPrincipal->GetIsInBrowserElement(&isInBrowserElement);
-        NS_ENSURE_SUCCESS(rv, rv);
-
         UpdateDB(eOperationAdding, mStmtInsert, id, origin, aType, aPermission,
                  aExpireType, aExpireTime, aModificationTime);
       }
@@ -1968,19 +1990,15 @@ nsPermissionManager::TestPermission(nsIURI     *aURI,
 }
 
 NS_IMETHODIMP
-nsPermissionManager::TestPermissionFromWindow(nsIDOMWindow* aWindow,
+nsPermissionManager::TestPermissionFromWindow(mozIDOMWindow* aWindow,
                                               const char* aType,
                                               uint32_t* aPermission)
 {
-  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aWindow);
-  NS_ENSURE_TRUE(window, NS_NOINTERFACE);
-
-  nsPIDOMWindow* innerWindow = window->IsInnerWindow() ?
-    window.get() :
-    window->GetCurrentInnerWindow();
+  NS_ENSURE_ARG(aWindow);
+  nsCOMPtr<nsPIDOMWindowInner> window = nsPIDOMWindowInner::From(aWindow);
 
   // Get the document for security check
-  nsCOMPtr<nsIDocument> document = innerWindow->GetExtantDoc();
+  nsCOMPtr<nsIDocument> document = window->GetExtantDoc();
   NS_ENSURE_TRUE(document, NS_NOINTERFACE);
 
   nsCOMPtr<nsIPrincipal> principal = document->NodePrincipal();
@@ -2177,8 +2195,14 @@ nsPermissionManager::GetPermissionHashKey(nsIPrincipal* aPrincipal,
     }
 
     // Copy the attributes over
-    mozilla::OriginAttributes attrs = mozilla::BasePrincipal::Cast(aPrincipal)->OriginAttributesRef();
-    nsCOMPtr<nsIPrincipal> principal = mozilla::BasePrincipal::CreateCodebasePrincipal(newURI, attrs);
+    mozilla::PrincipalOriginAttributes attrs =
+      mozilla::BasePrincipal::Cast(aPrincipal)->OriginAttributesRef();
+
+    // ensure that the user context isolation is disabled
+    attrs.mUserContextId = nsIScriptSecurityManager::DEFAULT_USER_CONTEXT_ID;
+
+    nsCOMPtr<nsIPrincipal> principal =
+      mozilla::BasePrincipal::CreateCodebasePrincipal(newURI, attrs);
 
     return GetPermissionHashKey(principal, aType, aExactHostMatch);
   }
@@ -2952,4 +2976,3 @@ nsPermissionManager::FetchPermissions() {
   }
   return NS_OK;
 }
-

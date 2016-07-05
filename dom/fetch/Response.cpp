@@ -39,6 +39,8 @@ Response::Response(nsIGlobalObject* aGlobal, InternalResponse* aInternalResponse
   , mOwner(aGlobal)
   , mInternalResponse(aInternalResponse)
 {
+  MOZ_ASSERT(aInternalResponse->Headers()->Guard() == HeadersGuardEnum::Immutable ||
+             aInternalResponse->Headers()->Guard() == HeadersGuardEnum::Response);
   SetMimeType();
 }
 
@@ -163,7 +165,7 @@ Response::Constructor(const GlobalObject& aGlobal,
   // interception.
   if (NS_IsMainThread()) {
     ChannelInfo info;
-    nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(global);
+    nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(global);
     if (window) {
       nsIDocument* doc = window->GetExtantDoc();
       MOZ_ASSERT(doc);
@@ -205,8 +207,15 @@ Response::Constructor(const GlobalObject& aGlobal,
 
     nsCOMPtr<nsIInputStream> bodyStream;
     nsCString contentType;
-    aRv = ExtractByteStreamFromBody(aBody.Value(), getter_AddRefs(bodyStream), contentType);
-    internalResponse->SetBody(bodyStream);
+    uint64_t bodySize = 0;
+    aRv = ExtractByteStreamFromBody(aBody.Value(),
+                                    getter_AddRefs(bodyStream),
+                                    contentType,
+                                    bodySize);
+    if (NS_WARN_IF(aRv.Failed())) {
+      return nullptr;
+    }
+    internalResponse->SetBody(bodyStream, bodySize);
 
     if (!contentType.IsVoid() &&
         !internalResponse->Headers()->Has(NS_LITERAL_CSTRING("Content-Type"), aRv)) {
@@ -238,11 +247,25 @@ Response::Clone(ErrorResult& aRv) const
   return response.forget();
 }
 
+already_AddRefed<Response>
+Response::CloneUnfiltered(ErrorResult& aRv) const
+{
+  if (BodyUsed()) {
+    aRv.ThrowTypeError<MSG_FETCH_BODY_CONSUMED_ERROR>();
+    return nullptr;
+  }
+
+  RefPtr<InternalResponse> clone = mInternalResponse->Clone();
+  RefPtr<InternalResponse> ir = clone->Unfiltered();
+  RefPtr<Response> ref = new Response(mOwner, ir);
+  return ref.forget();
+}
+
 void
-Response::SetBody(nsIInputStream* aBody)
+Response::SetBody(nsIInputStream* aBody, int64_t aBodySize)
 {
   MOZ_ASSERT(!BodyUsed());
-  mInternalResponse->SetBody(aBody);
+  mInternalResponse->SetBody(aBody, aBodySize);
 }
 
 already_AddRefed<InternalResponse>

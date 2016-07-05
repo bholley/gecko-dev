@@ -6,10 +6,15 @@
 #include "nsContentSecurityManager.h"
 #include "nsSecCheckWrapChannel.h"
 #include "nsIForcePendingChannel.h"
+#include "nsIStreamListener.h"
+#include "mozilla/Logging.h"
 #include "nsCOMPtr.h"
 
-static mozilla::LazyLogModule gChannelWrapperLog("ChannelWrapper");
-#define CHANNELWRAPPERLOG(args) MOZ_LOG(gChannelWrapperLog, mozilla::LogLevel::Debug, args)
+namespace mozilla {
+namespace net {
+
+static LazyLogModule gChannelWrapperLog("ChannelWrapper");
+#define CHANNELWRAPPERLOG(args) MOZ_LOG(gChannelWrapperLog, LogLevel::Debug, args)
 
 NS_IMPL_ADDREF(nsSecCheckWrapChannelBase)
 NS_IMPL_RELEASE(nsSecCheckWrapChannelBase)
@@ -189,3 +194,6 @@ nsSecCheckWrapChannel::Open2(nsIInputStream** aStream)
   NS_ENSURE_SUCCESS(rv, rv);
   return Open(aStream);
 }
+
+} // namespace net
+} // namespace mozilla

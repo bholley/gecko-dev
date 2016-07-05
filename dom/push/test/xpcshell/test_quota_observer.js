@@ -57,23 +57,20 @@ add_task(function* test_expiration_history_observer() {
     quota: 0,
   });
 
-  yield addVisit({
+  yield PlacesTestUtils.addVisits({
     uri: 'https://example.com/infrequent',
     title: 'Infrequently-visited page',
-    visits: [{
-      visitDate: (Date.now() - 14 * 24 * 60 * 60 * 1000) * 1000,
-      transitionType: Ci.nsINavHistoryService.TRANSITION_LINK,
-    }],
+    visitDate: (Date.now() - 14 * 24 * 60 * 60 * 1000) * 1000,
+    transition: Ci.nsINavHistoryService.TRANSITION_LINK
   });
 
   let unregisterDone;
   let unregisterPromise = new Promise(resolve => unregisterDone = resolve);
-  let subChangePromise = promiseObserverNotification('push-subscription-change', (subject, data) =>
+  let subChangePromise = promiseObserverNotification(PushServiceComponent.subscriptionChangeTopic, (subject, data) =>
     data == 'https://example.com/stuff');
 
   PushService.init({
     serverURI: 'wss://push.example.org/',
-    networkInfo: new MockDesktopNetworkInfo(),
     db,
     makeWebSocket(uri) {
       return new MockWebSocket(uri, {
@@ -93,6 +90,7 @@ add_task(function* test_expiration_history_observer() {
         },
         onUnregister(request) {
           equal(request.channelID, '379c0668-8323-44d2-a315-4ee83f1a9ee9', 'Dropped wrong channel ID');
+          equal(request.code, 201, 'Expected quota exceeded unregister reason');
           unregisterDone();
         },
         onACK(request) {},
@@ -100,16 +98,14 @@ add_task(function* test_expiration_history_observer() {
     }
   });
 
-  yield waitForPromise(subChangePromise, DEFAULT_TIMEOUT,
-    'Timed out waiting for subscription change event on startup');
-  yield waitForPromise(unregisterPromise, DEFAULT_TIMEOUT,
-    'Timed out waiting for unregister request');
+  yield subChangePromise;
+  yield unregisterPromise;
 
   let expiredRecord = yield db.getByKeyID('379c0668-8323-44d2-a315-4ee83f1a9ee9');
   strictEqual(expiredRecord.quota, 0, 'Expired record not updated');
 
   let notifiedScopes = [];
-  subChangePromise = promiseObserverNotification('push-subscription-change', (subject, data) => {
+  subChangePromise = promiseObserverNotification(PushServiceComponent.subscriptionChangeTopic, (subject, data) => {
     notifiedScopes.push(data);
     return notifiedScopes.length == 2;
   });
@@ -127,19 +123,16 @@ add_task(function* test_expiration_history_observer() {
   });
 
   // Now visit the site...
-  yield addVisit({
+  yield PlacesTestUtils.addVisits({
     uri: 'https://example.com/another-page',
     title: 'Infrequently-visited page',
-    visits: [{
-      visitDate: Date.now() * 1000,
-      transitionType: Ci.nsINavHistoryService.TRANSITION_LINK,
-    }],
+    visitDate: Date.now() * 1000,
+    transition: Ci.nsINavHistoryService.TRANSITION_LINK
   });
   Services.obs.notifyObservers(null, 'idle-daily', '');
 
   // And we should receive notifications for both scopes.
-  yield waitForPromise(subChangePromise, DEFAULT_TIMEOUT,
-    'Timed out waiting for subscription change events');
+  yield subChangePromise;
   deepEqual(notifiedScopes.sort(), [
     'https://example.com/auctions',
     'https://example.com/deals'

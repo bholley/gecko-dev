@@ -220,8 +220,8 @@ public:
 
   // Don't use NS_DECL_NSILOADCONTEXT because some of nsILoadContext's methods
   // are shared with nsIDocShell (appID, etc.) and can't be declared twice.
-  NS_IMETHOD GetAssociatedWindow(nsIDOMWindow**) override;
-  NS_IMETHOD GetTopWindow(nsIDOMWindow**) override;
+  NS_IMETHOD GetAssociatedWindow(mozIDOMWindowProxy**) override;
+  NS_IMETHOD GetTopWindow(mozIDOMWindowProxy**) override;
   NS_IMETHOD GetTopFrameElement(nsIDOMElement**) override;
   NS_IMETHOD GetNestedFrameId(uint64_t*) override;
   NS_IMETHOD IsAppOfType(uint32_t, bool*) override;
@@ -232,6 +232,7 @@ public:
   NS_IMETHOD GetUseRemoteTabs(bool*) override;
   NS_IMETHOD SetRemoteTabs(bool) override;
   NS_IMETHOD GetOriginAttributes(JS::MutableHandle<JS::Value>) override;
+  NS_IMETHOD IsTrackingProtectionOn(bool*) override;
 
   // Restores a cached presentation from history (mLSHE).
   // This method swaps out the content viewer and simulates loads for
@@ -270,7 +271,18 @@ public:
   }
   bool InFrameSwap();
 
-  mozilla::OriginAttributes GetOriginAttributes();
+  const mozilla::DocShellOriginAttributes&
+  GetOriginAttributes()
+  {
+    return mOriginAttributes;
+  }
+
+  nsresult SetOriginAttributes(const mozilla::DocShellOriginAttributes& aAttrs);
+
+  void GetInterceptedDocumentId(nsAString& aId)
+  {
+    aId = mInterceptedDocumentId;
+  }
 
 private:
   // An observed docshell wrapper is created when recording markers is enabled.
@@ -289,11 +301,17 @@ private:
     nsDocShell*, const char*, const TimeStamp&, MarkerTracingType);
   friend void mozilla::TimelineConsumers::AddMarkerForDocShell(
     nsDocShell*, UniquePtr<AbstractTimelineMarker>&&);
+  friend void mozilla::TimelineConsumers::PopMarkers(nsDocShell*,
+    JSContext*, nsTArray<dom::ProfileTimelineMarker>&);
 
 public:
+  bool WantsStylo() const { return mWantsStylo; }
+  void SetWantsStylo(bool aWants) { mWantsStylo = aWants; }
+
   // Tell the favicon service that aNewURI has the same favicon as aOldURI.
   static void CopyFavicon(nsIURI* aOldURI,
                           nsIURI* aNewURI,
+                          nsIPrincipal* aLoadingPrincipal,
                           bool aInPrivateBrowsing);
 
   static nsDocShell* Cast(nsIDocShell* aDocShell)
@@ -338,12 +356,7 @@ protected:
   // not have an owner on the channel should just pass null.
   // If aSrcdoc is not void, the load will be considered as a srcdoc load,
   // and the contents of aSrcdoc will be loaded instead of aURI.
-  // aOriginalURI will be set as the originalURI on the channel that does the
-  // load. If aOriginalURI is null, aURI will be set as the originalURI.
-  // If aLoadReplace is true, OLOAD_REPLACE flag will be set to the nsIChannel.
   nsresult DoURILoad(nsIURI* aURI,
-                     nsIURI* aOriginalURI,
-                     bool aLoadReplace,
                      nsIURI* aReferrer,
                      bool aSendReferrer,
                      uint32_t aReferrerPolicy,
@@ -367,7 +380,9 @@ protected:
                          nsIURILoader* aURILoader,
                          bool aBypassClassifier);
 
-  nsresult ScrollToAnchor(nsACString& aCurHash, nsACString& aNewHash,
+  nsresult ScrollToAnchor(bool aCurHasRef,
+                          bool aNewHasRef,
+                          nsACString& aNewHash,
                           uint32_t aLoadType);
 
   // Returns true if would have called FireOnLocationChange,
@@ -714,6 +729,9 @@ protected:
                              nsIDocShellLoadInfo* aLoadInfo,
                              bool aFirstParty);
 
+  // Check if aURI is about:newtab.
+  bool IsAboutNewtab(nsIURI* aURI);
+
 protected:
   nsresult GetCurScrollPos(int32_t aScrollOrientation, int32_t* aCurPos);
   nsresult SetCurScrollPosEx(int32_t aCurHorizontalPos,
@@ -740,7 +758,7 @@ protected:
 
 public:
   // Event type dispatched by RestorePresentation
-  class RestorePresentationEvent : public nsRunnable
+  class RestorePresentationEvent : public mozilla::Runnable
   {
   public:
     NS_DECL_NSIRUNNABLE
@@ -756,21 +774,14 @@ protected:
   nsresult CreatePrincipalFromReferrer(nsIURI* aReferrer,
                                        nsIPrincipal** aResult);
 
-  enum FrameType
-  {
-    eFrameTypeRegular,
-    eFrameTypeBrowser,
-    eFrameTypeApp
-  };
-
-  static const nsCString FrameTypeToString(FrameType aFrameType)
+  static const nsCString FrameTypeToString(uint32_t aFrameType)
   {
     switch (aFrameType) {
-      case FrameType::eFrameTypeApp:
+      case FRAME_TYPE_APP:
         return NS_LITERAL_CSTRING("app");
-      case FrameType::eFrameTypeBrowser:
+      case FRAME_TYPE_BROWSER:
         return NS_LITERAL_CSTRING("browser");
-      case FrameType::eFrameTypeRegular:
+      case FRAME_TYPE_REGULAR:
         return NS_LITERAL_CSTRING("regular");
       default:
         NS_ERROR("Unknown frame type");
@@ -778,7 +789,7 @@ protected:
     }
   }
 
-  FrameType GetInheritedFrameType();
+  uint32_t GetInheritedFrameType();
 
   bool HasUnloadedParent();
 
@@ -786,6 +797,7 @@ protected:
   nsIntRect mBounds;
   nsString mName;
   nsString mTitle;
+  nsString mCustomUserAgent;
 
   /**
    * Content-Type Hint of the most-recently initiated load. Used for
@@ -929,10 +941,10 @@ protected:
   bool mAllowKeywordFixup;
   bool mIsOffScreenBrowser;
   bool mIsActive;
+  bool mDisableMetaRefreshWhenInactive;
   bool mIsPrerendered;
   bool mIsAppTab;
   bool mUseGlobalHistory;
-  bool mInPrivateBrowsing;
   bool mUseRemoteTabs;
   bool mDeviceSizeIsPageSize;
   bool mWindowDraggingAllowed;
@@ -989,25 +1001,20 @@ protected:
   bool mBlankTiming;
 
   // Are we a regular frame, a browser frame, or an app frame?
-  FrameType mFrameType;
+  uint32_t mFrameType;
 
-  // We only expect mOwnOrContainingAppId to be something other than
-  // UNKNOWN_APP_ID if mFrameType != eFrameTypeRegular. For vanilla iframes
-  // inside an app, we'll retrieve the containing app-id by walking up the
-  // docshell hierarchy.
-  //
-  // (This needs to be the docshell's own /or containing/ app id because the
-  // containing app frame might be in another process, in which case we won't
-  // find it by walking up the docshell hierarchy.)
-  uint32_t mOwnOrContainingAppId;
+  // This represents the state of private browsing in the docshell.
+  // Currently treated as a binary value: 1 - in private mode, 0 - not private mode
+  // On content docshells mPrivateBrowsingId == mOriginAttributes.mPrivateBrowsingId
+  // On chrome docshells this value will be set, but not have the corresponding
+  // origin attribute set.
+  uint32_t mPrivateBrowsingId;
 
   nsString mPaymentRequestId;
 
   nsString GetInheritedPaymentRequestId();
 
-  // The packageId for a signed packaged iff this docShell is created
-  // for a signed package.
-  nsString mSignedPkg;
+  nsString mInterceptedDocumentId;
 
 private:
   nsCString mForcedCharset;
@@ -1019,6 +1026,8 @@ private:
   nsTObserverArray<nsWeakPtr> mScrollObservers;
   nsCString mOriginalUriString;
   nsWeakPtr mOpener;
+  mozilla::DocShellOriginAttributes mOriginAttributes;
+  bool mWantsStylo;
 
   // A depth count of how many times NotifyRunToCompletionStart
   // has been called without a matching NotifyRunToCompletionStop.
@@ -1030,6 +1039,10 @@ private:
                               nsISupports* aRequestor,
                               nsIDocShellTreeItem* aOriginalRequestor,
                               nsIDocShellTreeItem** aResult);
+
+  // Helper assertion to enforce that mInPrivateBrowsing is in sync with
+  // OriginAttributes.mPrivateBrowsingId
+  void AssertOriginAttributesMatchPrivateBrowsing();
 
   // Notify consumers of a search being loaded through the observer service:
   void MaybeNotifyKeywordSearchLoading(const nsString& aProvider,

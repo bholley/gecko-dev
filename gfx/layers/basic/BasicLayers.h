@@ -14,7 +14,6 @@
 #include "mozilla/WidgetUtils.h"        // for ScreenRotation
 #include "mozilla/layers/LayersTypes.h"  // for BufferMode, LayersBackend, etc
 #include "nsAString.h"
-#include "nsAutoPtr.h"                  // for nsRefPtr
 #include "nsCOMPtr.h"                   // for already_AddRefed
 #include "nsISupportsImpl.h"            // for gfxContext::AddRef, etc
 #include "nsRegion.h"                   // for nsIntRegion
@@ -140,7 +139,7 @@ public:
 
   struct PushedGroup
   {
-    PushedGroup() : mFinalTarget(nullptr), mNeedsClipToVisibleRegion(false) {}
+    PushedGroup() : mFinalTarget(nullptr), mNeedsClipToVisibleRegion(false), mOperator(gfx::CompositionOp::OP_COUNT), mOpacity(0.0f){}
     gfxContext* mFinalTarget;
     RefPtr<gfxContext> mGroupTarget;
     nsIntRegion mVisibleRegion;
@@ -159,8 +158,6 @@ public:
   virtual bool IsCompositingCheap() override { return false; }
   virtual int32_t GetMaxTextureSize() const override { return INT32_MAX; }
   bool CompositorMightResample() { return mCompositorMightResample; }
-
-  virtual bool SupportsMixBlendModes(EnumSet<gfx::CompositionOp>& aMixBlendModes) override { return true; }
 
 protected:
   enum TransactionPhase {

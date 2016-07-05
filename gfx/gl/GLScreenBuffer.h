@@ -206,10 +206,12 @@ public:
 
     GLsizei Samples() const {
         if (!mDraw)
-            return 1;
+            return 0;
 
         return mDraw->mSamples;
     }
+
+    uint32_t DepthBits() const;
 
     void DeletingFB(GLuint fb);
 
@@ -232,6 +234,10 @@ public:
     void SetReadBuffer(GLenum userMode);
     void SetDrawBuffer(GLenum userMode);
 
+    GLenum GetReadBufferMode() const {
+        return mUserReadBufferMode;
+    }
+
     /**
      * Attempts to read pixels from the current bound framebuffer, if
      * it is backed by a SharedSurface.
@@ -240,7 +246,7 @@ public:
      * otherwise.
      */
     bool ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
-                    GLenum format, GLenum type, GLvoid *pixels);
+                    GLenum format, GLenum type, GLvoid* pixels);
 
     // Morph changes the factory used to create surfaces.
     void Morph(UniquePtr<SurfaceFactory> newFactory);

@@ -57,8 +57,7 @@ function check_histogram_values(payload) {
 
 add_task(function*() {
   if (!runningInParent) {
-    TelemetryController.setupContent();
-    TelemetrySession.setupContent();
+    TelemetryController.testSetupContent();
     run_child_test();
     dump("... done with child test\n");
     do_send_remote_message(MESSAGE_CHILD_TEST_DONE);
@@ -70,9 +69,12 @@ add_task(function*() {
   // Setup.
   do_get_profile(true);
   loadAddonManager(APP_ID, APP_NAME, APP_VERSION, PLATFORM_VERSION);
-  Services.prefs.setBoolPref("toolkit.telemetry.enabled", true);
-  yield TelemetryController.setup();
-  yield TelemetrySession.setup();
+  Services.prefs.setBoolPref(PREF_TELEMETRY_ENABLED, true);
+  yield TelemetryController.testSetup();
+  if (runningInParent) {
+    // Make sure we don't generate unexpected pings due to pref changes.
+    setEmptyPrefWatchlist();
+  }
 
   // Run test in child, don't wait for it to finish.
   let childPromise = run_test_in_child("test_ChildHistograms.js");

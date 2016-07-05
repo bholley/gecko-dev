@@ -2,15 +2,20 @@
 #undef NDEBUG
 #endif
 #include <stdlib.h>
-#include <cubeb/cubeb.h>
+#include "cubeb/cubeb.h"
 #include <assert.h>
 #include <stdio.h>
+#ifdef CUBEB_GECKO_BUILD
 #include "TestHarness.h"
+#endif
+
 #define LOG(msg) fprintf(stderr, "%s\n", msg);
 
 int main(int argc, char * argv[])
 {
+#ifdef CUBEB_GECKO_BUILD
   ScopedXPCOM xpcom("test_latency");
+#endif
 
   cubeb * ctx = NULL;
   int r;

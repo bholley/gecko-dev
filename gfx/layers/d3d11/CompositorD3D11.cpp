@@ -17,13 +17,16 @@
 #include "mozilla/layers/Effects.h"
 #include "nsWindowsHelpers.h"
 #include "gfxPrefs.h"
+#include "gfxConfig.h"
 #include "gfxCrashReporterUtils.h"
 #include "gfxVR.h"
 #include "mozilla/gfx/StackArray.h"
 #include "mozilla/Services.h"
+#include "mozilla/widget/WinCompositorWidgetProxy.h"
 
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/Telemetry.h"
+#include "BlendShaderConstants.h"
 
 #include <dxgi1_2.h>
 
@@ -47,6 +50,16 @@ static const GUID sLayerManagerCount =
 
 const FLOAT sBlendFactor[] = { 0, 0, 0, 0 };
 
+namespace TexSlot {
+  static const int RGB = 0;
+  static const int Y = 1;
+  static const int Cb = 2;
+  static const int Cr = 3;
+  static const int RGBWhite = 4;
+  static const int Mask = 5;
+  static const int Backdrop = 6;
+}
+
 struct DeviceAttachmentsD3D11
 {
   DeviceAttachmentsD3D11(ID3D11Device* device)
@@ -56,6 +69,7 @@ struct DeviceAttachmentsD3D11
   {}
 
   bool CreateShaders();
+  bool InitBlendShaders();
   bool InitSyncObject();
 
   typedef EnumeratedArray<MaskType, MaskType::NumMaskTypes, RefPtr<ID3D11VertexShader>>
@@ -67,11 +81,13 @@ struct DeviceAttachmentsD3D11
   RefPtr<ID3D11Buffer> mVertexBuffer;
 
   VertexShaderArray mVSQuadShader;
+  VertexShaderArray mVSQuadBlendShader;
   PixelShaderArray mSolidColorShader;
   PixelShaderArray mRGBAShader;
   PixelShaderArray mRGBShader;
   PixelShaderArray mYCbCrShader;
   PixelShaderArray mComponentAlphaShader;
+  PixelShaderArray mBlendShader;
   RefPtr<ID3D11Buffer> mPSConstantBuffer;
   RefPtr<ID3D11Buffer> mVSConstantBuffer;
   RefPtr<ID3D11RasterizerState> mRasterizerState;
@@ -144,9 +160,9 @@ private:
   bool mInitOkay;
 };
 
-CompositorD3D11::CompositorD3D11(nsIWidget* aWidget)
-  : mAttachments(nullptr)
-  , mWidget(aWidget)
+CompositorD3D11::CompositorD3D11(CompositorBridgeParent* aParent, widget::CompositorWidgetProxy* aWidget)
+  : Compositor(aWidget, aParent)
+  , mAttachments(nullptr)
   , mHwnd(nullptr)
   , mDisableSequenceForNextFrame(false)
   , mVerifyBuffersFailed(false)
@@ -181,17 +197,13 @@ CompositorD3D11::~CompositorD3D11()
 bool
 CompositorD3D11::Initialize()
 {
-  bool force = gfxPrefs::LayersAccelerationForceEnabled();
+  ScopedGfxFeatureReporter reporter("D3D11 Layers");
 
-  ScopedGfxFeatureReporter reporter("D3D11 Layers", force);
-
-  MOZ_ASSERT(gfxPlatform::CanUseDirect3D11());
+  MOZ_ASSERT(gfxConfig::IsEnabled(Feature::D3D11_COMPOSITING));
 
   HRESULT hr;
 
-  mDevice = gfxWindowsPlatform::GetPlatform()->GetD3D11Device();
-
-  if (!mDevice) {
+  if (!gfxWindowsPlatform::GetPlatform()->GetD3D11Device(&mDevice)) {
     return false;
   }
 
@@ -204,7 +216,7 @@ CompositorD3D11::Initialize()
 
   mFeatureLevel = mDevice->GetFeatureLevel();
 
-  mHwnd = (HWND)mWidget->GetNativeData(NS_NATIVE_WINDOW);
+  mHwnd = mWidget->AsWindowsProxy()->GetHwnd();
 
   memset(&mVSConstants, 0, sizeof(VertexShaderConstants));
 
@@ -481,13 +493,9 @@ CompositorD3D11::CreateRenderTarget(const gfx::IntRect& aRect,
   CD3D11_TEXTURE2D_DESC desc(DXGI_FORMAT_B8G8R8A8_UNORM, aRect.width, aRect.height, 1, 1,
                              D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET);
 
-  if (mDevice != gfxWindowsPlatform::GetPlatform()->GetD3D11Device()) {
-    gfxCriticalError() << "Out of sync D3D11 devices in CreateRenderTarget";
-  }
-
   RefPtr<ID3D11Texture2D> texture;
   HRESULT hr = mDevice->CreateTexture2D(&desc, nullptr, getter_AddRefs(texture));
-  if (Failed(hr) || !texture) {
+  if (FAILED(hr) || !texture) {
     gfxCriticalNote << "Failed in CreateRenderTarget " << hexa(hr);
     return nullptr;
   }
@@ -503,10 +511,10 @@ CompositorD3D11::CreateRenderTarget(const gfx::IntRect& aRect,
   return rt.forget();
 }
 
-already_AddRefed<CompositingRenderTarget>
-CompositorD3D11::CreateRenderTargetFromSource(const gfx::IntRect &aRect,
-                                              const CompositingRenderTarget* aSource,
-                                              const gfx::IntPoint &aSourcePoint)
+RefPtr<ID3D11Texture2D>
+CompositorD3D11::CreateTexture(const gfx::IntRect& aRect,
+                               const CompositingRenderTarget* aSource,
+                               const gfx::IntPoint& aSourcePoint)
 {
   MOZ_ASSERT(aRect.width != 0 && aRect.height != 0);
 
@@ -518,15 +526,12 @@ CompositorD3D11::CreateRenderTargetFromSource(const gfx::IntRect &aRect,
                              aRect.width, aRect.height, 1, 1,
                              D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET);
 
-  if (mDevice != gfxWindowsPlatform::GetPlatform()->GetD3D11Device()) {
-    gfxCriticalError() << "Out of sync D3D11 devices in CreateRenderTargetFromSource";
-  }
-
   RefPtr<ID3D11Texture2D> texture;
   HRESULT hr = mDevice->CreateTexture2D(&desc, nullptr, getter_AddRefs(texture));
-  NS_ASSERTION(texture, "Could not create texture");
-  if (Failed(hr) || !texture) {
+
+  if (FAILED(hr) || !texture) {
     gfxCriticalNote << "Failed in CreateRenderTargetFromSource " << hexa(hr);
+    HandleError(hr);
     return nullptr;
   }
 
@@ -534,30 +539,45 @@ CompositorD3D11::CreateRenderTargetFromSource(const gfx::IntRect &aRect,
     const CompositingRenderTargetD3D11* sourceD3D11 =
       static_cast<const CompositingRenderTargetD3D11*>(aSource);
 
-    D3D11_BOX srcBox;
-    srcBox.left = aSourcePoint.x;
-    srcBox.top = aSourcePoint.y;
-    srcBox.front = 0;
-    srcBox.right = aSourcePoint.x + aRect.width;
-    srcBox.bottom = aSourcePoint.y + aRect.height;
-    srcBox.back = 1;
-
     const IntSize& srcSize = sourceD3D11->GetSize();
     MOZ_ASSERT(srcSize.width >= 0 && srcSize.height >= 0,
                "render targets should have nonnegative sizes");
-    if (srcBox.left >= 0 &&
-        srcBox.top >= 0 &&
-        srcBox.left < srcBox.right &&
-        srcBox.top < srcBox.bottom &&
-        srcBox.right <= static_cast<uint32_t>(srcSize.width) &&
-        srcBox.bottom <= static_cast<uint32_t>(srcSize.height)) {
+
+    IntRect srcRect(IntPoint(), srcSize);
+    IntRect copyRect(aSourcePoint, aRect.Size());
+    if (!srcRect.Contains(copyRect)) {
+      NS_WARNING("Could not copy the whole copy rect from the render target");
+    }
+
+    copyRect = copyRect.Intersect(srcRect);
+
+    if (!copyRect.IsEmpty()) {
+      D3D11_BOX copyBox;
+      copyBox.front = 0;
+      copyBox.back = 1;
+      copyBox.left = copyRect.x;
+      copyBox.top = copyRect.y;
+      copyBox.right = copyRect.XMost();
+      copyBox.bottom = copyRect.YMost();
+
       mContext->CopySubresourceRegion(texture, 0,
                                       0, 0, 0,
                                       sourceD3D11->GetD3D11Texture(), 0,
-                                      &srcBox);
-    } else {
-      NS_WARNING("Could not copy render target - source rect out of bounds");
+                                      &copyBox);
     }
+  }
+
+  return texture;
+}
+
+already_AddRefed<CompositingRenderTarget>
+CompositorD3D11::CreateRenderTargetFromSource(const gfx::IntRect &aRect,
+                                              const CompositingRenderTarget* aSource,
+                                              const gfx::IntPoint &aSourcePoint)
+{
+  RefPtr<ID3D11Texture2D> texture = CreateTexture(aRect, aSource, aSourcePoint);
+  if (!texture) {
+    return nullptr;
   }
 
   RefPtr<CompositingRenderTargetD3D11> rt =
@@ -565,6 +585,29 @@ CompositorD3D11::CreateRenderTargetFromSource(const gfx::IntRect &aRect,
   rt->SetSize(aRect.Size());
 
   return rt.forget();
+}
+
+bool
+CompositorD3D11::CopyBackdrop(const gfx::IntRect& aRect,
+                              RefPtr<ID3D11Texture2D>* aOutTexture,
+                              RefPtr<ID3D11ShaderResourceView>* aOutView)
+{
+  RefPtr<ID3D11Texture2D> texture = CreateTexture(aRect, mCurrentRT, aRect.TopLeft());
+  if (!texture) {
+    return false;
+  }
+
+  CD3D11_SHADER_RESOURCE_VIEW_DESC desc(D3D11_SRV_DIMENSION_TEXTURE2D, DXGI_FORMAT_B8G8R8A8_UNORM);
+
+  RefPtr<ID3D11ShaderResourceView> srv;
+  HRESULT hr = mDevice->CreateShaderResourceView(texture, &desc, getter_AddRefs(srv));
+  if (FAILED(hr) || !srv) {
+    return false;
+  }
+
+  *aOutTexture = texture.forget();
+  *aOutView = srv.forget();
+  return true;
 }
 
 void
@@ -589,30 +632,27 @@ CompositorD3D11::SetRenderTarget(CompositingRenderTarget* aRenderTarget)
   }
 }
 
-void
-CompositorD3D11::SetPSForEffect(Effect* aEffect, MaskType aMaskType, gfx::SurfaceFormat aFormat)
+ID3D11PixelShader*
+CompositorD3D11::GetPSForEffect(Effect* aEffect, MaskType aMaskType)
 {
   switch (aEffect->mType) {
   case EffectTypes::SOLID_COLOR:
-    mContext->PSSetShader(mAttachments->mSolidColorShader[aMaskType], nullptr, 0);
-    return;
+    return mAttachments->mSolidColorShader[aMaskType];
   case EffectTypes::RENDER_TARGET:
-    mContext->PSSetShader(mAttachments->mRGBAShader[aMaskType], nullptr, 0);
-    return;
-  case EffectTypes::RGB:
-    mContext->PSSetShader((aFormat == SurfaceFormat::B8G8R8A8 || aFormat == SurfaceFormat::R8G8B8A8)
-                          ? mAttachments->mRGBAShader[aMaskType]
-                          : mAttachments->mRGBShader[aMaskType], nullptr, 0);
-    return;
+    return mAttachments->mRGBAShader[aMaskType];
+  case EffectTypes::RGB: {
+    SurfaceFormat format = static_cast<TexturedEffect*>(aEffect)->mTexture->GetFormat();
+    return (format == SurfaceFormat::B8G8R8A8 || format == SurfaceFormat::R8G8B8A8)
+           ? mAttachments->mRGBAShader[aMaskType]
+           : mAttachments->mRGBShader[aMaskType];
+  }
   case EffectTypes::YCBCR:
-    mContext->PSSetShader(mAttachments->mYCbCrShader[aMaskType], nullptr, 0);
-    return;
+    return mAttachments->mYCbCrShader[aMaskType];
   case EffectTypes::COMPONENT_ALPHA:
-    mContext->PSSetShader(mAttachments->mComponentAlphaShader[aMaskType], nullptr, 0);
-    return;
+    return mAttachments->mComponentAlphaShader[aMaskType];
   default:
     NS_WARNING("No shader to load");
-    return;
+    return nullptr;
   }
 }
 
@@ -656,7 +696,7 @@ CompositorD3D11::ClearRect(const gfx::Rect& aRect)
 
 void
 CompositorD3D11::DrawVRDistortion(const gfx::Rect& aRect,
-                                  const gfx::Rect& aClipRect,
+                                  const gfx::IntRect& aClipRect,
                                   const EffectChain& aEffectChain,
                                   gfx::Float aOpacity,
                                   const gfx::Matrix4x4& aTransform)
@@ -677,7 +717,7 @@ CompositorD3D11::DrawVRDistortion(const gfx::Rect& aRect,
   TextureSourceD3D11* source = vrEffect->mTexture->AsSourceD3D11();
 
   VRHMDInfo* hmdInfo = vrEffect->mHMD;
-  VRHMDType hmdType = hmdInfo->GetType();
+  VRHMDType hmdType = hmdInfo->GetDeviceInfo().GetType();
 
   if (!mAttachments->mVRDistortionVS[hmdType] ||
       !mAttachments->mVRDistortionPS[hmdType])
@@ -769,6 +809,7 @@ CompositorD3D11::DrawVRDistortion(const gfx::Rect& aRect,
     hr = mContext->Map(mAttachments->mVRDistortionConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
     if (FAILED(hr) || !resource.pData) {
       gfxCriticalError() << "Failed to map VRDistortionConstants. Result: " << hr;
+      HandleError(hr);
       return;
     }
     *(gfx::VRDistortionConstants*)resource.pData = shaderConstants;
@@ -798,9 +839,40 @@ CompositorD3D11::DrawVRDistortion(const gfx::Rect& aRect,
   mContext->IASetInputLayout(mAttachments->mInputLayout);
 }
 
+static inline bool
+EffectHasPremultipliedAlpha(Effect* aEffect)
+{
+  if (aEffect->mType == EffectTypes::RGB) {
+    return static_cast<TexturedEffect*>(aEffect)->mPremultiplied;
+  }
+  return true;
+}
+
+static inline int
+EffectToBlendLayerType(Effect* aEffect)
+{
+  switch (aEffect->mType) {
+  case EffectTypes::SOLID_COLOR:
+    return PS_LAYER_COLOR;
+  case EffectTypes::RGB: {
+    gfx::SurfaceFormat format = static_cast<TexturedEffect*>(aEffect)->mTexture->GetFormat();
+    return (format == gfx::SurfaceFormat::B8G8R8A8 || format == gfx::SurfaceFormat::R8G8B8A8)
+           ? PS_LAYER_RGBA
+           : PS_LAYER_RGB;
+  }
+  case EffectTypes::RENDER_TARGET:
+    return PS_LAYER_RGBA;
+  case EffectTypes::YCBCR:
+    return PS_LAYER_YCBCR;
+  default:
+    MOZ_ASSERT_UNREACHABLE("blending not supported for this layer type");
+    return 0;
+  }
+}
+
 void
 CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
-                          const gfx::Rect& aClipRect,
+                          const gfx::IntRect& aClipRect,
                           const EffectChain& aEffectChain,
                           gfx::Float aOpacity,
                           const gfx::Matrix4x4& aTransform,
@@ -829,12 +901,7 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
   MaskType maskType = MaskType::MaskNone;
 
   if (aEffectChain.mSecondaryEffects[EffectTypes::MASK]) {
-    if (aTransform.Is2D()) {
-      maskType = MaskType::Mask2d;
-    } else {
-      MOZ_ASSERT(aEffectChain.mPrimaryEffect->mType == EffectTypes::RGB);
-      maskType = MaskType::Mask3d;
-    }
+    maskType = MaskType::Mask;
 
     EffectMask* maskEffect =
       static_cast<EffectMask*>(aEffectChain.mSecondaryEffects[EffectTypes::MASK].get());
@@ -846,7 +913,7 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
     }
 
     ID3D11ShaderResourceView* srView = source->GetShaderResourceView();
-    mContext->PSSetShaderResources(3, 1, &srView);
+    mContext->PSSetShaderResources(TexSlot::Mask, 1, &srView);
 
     const gfx::Matrix4x4& maskTransform = maskEffect->mMaskTransform;
     NS_ASSERTION(maskTransform.Is2D(), "How did we end up with a 3D transform here?!");
@@ -871,16 +938,51 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
   scissor.top = clipRect.y;
   scissor.bottom = clipRect.YMost();
 
+  RefPtr<ID3D11VertexShader> vertexShader = mAttachments->mVSQuadShader[maskType];
+  RefPtr<ID3D11PixelShader> pixelShader = GetPSForEffect(aEffectChain.mPrimaryEffect, maskType);
+
+  RefPtr<ID3D11Texture2D> mixBlendBackdrop;
+  gfx::CompositionOp blendMode = gfx::CompositionOp::OP_OVER;
+  if (aEffectChain.mSecondaryEffects[EffectTypes::BLEND_MODE]) {
+    EffectBlendMode *blendEffect =
+      static_cast<EffectBlendMode*>(aEffectChain.mSecondaryEffects[EffectTypes::BLEND_MODE].get());
+    blendMode = blendEffect->mBlendMode;
+
+    // If the blend operation needs to read from the backdrop, copy the
+    // current render target into a new texture and bind it now.
+    if (BlendOpIsMixBlendMode(blendMode)) {
+      gfx::Matrix4x4 backdropTransform;
+      gfx::IntRect rect = ComputeBackdropCopyRect(aRect, aClipRect, aTransform, &backdropTransform);
+
+      RefPtr<ID3D11ShaderResourceView> srv;
+      if (CopyBackdrop(rect, &mixBlendBackdrop, &srv) &&
+          mAttachments->InitBlendShaders())
+      {
+        vertexShader = mAttachments->mVSQuadBlendShader[maskType];
+        pixelShader = mAttachments->mBlendShader[MaskType::MaskNone];
+
+        ID3D11ShaderResourceView* srView = srv.get();
+        mContext->PSSetShaderResources(TexSlot::Backdrop, 1, &srView);
+
+        memcpy(&mVSConstants.backdropTransform, &backdropTransform._11, 64);
+
+        mPSConstants.blendConfig[0] = EffectToBlendLayerType(aEffectChain.mPrimaryEffect);
+        mPSConstants.blendConfig[1] = int(maskType);
+        mPSConstants.blendConfig[2] = BlendOpToShaderConstant(blendMode);
+        mPSConstants.blendConfig[3] = EffectHasPremultipliedAlpha(aEffectChain.mPrimaryEffect);
+      }
+    }
+  }
+
   mContext->RSSetScissorRects(1, &scissor);
   mContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-  mContext->VSSetShader(mAttachments->mVSQuadShader[maskType], nullptr, 0);
+  mContext->VSSetShader(vertexShader, nullptr, 0);
+  mContext->PSSetShader(pixelShader, nullptr, 0);
 
   const Rect* pTexCoordRect = nullptr;
 
   switch (aEffectChain.mPrimaryEffect->mType) {
   case EffectTypes::SOLID_COLOR: {
-      SetPSForEffect(aEffectChain.mPrimaryEffect, maskType, SurfaceFormat::UNKNOWN);
-
       Color color =
         static_cast<EffectSolidColor*>(aEffectChain.mPrimaryEffect.get())->mColor;
       mPSConstants.layerColor[0] = color.r * color.a * aOpacity;
@@ -904,24 +1006,22 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
         return;
       }
 
-      SetPSForEffect(aEffectChain.mPrimaryEffect, maskType, texturedEffect->mTexture->GetFormat());
-
       ID3D11ShaderResourceView* srView = source->GetShaderResourceView();
-      mContext->PSSetShaderResources(0, 1, &srView);
+      mContext->PSSetShaderResources(TexSlot::RGB, 1, &srView);
 
       if (!texturedEffect->mPremultiplied) {
         mContext->OMSetBlendState(mAttachments->mNonPremulBlendState, sBlendFactor, 0xFFFFFFFF);
         restoreBlendMode = true;
       }
 
-      SetSamplerForFilter(texturedEffect->mFilter);
+      SetSamplerForSamplingFilter(texturedEffect->mSamplingFilter);
     }
     break;
   case EffectTypes::YCBCR: {
       EffectYCbCr* ycbcrEffect =
         static_cast<EffectYCbCr*>(aEffectChain.mPrimaryEffect.get());
 
-      SetSamplerForFilter(Filter::LINEAR);
+      SetSamplerForSamplingFilter(SamplingFilter::LINEAR);
 
       pTexCoordRect = &ycbcrEffect->mTextureCoords;
 
@@ -932,8 +1032,6 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
         NS_WARNING("No texture to composite");
         return;
       }
-
-      SetPSForEffect(aEffectChain.mPrimaryEffect, maskType, ycbcrEffect->mTexture->GetFormat());
 
       if (!source->GetSubSource(Y) || !source->GetSubSource(Cb) || !source->GetSubSource(Cr)) {
         // This can happen if we failed to upload the textures, most likely
@@ -948,7 +1046,7 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
       ID3D11ShaderResourceView* srViews[3] = { sourceY->GetShaderResourceView(),
                                                sourceCb->GetShaderResourceView(),
                                                sourceCr->GetShaderResourceView() };
-      mContext->PSSetShaderResources(0, 3, srViews);
+      mContext->PSSetShaderResources(TexSlot::Y, 3, srViews);
     }
     break;
   case EffectTypes::COMPONENT_ALPHA:
@@ -966,15 +1064,14 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
         return;
       }
 
-      SetPSForEffect(aEffectChain.mPrimaryEffect, maskType, effectComponentAlpha->mOnWhite->GetFormat());
-
-      SetSamplerForFilter(effectComponentAlpha->mFilter);
+      SetSamplerForSamplingFilter(effectComponentAlpha->mSamplingFilter);
 
       pTexCoordRect = &effectComponentAlpha->mTextureCoords;
 
       ID3D11ShaderResourceView* srViews[2] = { sourceOnBlack->GetShaderResourceView(),
                                                sourceOnWhite->GetShaderResourceView() };
-      mContext->PSSetShaderResources(0, 2, srViews);
+      mContext->PSSetShaderResources(TexSlot::RGB, 1, &srViews[0]);
+      mContext->PSSetShaderResources(TexSlot::RGBWhite, 1, &srViews[1]);
 
       mContext->OMSetBlendState(mAttachments->mComponentBlendState, sBlendFactor, 0xFFFFFFFF);
       restoreBlendMode = true;
@@ -1019,41 +1116,31 @@ CompositorD3D11::DrawQuad(const gfx::Rect& aRect,
 
 void
 CompositorD3D11::BeginFrame(const nsIntRegion& aInvalidRegion,
-                            const Rect* aClipRectIn,
-                            const Rect& aRenderBounds,
-                            Rect* aClipRectOut,
-                            Rect* aRenderBoundsOut)
+                            const IntRect* aClipRectIn,
+                            const IntRect& aRenderBounds,
+                            const nsIntRegion& aOpaqueRegion,
+                            IntRect* aClipRectOut,
+                            IntRect* aRenderBoundsOut)
 {
-  if (mDevice != gfxWindowsPlatform::GetPlatform()->GetD3D11Device()) {
-    gfxCriticalError() << "Out of sync D3D11 devices in BeginFrame";
-  }
-
   // Don't composite if we are minimised. Other than for the sake of efficency,
   // this is important because resizing our buffers when mimised will fail and
   // cause a crash when we're restored.
   NS_ASSERTION(mHwnd, "Couldn't find an HWND when initialising?");
   if (::IsIconic(mHwnd) || mDevice->GetDeviceRemovedReason() != S_OK) {
-    *aRenderBoundsOut = Rect();
+    *aRenderBoundsOut = IntRect();
     return;
   }
 
-  IntSize oldSize = mSize;
+  LayoutDeviceIntSize oldSize = mSize;
 
   // Failed to create a render target or the view.
   if (!UpdateRenderTarget() || !mDefaultRT || !mDefaultRT->mRTView ||
       mSize.width <= 0 || mSize.height <= 0) {
-    *aRenderBoundsOut = Rect();
+    *aRenderBoundsOut = IntRect();
     return;
   }
 
-  mContext->IASetInputLayout(mAttachments->mInputLayout);
-
-  ID3D11Buffer* buffer = mAttachments->mVertexBuffer;
-  UINT size = sizeof(Vertex);
-  UINT offset = 0;
-  mContext->IASetVertexBuffers(0, 1, &buffer, &size, &offset);
-
-  IntRect intRect = IntRect(IntPoint(0, 0), mSize);
+  IntRect intRect = IntRect(IntPoint(0, 0), mSize.ToUnknownSize());
   // Sometimes the invalid region is larger than we want to draw.
   nsIntRegion invalidRegionSafe;
 
@@ -1064,28 +1151,42 @@ CompositorD3D11::BeginFrame(const nsIntRegion& aInvalidRegion,
   }
 
   IntRect invalidRect = invalidRegionSafe.GetBounds();
+
+  IntRect clipRect = invalidRect;
+  if (aClipRectIn) {
+    clipRect.IntersectRect(clipRect, IntRect(aClipRectIn->x, aClipRectIn->y, aClipRectIn->width, aClipRectIn->height));
+  }
+
+  if (clipRect.IsEmpty()) {
+    *aRenderBoundsOut = IntRect();
+    return;
+  }
+
+  mContext->IASetInputLayout(mAttachments->mInputLayout);
+
+  ID3D11Buffer* buffer = mAttachments->mVertexBuffer;
+  UINT size = sizeof(Vertex);
+  UINT offset = 0;
+  mContext->IASetVertexBuffers(0, 1, &buffer, &size, &offset);
+
   mInvalidRect = IntRect(invalidRect.x, invalidRect.y, invalidRect.width, invalidRect.height);
   mInvalidRegion = invalidRegionSafe;
 
   if (aClipRectOut) {
-    *aClipRectOut = Rect(0, 0, mSize.width, mSize.height);
+    *aClipRectOut = IntRect(0, 0, mSize.width, mSize.height);
   }
   if (aRenderBoundsOut) {
-    *aRenderBoundsOut = Rect(0, 0, mSize.width, mSize.height);
+    *aRenderBoundsOut = IntRect(0, 0, mSize.width, mSize.height);
   }
 
-  if (aClipRectIn) {
-    invalidRect.IntersectRect(invalidRect, IntRect(aClipRectIn->x, aClipRectIn->y, aClipRectIn->width, aClipRectIn->height));
-  }
-
-  mCurrentClip = IntRect(invalidRect.x, invalidRect.y, invalidRect.width, invalidRect.height);
+  mCurrentClip = IntRect(clipRect.x, clipRect.y, clipRect.width, clipRect.height);
 
   mContext->RSSetState(mAttachments->mRasterizerState);
 
   SetRenderTarget(mDefaultRT);
 
   // ClearRect will set the correct blend state for us.
-  ClearRect(Rect(invalidRect.x, invalidRect.y, invalidRect.width, invalidRect.height));
+  ClearRect(Rect(clipRect.x, clipRect.y, clipRect.width, clipRect.height));
 
   if (mAttachments->mSyncTexture) {
     RefPtr<IDXGIKeyedMutex> mutex;
@@ -1094,7 +1195,17 @@ CompositorD3D11::BeginFrame(const nsIntRegion& aInvalidRegion,
     MOZ_ASSERT(mutex);
     HRESULT hr = mutex->AcquireSync(0, 10000);
     if (hr == WAIT_TIMEOUT) {
-      MOZ_CRASH();
+      hr = mDevice->GetDeviceRemovedReason();
+      if (hr == S_OK) {
+        // There is no driver-removed event. Crash with this timeout.
+        MOZ_CRASH("GFX: D3D11 normal status timeout");
+      }
+
+      // Since the timeout is related to the driver-removed, clear the
+      // render-bounding size to skip this frame.
+      gfxCriticalNote << "GFX: D3D11 timeout with device-removed:" << gfx::hexa(hr);
+      *aRenderBoundsOut = IntRect();
+      return;
     }
 
     mutex->ReleaseSync(0);
@@ -1104,14 +1215,23 @@ CompositorD3D11::BeginFrame(const nsIntRegion& aInvalidRegion,
 void
 CompositorD3D11::EndFrame()
 {
+  Compositor::EndFrame();
+
   if (!mDefaultRT) {
     return;
   }
 
-  IntSize oldSize = mSize;
+  LayoutDeviceIntSize oldSize = mSize;
   EnsureSize();
   if (mSize.width <= 0 || mSize.height <= 0) {
     return;
+  }
+
+  RefPtr<ID3D11Query> query;
+  CD3D11_QUERY_DESC  desc(D3D11_QUERY_EVENT);
+  mDevice->CreateQuery(&desc, getter_AddRefs(query));
+  if (query) {
+    mContext->End(query);
   }
 
   UINT presentInterval = 0;
@@ -1126,26 +1246,36 @@ CompositorD3D11::EndFrame()
   if (oldSize == mSize) {
     RefPtr<IDXGISwapChain1> chain;
     HRESULT hr = mSwapChain->QueryInterface((IDXGISwapChain1**)getter_AddRefs(chain));
-    nsString vendorID;
-    nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
-    gfxInfo->GetAdapterVendorID(vendorID);
-    bool isNvidia = vendorID.EqualsLiteral("0x10de") && !gfxWindowsPlatform::GetPlatform()->IsWARP();
-    if (SUCCEEDED(hr) && chain && !isNvidia) {
-        // Avoid partial present on Nvidia hardware to try to work around
-        // bug 1189940
+    // We can force partial present or block partial present, based on the value of
+    // this preference; the default is to disable it on Nvidia (bug 1189940)
+    bool allowPartialPresent = false;
+
+    int32_t partialPresentPref = gfxPrefs::PartialPresent();
+    if (partialPresentPref > 0) {
+      allowPartialPresent = true;
+    } else if (partialPresentPref < 0) {
+      allowPartialPresent = false;
+    } else if (partialPresentPref == 0) {
+      nsString vendorID;
+      nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+      gfxInfo->GetAdapterVendorID(vendorID);
+      allowPartialPresent = !vendorID.EqualsLiteral("0x10de") ||
+                            gfxWindowsPlatform::GetPlatform()->IsWARP();
+    }
+
+    if (SUCCEEDED(hr) && chain && allowPartialPresent) {
       DXGI_PRESENT_PARAMETERS params;
       PodZero(&params);
       params.DirtyRectsCount = mInvalidRegion.GetNumRects();
       StackArray<RECT, 4> rects(params.DirtyRectsCount);
 
-      nsIntRegionRectIterator iter(mInvalidRegion);
-      const IntRect* r;
       uint32_t i = 0;
-      while ((r = iter.Next()) != nullptr) {
-        rects[i].left = r->x;
-        rects[i].top = r->y;
-        rects[i].bottom = r->YMost();
-        rects[i].right = r->XMost();
+      for (auto iter = mInvalidRegion.RectIter(); !iter.Done(); iter.Next()) {
+        const IntRect& r = iter.Get();
+        rects[i].left = r.x;
+        rects[i].top = r.y;
+        rects[i].bottom = r.YMost();
+        rects[i].right = r.XMost();
         i++;
       }
 
@@ -1153,8 +1283,9 @@ CompositorD3D11::EndFrame()
       chain->Present1(presentInterval, mDisableSequenceForNextFrame ? DXGI_PRESENT_DO_NOT_SEQUENCE : 0, &params);
     } else {
       hr = mSwapChain->Present(presentInterval, mDisableSequenceForNextFrame ? DXGI_PRESENT_DO_NOT_SEQUENCE : 0);
-      if (Failed(hr)) {
+      if (FAILED(hr)) {
         gfxCriticalNote << "D3D11 swap chain preset failed " << hexa(hr);
+        HandleError(hr);
       }
     }
     mDisableSequenceForNextFrame = false;
@@ -1162,6 +1293,23 @@ CompositorD3D11::EndFrame()
       PaintToTarget();
     }
   }
+
+  // Block until the previous frame's work has been completed.
+  if (mQuery) {
+    TimeStamp start = TimeStamp::Now();
+    BOOL result;
+    while (mContext->GetData(mQuery, &result, sizeof(BOOL), 0) != S_OK) {
+      if (mDevice->GetDeviceRemovedReason() != S_OK) {
+        break;
+      }
+      if ((TimeStamp::Now() - start) > TimeDuration::FromSeconds(2)) {
+        break;
+      }
+      Sleep(0);
+    }
+  }
+  // Store the query for this frame so we can flush it next time.
+  mQuery = query;
 
   mCurrentRT = nullptr;
 }
@@ -1179,6 +1327,19 @@ CompositorD3D11::PrepareViewport(const gfx::IntSize& aSize)
   projection._33 = 0.0f;
 
   PrepareViewport(aSize, projection, 0.0f, 1.0f);
+}
+
+void
+CompositorD3D11::ForcePresent()
+{
+  LayoutDeviceIntSize size = mWidget->GetClientSize();
+
+  DXGI_SWAP_CHAIN_DESC desc;
+  mSwapChain->GetDesc(&desc);
+
+  if (desc.BufferDesc.Width == size.width && desc.BufferDesc.Height == size.height) {
+    mSwapChain->Present(0, 0);
+  }
 }
 
 void
@@ -1202,10 +1363,7 @@ CompositorD3D11::PrepareViewport(const gfx::IntSize& aSize,
 void
 CompositorD3D11::EnsureSize()
 {
-  IntRect rect;
-  mWidget->GetClientBoundsUntyped(rect);
-
-  mSize = rect.Size();
+  mSize = mWidget->GetClientSize();
 }
 
 bool
@@ -1215,8 +1373,9 @@ CompositorD3D11::VerifyBufferSize()
   HRESULT hr;
 
   hr = mSwapChain->GetDesc(&swapDesc);
-  if (Failed(hr)) {
-    gfxCriticalError() << "Failed to get the description " << hexa(hr);
+  if (FAILED(hr)) {
+    gfxCriticalError() << "Failed to get the description " << hexa(hr) << ", " << mSize << ", " << (int)mVerifyBuffersFailed;
+    HandleError(hr);
     return false;
   }
 
@@ -1227,7 +1386,13 @@ CompositorD3D11::VerifyBufferSize()
     return true;
   }
 
+  ID3D11RenderTargetView* view = nullptr;
+  mContext->OMSetRenderTargets(1, &view, nullptr);
+
   if (mDefaultRT) {
+    RefPtr<ID3D11RenderTargetView> rtView = mDefaultRT->mRTView;
+    RefPtr<ID3D11ShaderResourceView> srView = mDefaultRT->mSRV;
+
     // Make sure the texture, which belongs to the swapchain, is destroyed
     // before resizing the swapchain.
     if (mCurrentRT == mDefaultRT) {
@@ -1235,26 +1400,47 @@ CompositorD3D11::VerifyBufferSize()
     }
     MOZ_ASSERT(mDefaultRT->hasOneRef());
     mDefaultRT = nullptr;
+
+    RefPtr<ID3D11Resource> resource;
+    rtView->GetResource(getter_AddRefs(resource));
+
+    ULONG newRefCnt = rtView.forget().take()->Release();
+
+    if (newRefCnt > 0) {
+      gfxCriticalError() << "mRTView not destroyed on final release! RefCnt: " << newRefCnt;
+    }
+
+    if (srView) {
+      newRefCnt = srView.forget().take()->Release();
+
+      if (newRefCnt > 0) {
+        gfxCriticalError() << "mSRV not destroyed on final release! RefCnt: " << newRefCnt;
+      }
+    }
+
+    newRefCnt = resource.forget().take()->Release();
+
+    if (newRefCnt > 0) {
+      gfxCriticalError() << "Unexpecting lingering references to backbuffer! RefCnt: " << newRefCnt;
+    }
   }
 
   hr = mSwapChain->ResizeBuffers(1, mSize.width, mSize.height,
                                  DXGI_FORMAT_B8G8R8A8_UNORM,
                                  0);
-  if (Failed(hr)) {
-    gfxCriticalNote << "D3D11 swap resize buffers failed " << hexa(hr) << " on " << mSize;
-  }
-  mVerifyBuffersFailed = FAILED(hr);
 
-  return Succeeded(hr);
+  mVerifyBuffersFailed = FAILED(hr);
+  if (mVerifyBuffersFailed) {
+    gfxCriticalNote << "D3D11 swap resize buffers failed " << hexa(hr) << " on " << mSize;
+    HandleError(hr);
+  }
+
+  return !mVerifyBuffersFailed;
 }
 
 bool
 CompositorD3D11::UpdateRenderTarget()
 {
-  if (mDevice != gfxWindowsPlatform::GetPlatform()->GetD3D11Device()) {
-    gfxCriticalError() << "Out of sync D3D11 devices in UpdateRenderTarget";
-  }
-
   EnsureSize();
   if (!VerifyBufferSize()) {
     gfxCriticalNote << "Failed VerifyBufferSize in UpdateRenderTarget " << mSize;
@@ -1266,7 +1452,7 @@ CompositorD3D11::UpdateRenderTarget()
   }
 
   if (mSize.width <= 0 || mSize.height <= 0) {
-    gfxCriticalNote << "Invalid size in UpdateRenderTarget " << mSize;
+    gfxCriticalNote << "Invalid size in UpdateRenderTarget " << mSize << ", " << (int)mVerifyBuffersFailed;
     return false;
   }
 
@@ -1278,17 +1464,18 @@ CompositorD3D11::UpdateRenderTarget()
   if (hr == DXGI_ERROR_INVALID_CALL) {
     // This happens on some GPUs/drivers when there's a TDR.
     if (mDevice->GetDeviceRemovedReason() != S_OK) {
-      gfxCriticalError() << "GetBuffer returned invalid call!";
+      gfxCriticalError() << "GetBuffer returned invalid call! " << mSize << ", " << (int)mVerifyBuffersFailed;
       return false;
     }
   }
-  if (Failed(hr)) {
-    gfxCriticalNote << "Failed in UpdateRenderTarget " << hexa(hr);
+  if (FAILED(hr)) {
+    gfxCriticalNote << "Failed in UpdateRenderTarget " << hexa(hr) << ", " << mSize << ", " << (int)mVerifyBuffersFailed;
+    HandleError(hr);
     return false;
   }
 
   mDefaultRT = new CompositingRenderTargetD3D11(backBuf, IntPoint(0, 0));
-  mDefaultRT->SetSize(mSize);
+  mDefaultRT->SetSize(mSize.ToUnknownSize());
 
   return true;
 }
@@ -1307,10 +1494,6 @@ DeviceAttachmentsD3D11::InitSyncObject()
                              D3D11_BIND_SHADER_RESOURCE |
                              D3D11_BIND_RENDER_TARGET);
   desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-
-  if (mDevice != gfxWindowsPlatform::GetPlatform()->GetD3D11Device()) {
-    gfxCriticalError() << "Out of sync D3D11 devices in InitSyncObject";
-  }
 
   RefPtr<ID3D11Texture2D> texture;
   HRESULT hr = mDevice->CreateTexture2D(&desc, nullptr, getter_AddRefs(texture));
@@ -1337,24 +1520,35 @@ DeviceAttachmentsD3D11::InitSyncObject()
 }
 
 bool
+DeviceAttachmentsD3D11::InitBlendShaders()
+{
+  if (!mVSQuadBlendShader[MaskType::MaskNone]) {
+    InitVertexShader(sLayerQuadBlendVS, mVSQuadBlendShader, MaskType::MaskNone);
+    InitVertexShader(sLayerQuadBlendMaskVS, mVSQuadBlendShader, MaskType::Mask);
+  }
+  if (!mBlendShader[MaskType::MaskNone]) {
+    InitPixelShader(sBlendShader, mBlendShader, MaskType::MaskNone);
+  }
+  return mInitOkay;
+}
+
+bool
 DeviceAttachmentsD3D11::CreateShaders()
 {
   InitVertexShader(sLayerQuadVS, mVSQuadShader, MaskType::MaskNone);
-  InitVertexShader(sLayerQuadMaskVS, mVSQuadShader, MaskType::Mask2d);
-  InitVertexShader(sLayerQuadMask3DVS, mVSQuadShader, MaskType::Mask3d);
+  InitVertexShader(sLayerQuadMaskVS, mVSQuadShader, MaskType::Mask);
 
   InitPixelShader(sSolidColorShader, mSolidColorShader, MaskType::MaskNone);
-  InitPixelShader(sSolidColorShaderMask, mSolidColorShader, MaskType::Mask2d);
+  InitPixelShader(sSolidColorShaderMask, mSolidColorShader, MaskType::Mask);
   InitPixelShader(sRGBShader, mRGBShader, MaskType::MaskNone);
-  InitPixelShader(sRGBShaderMask, mRGBShader, MaskType::Mask2d);
+  InitPixelShader(sRGBShaderMask, mRGBShader, MaskType::Mask);
   InitPixelShader(sRGBAShader, mRGBAShader, MaskType::MaskNone);
-  InitPixelShader(sRGBAShaderMask, mRGBAShader, MaskType::Mask2d);
-  InitPixelShader(sRGBAShaderMask3D, mRGBAShader, MaskType::Mask3d);
+  InitPixelShader(sRGBAShaderMask, mRGBAShader, MaskType::Mask);
   InitPixelShader(sYCbCrShader, mYCbCrShader, MaskType::MaskNone);
-  InitPixelShader(sYCbCrShaderMask, mYCbCrShader, MaskType::Mask2d);
+  InitPixelShader(sYCbCrShaderMask, mYCbCrShader, MaskType::Mask);
   if (gfxPrefs::ComponentAlphaEnabled()) {
     InitPixelShader(sComponentAlphaShader, mComponentAlphaShader, MaskType::MaskNone);
-    InitPixelShader(sComponentAlphaShaderMask, mComponentAlphaShader, MaskType::Mask2d);
+    InitPixelShader(sComponentAlphaShaderMask, mComponentAlphaShader, MaskType::Mask);
   }
 
   InitVertexShader(sOculus050VRDistortionVS, getter_AddRefs(mVRDistortionVS[VRHMDType::Oculus050]));
@@ -1375,8 +1569,9 @@ CompositorD3D11::UpdateConstantBuffers()
   resource.pData = nullptr;
 
   hr = mContext->Map(mAttachments->mVSConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-  if (Failed(hr) || !resource.pData) {
-    gfxCriticalError() << "Failed to map VSConstantBuffer. Result: " << hexa(hr);
+  if (FAILED(hr) || !resource.pData) {
+    gfxCriticalError() << "Failed to map VSConstantBuffer. Result: " << hexa(hr) << ", " << (int)mVerifyBuffersFailed;
+    HandleError(hr);
     return false;
   }
   *(VertexShaderConstants*)resource.pData = mVSConstants;
@@ -1384,8 +1579,9 @@ CompositorD3D11::UpdateConstantBuffers()
   resource.pData = nullptr;
 
   hr = mContext->Map(mAttachments->mPSConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
-  if (Failed(hr) || !resource.pData) {
-    gfxCriticalError() << "Failed to map PSConstantBuffer. Result: " << hexa(hr);
+  if (FAILED(hr) || !resource.pData) {
+    gfxCriticalError() << "Failed to map PSConstantBuffer. Result: " << hexa(hr) << ", " << (int)mVerifyBuffersFailed;
+    HandleError(hr);
     return false;
   }
   *(PixelShaderConstants*)resource.pData = mPSConstants;
@@ -1401,14 +1597,14 @@ CompositorD3D11::UpdateConstantBuffers()
 }
 
 void
-CompositorD3D11::SetSamplerForFilter(Filter aFilter)
+CompositorD3D11::SetSamplerForSamplingFilter(SamplingFilter aSamplingFilter)
 {
   ID3D11SamplerState *sampler;
-  switch (aFilter) {
-    case Filter::POINT:
+  switch (aSamplingFilter) {
+    case SamplingFilter::POINT:
     sampler = mAttachments->mPointSamplerState;
     break;
-  case Filter::LINEAR:
+  case SamplingFilter::LINEAR:
   default:
     sampler = mAttachments->mLinearSamplerState;
     break;
@@ -1424,8 +1620,9 @@ CompositorD3D11::PaintToTarget()
   HRESULT hr;
 
   hr = mSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)backBuf.StartAssignment());
-  if (Failed(hr)) {
+  if (FAILED(hr)) {
     gfxCriticalErrorOnce(gfxCriticalError::DefaultOptions(false)) << "Failed in PaintToTarget 1";
+    HandleError(hr);
     return;
   }
 
@@ -1440,21 +1637,19 @@ CompositorD3D11::PaintToTarget()
 
   RefPtr<ID3D11Texture2D> readTexture;
 
-  if (mDevice != gfxWindowsPlatform::GetPlatform()->GetD3D11Device()) {
-    gfxCriticalError() << "Out of sync D3D11 devices in PaintToTarget";
-  }
-
   hr = mDevice->CreateTexture2D(&softDesc, nullptr, getter_AddRefs(readTexture));
-  if (Failed(hr)) {
+  if (FAILED(hr)) {
     gfxCriticalErrorOnce(gfxCriticalError::DefaultOptions(false)) << "Failed in PaintToTarget 2";
+    HandleError(hr);
     return;
   }
   mContext->CopyResource(readTexture, backBuf);
 
   D3D11_MAPPED_SUBRESOURCE map;
   hr = mContext->Map(readTexture, 0, D3D11_MAP_READ, 0, &map);
-  if (Failed(hr)) {
+  if (FAILED(hr)) {
     gfxCriticalErrorOnce(gfxCriticalError::DefaultOptions(false)) << "Failed in PaintToTarget 3";
+    HandleError(hr);
     return;
   }
   RefPtr<DataSourceSurface> sourceSurface =
@@ -1476,7 +1671,7 @@ CompositorD3D11::Failed(HRESULT hr, const char* aContext)
   if (SUCCEEDED(hr))
     return false;
 
-  gfxCriticalNote << "[D3D11] " << aContext << " failed: " << hexa(hr);
+  gfxCriticalNote << "[D3D11] " << aContext << " failed: " << hexa(hr) << ", " << (int)mVerifyBuffersFailed;
   return true;
 }
 
@@ -1488,11 +1683,12 @@ CompositorD3D11::HandleError(HRESULT hr, Severity aSeverity)
   }
 
   if (aSeverity == Critical) {
-    MOZ_CRASH("Unrecoverable D3D11 error");
+    MOZ_CRASH("GFX: Unrecoverable D3D11 error");
   }
 
-  if (mDevice != gfxWindowsPlatform::GetPlatform()->GetD3D11Device()) {
-    gfxCriticalError() << "Out of sync D3D11 devices in HandleError";
+  RefPtr<ID3D11Device> device;
+  if (!gfxWindowsPlatform::GetPlatform()->GetD3D11Device(&device) || device != mDevice) {
+    gfxCriticalError() << "Out of sync D3D11 devices in HandleError, " << (int)mVerifyBuffersFailed;
   }
 
   HRESULT hrOnReset = S_OK;
@@ -1512,7 +1708,7 @@ CompositorD3D11::HandleError(HRESULT hr, Severity aSeverity)
   gfxCriticalError(CriticalLog::DefaultOptions(!deviceRemoved))
     << (deviceRemoved ? "[CompositorD3D11] device removed with error code: "
                       : "[CompositorD3D11] error code: ")
-    << hexa(hr) << ", " << hexa(hrOnReset);
+    << hexa(hr) << ", " << hexa(hrOnReset) << ", " << (int)mVerifyBuffersFailed;
 
   // Crash if we are making invalid calls outside of device removal
   if (hr == DXGI_ERROR_INVALID_CALL) {
@@ -1522,20 +1718,6 @@ CompositorD3D11::HandleError(HRESULT hr, Severity aSeverity)
   if (aSeverity == Recoverable) {
     NS_WARNING("Encountered a recoverable D3D11 error");
   }
-}
-
-bool
-CompositorD3D11::Failed(HRESULT hr, Severity aSeverity)
-{
-  HandleError(hr, aSeverity);
-  return FAILED(hr);
-}
-
-bool
-CompositorD3D11::Succeeded(HRESULT hr, Severity aSeverity)
-{
-  HandleError(hr, aSeverity);
-  return SUCCEEDED(hr);
 }
 
 }

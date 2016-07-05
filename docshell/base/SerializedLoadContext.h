@@ -28,6 +28,11 @@ class SerializedLoadContext
 {
 public:
   SerializedLoadContext()
+    : mIsNotNull(false)
+    , mIsPrivateBitValid(false)
+    , mIsContent(false)
+    , mUsePrivateBrowsing(false)
+    , mUseRemoteTabs(false)
   {
     Init(nullptr);
   }
@@ -49,7 +54,7 @@ public:
   bool mIsContent;
   bool mUsePrivateBrowsing;
   bool mUseRemoteTabs;
-  mozilla::OriginAttributes mOriginAttributes;
+  mozilla::DocShellOriginAttributes mOriginAttributes;
 };
 
 // Function to serialize over IPDL
@@ -71,7 +76,7 @@ struct ParamTraits<SerializedLoadContext>
     WriteParam(aMsg, suffix);
   }
 
-  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
+  static bool Read(const Message* aMsg, PickleIterator* aIter, paramType* aResult)
   {
     nsAutoCString suffix;
     if (!ReadParam(aMsg, aIter, &aResult->mIsNotNull) ||

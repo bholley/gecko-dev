@@ -1,3 +1,5 @@
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -61,6 +63,13 @@ protected:
   DeallocPBackgroundIDBFactoryChild(PBackgroundIDBFactoryChild* aActor)
                                     override;
 
+  virtual PBackgroundIndexedDBUtilsChild*
+  AllocPBackgroundIndexedDBUtilsChild() override;
+
+  virtual bool
+  DeallocPBackgroundIndexedDBUtilsChild(PBackgroundIndexedDBUtilsChild* aActor)
+                                        override;
+
   virtual PBlobChild*
   AllocPBlobChild(const BlobConstructorParams& aParams) override;
 
@@ -95,8 +104,7 @@ protected:
   virtual PBroadcastChannelChild*
   AllocPBroadcastChannelChild(const PrincipalInfo& aPrincipalInfo,
                               const nsCString& aOrigin,
-                              const nsString& aChannel,
-                              const bool& aPrivateBrowsing) override;
+                              const nsString& aChannel) override;
 
   virtual bool
   DeallocPBroadcastChannelChild(PBroadcastChannelChild* aActor) override;
@@ -138,6 +146,12 @@ protected:
   virtual bool
   DeallocPNuwaChild(PNuwaChild* aActor) override;
 
+  virtual PSendStreamChild*
+  AllocPSendStreamChild() override;
+
+  virtual bool
+  DeallocPSendStreamChild(PSendStreamChild* aActor) override;
+
   virtual PAsmJSCacheEntryChild*
   AllocPAsmJSCacheEntryChild(const dom::asmjscache::OpenMode& aOpenMode,
                              const dom::asmjscache::WriteParams& aWriteParams,
@@ -145,6 +159,19 @@ protected:
 
   virtual bool
   DeallocPAsmJSCacheEntryChild(PAsmJSCacheEntryChild* aActor) override;
+
+  virtual PQuotaChild*
+  AllocPQuotaChild() override;
+
+  virtual bool
+  DeallocPQuotaChild(PQuotaChild* aActor) override;
+
+  virtual PFileSystemRequestChild*
+  AllocPFileSystemRequestChild(const FileSystemParams&) override;
+
+  virtual bool
+  DeallocPFileSystemRequestChild(PFileSystemRequestChild*) override;
+
 };
 
 class BackgroundChildImpl::ThreadLocal final

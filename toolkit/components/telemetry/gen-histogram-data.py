@@ -60,11 +60,10 @@ def print_array_entry(output, histogram, name_index, exp_index):
     cpp_guard = histogram.cpp_guard()
     if cpp_guard:
         print("#if defined(%s)" % cpp_guard, file=output)
-    print("  { %s, %s, %s, %s, %d, %d, %s, %s, %s }," \
+    print("  { %s, %s, %s, %s, %d, %d, %s, %s }," \
         % (histogram.low(), histogram.high(),
            histogram.n_buckets(), histogram.nsITelemetry_kind(),
            name_index, exp_index, histogram.dataset(),
-           "true" if histogram.extended_statistics_ok() else "false",
            "true" if histogram.keyed() else "false"), file=output)
     if cpp_guard:
         print("#endif", file=output)
@@ -72,7 +71,7 @@ def print_array_entry(output, histogram, name_index, exp_index):
 def write_histogram_table(output, histograms):
     table = StringTable()
 
-    print("const TelemetryHistogram gHistograms[] = {", file=output)
+    print("const HistogramInfo gHistograms[] = {", file=output)
     for histogram in histograms:
         name_index = table.stringIndex(histogram.name())
         exp_index = table.stringIndex(histogram.expiration())

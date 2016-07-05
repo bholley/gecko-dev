@@ -19,16 +19,15 @@
 #include "js/TypeDecls.h"
 #include "nsIAudioChannelAgent.h"
 #ifdef MOZ_WIDGET_ANDROID
-#include "nsAutoPtr.h"
 #include "nsIRunnable.h"
 #include "GLContextTypes.h"
 #include "AndroidSurfaceTexture.h"
 #include "AndroidBridge.h"
 #include <map>
 class PluginEventRunnable;
-class SharedPluginTexture;
 #endif
 
+#include "mozilla/EventForwards.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/PluginLibrary.h"
 #include "mozilla/WeakPtr.h"
@@ -83,6 +82,8 @@ private:
   typedef mozilla::PluginLibrary PluginLibrary;
 
 public:
+  typedef mozilla::gfx::DrawTarget DrawTarget;
+
   MOZ_DECLARE_WEAKREFERENCE_TYPENAME(nsNPAPIPluginInstance)
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIAUDIOCHANNELAGENTCALLBACK
@@ -99,6 +100,7 @@ public:
   nsresult GetDrawingModel(int32_t* aModel);
   nsresult IsRemoteDrawingCoreAnimation(bool* aDrawing);
   nsresult ContentsScaleFactorChanged(double aContentsScaleFactor);
+  nsresult CSSZoomFactorChanged(float aCSSZoomFactor);
   nsresult GetJSObject(JSContext *cx, JSObject** outObject);
   bool ShouldCache();
   nsresult IsWindowless(bool* isWindowless);
@@ -108,8 +110,8 @@ public:
   nsresult NotifyPainted(void);
   nsresult GetIsOOP(bool* aIsOOP);
   nsresult SetBackgroundUnknown();
-  nsresult BeginUpdateBackground(nsIntRect* aRect, gfxContext** aContext);
-  nsresult EndUpdateBackground(gfxContext* aContext, nsIntRect* aRect);
+  nsresult BeginUpdateBackground(nsIntRect* aRect, DrawTarget** aContext);
+  nsresult EndUpdateBackground(nsIntRect* aRect);
   nsresult IsTransparent(bool* isTransparent);
   nsresult GetFormValue(nsAString& aValue);
   nsresult PushPopupsEnabledState(bool aEnabled);
@@ -118,9 +120,16 @@ public:
   nsresult InvalidateRect(NPRect *invalidRect);
   nsresult InvalidateRegion(NPRegion invalidRegion);
   nsresult GetMIMEType(const char* *result);
-  nsresult GetJSContext(JSContext* *outContext);
+#if defined(XP_WIN)
+  nsresult GetScrollCaptureContainer(mozilla::layers::ImageContainer **aContainer);
+  nsresult UpdateScrollState(bool aIsScrolling);
+#endif
+  nsresult HandledWindowedPluginKeyEvent(
+             const mozilla::NativeEventData& aKeyEventData,
+             bool aIsConsumed);
   nsPluginInstanceOwner* GetOwner();
   void SetOwner(nsPluginInstanceOwner *aOwner);
+  void DidComposite();
 
   bool HasAudioChannelAgent() const
   {
@@ -202,13 +211,9 @@ public:
     GLuint mInternalFormat;
   };
 
-  TextureInfo LockContentTexture();
-  void ReleaseContentTexture(TextureInfo& aTextureInfo);
-
   // For ANPNativeWindow
   void* AcquireContentWindow();
 
-  EGLImage AsEGLImage();
   mozilla::gl::AndroidSurfaceTexture* AsSurfaceTexture();
 
   // For ANPVideo
@@ -270,7 +275,7 @@ public:
   // cache this NPAPI plugin
   void SetCached(bool aCache);
 
-  already_AddRefed<nsPIDOMWindow> GetDOMWindow();
+  already_AddRefed<nsPIDOMWindowOuter> GetDOMWindow();
 
   nsresult PrivateModeStateChanged(bool aEnabled);
 
@@ -292,12 +297,20 @@ public:
 
   void URLRedirectResponse(void* notifyData, NPBool allow);
 
+  NPError InitAsyncSurface(NPSize *size, NPImageFormat format,
+                           void *initData, NPAsyncSurface *surface);
+  NPError FinalizeAsyncSurface(NPAsyncSurface *surface);
+  void SetCurrentAsyncSurface(NPAsyncSurface *surface, NPRect *changed);
+
   // Called when the instance fails to instantiate beceause the Carbon
   // event model is not supported.
   void CarbonNPAPIFailure();
 
   // Returns the contents scale factor of the screen the plugin is drawn on.
   double GetContentsScaleFactor();
+
+  // Returns the css zoom factor of the document the plugin is drawn on.
+  float GetCSSZoomFactor();
 
   nsresult GetRunID(uint32_t *aRunID);
 
@@ -348,7 +361,6 @@ protected:
   bool mFullScreen;
   mozilla::gl::OriginPos mOriginPos;
 
-  RefPtr<SharedPluginTexture> mContentTexture;
   RefPtr<mozilla::gl::AndroidSurfaceTexture> mContentSurface;
 #endif
 
@@ -399,7 +411,6 @@ private:
   mozilla::TimeStamp mStopTime;
 
 #ifdef MOZ_WIDGET_ANDROID
-  void EnsureSharedTexture();
   already_AddRefed<mozilla::gl::AndroidSurfaceTexture> CreateSurfaceTexture();
 
   std::map<void*, VideoInfo*> mVideos;

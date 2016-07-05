@@ -12,14 +12,19 @@ var gTab, gPanel, gDebugger;
 var gSources, gSearchBox;
 
 function test() {
-  initDebugger(TAB_URL).then(([aTab,, aPanel]) => {
+  let options = {
+    source: EXAMPLE_URL + "code_script-switching-01.js",
+    line: 1,
+  };
+  initDebugger(TAB_URL, options).then(([aTab,, aPanel]) => {
     gTab = aTab;
     gPanel = aPanel;
     gDebugger = gPanel.panelWin;
     gSources = gDebugger.DebuggerView.Sources;
     gSearchBox = gDebugger.DebuggerView.Filtering._searchbox;
 
-    waitForSourceAndCaretAndScopes(gPanel, "-02.js", 1)
+    // Calling `firstCall` is going to break into the other script
+    waitForSourceAndCaretAndScopes(gPanel, "-02.js", 6)
       .then(performFileSearch)
       .then(escapeAndHide)
       .then(escapeAndClear)
@@ -43,7 +48,7 @@ function test() {
 function performFileSearch() {
   let finished = promise.all([
     ensureSourceIs(gPanel, "-02.js"),
-    ensureCaretAt(gPanel, 1),
+    ensureCaretAt(gPanel, 6),
     once(gDebugger, "popupshown"),
     waitForDebuggerEvents(gPanel, gDebugger.EVENTS.FILE_SEARCH_MATCH_FOUND),
     waitForSourceShown(gPanel, "-01.js")
@@ -109,7 +114,7 @@ function verifySourceAndCaret(aUrl, aLine, aColumn) {
     "The current caret position appears to be correct.");
 }
 
-registerCleanupFunction(function() {
+registerCleanupFunction(function () {
   gTab = null;
   gPanel = null;
   gDebugger = null;

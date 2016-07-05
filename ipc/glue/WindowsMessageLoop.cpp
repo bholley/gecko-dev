@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: sw=2 ts=2 et :
- */
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -501,24 +500,26 @@ CreateWindowAHook(LPCSTR aClassName, LPCSTR aWindowName, DWORD aStyle, int aX,
 void
 InitCreateWindowHook()
 {
+  // Forcing these interceptions to be detours due to conflicts with
+  // NVIDIA Optimus DLLs that are injected into our process.
   sUser32Interceptor.Init("user32.dll");
   if (!sCreateWindowExWStub) {
-    sUser32Interceptor.AddHook("CreateWindowExW",
+    sUser32Interceptor.AddDetour("CreateWindowExW",
                                reinterpret_cast<intptr_t>(CreateWindowExWHook),
                                (void**) &sCreateWindowExWStub);
   }
   if (!sCreateWindowExAStub) {
-    sUser32Interceptor.AddHook("CreateWindowExA",
+    sUser32Interceptor.AddDetour("CreateWindowExA",
                                reinterpret_cast<intptr_t>(CreateWindowExAHook),
                                (void**) &sCreateWindowExAStub);
   }
   if (!sCreateWindowWStub) {
-    sUser32Interceptor.AddHook("CreateWindowW",
+    sUser32Interceptor.AddDetour("CreateWindowW",
                                reinterpret_cast<intptr_t>(CreateWindowWHook),
                                (void**) &sCreateWindowWStub);
   }
   if (!sCreateWindowAStub) {
-    sUser32Interceptor.AddHook("CreateWindowA",
+    sUser32Interceptor.AddDetour("CreateWindowA",
                                reinterpret_cast<intptr_t>(CreateWindowAHook),
                                (void**) &sCreateWindowAStub);
   }
@@ -828,7 +829,7 @@ MessageChannel::SyncStackFrame::SyncStackFrame(MessageChannel* channel, bool int
 
   if (!mStaticPrev) {
     NS_ASSERTION(!gNeuteredWindows, "Should only set this once!");
-    gNeuteredWindows = new nsAutoTArray<HWND, 20>();
+    gNeuteredWindows = new AutoTArray<HWND, 20>();
     NS_ASSERTION(gNeuteredWindows, "Out of memory!");
   }
 }
@@ -1132,7 +1133,12 @@ MessageChannel::WaitForSyncNotify(bool aHandleWindowsMessages)
                                                QS_ALLINPUT);
       if (result == WAIT_OBJECT_0) {
         // Our NotifyWorkerThread event was signaled
-        ResetEvent(mEvent);
+        BOOL success = ResetEvent(mEvent);
+        if (!success) {
+          gfxDevCrash(mozilla::gfx::LogReason::MessageChannelInvalidHandle) <<
+                      "WindowsMessageChannel::WaitForSyncNotify failed to reset event. GetLastError: " <<
+                      GetLastError();
+        }
         break;
       } else
       if (result != (WAIT_OBJECT_0 + 1)) {
@@ -1236,7 +1242,12 @@ MessageChannel::WaitForInterruptNotify()
       }
       DeneuteredWindowRegion deneuteredRgn;
       SpinInternalEventLoop();
-      ResetEvent(mEvent);
+      BOOL success = ResetEvent(mEvent);
+      if (!success) {
+        gfxDevCrash(mozilla::gfx::LogReason::MessageChannelInvalidHandle) <<
+                    "WindowsMessageChannel::WaitForInterruptNotify::SpinNestedEvents failed to reset event. GetLastError: " <<
+                    GetLastError();
+      }
       return true;
     }
 
@@ -1262,7 +1273,12 @@ MessageChannel::WaitForInterruptNotify()
                                              QS_ALLINPUT);
     if (result == WAIT_OBJECT_0) {
       // Our NotifyWorkerThread event was signaled
-      ResetEvent(mEvent);
+      BOOL success = ResetEvent(mEvent);
+      if (!success) {
+        gfxDevCrash(mozilla::gfx::LogReason::MessageChannelInvalidHandle) <<
+                    "WindowsMessageChannel::WaitForInterruptNotify::WaitForMultipleObjects failed to reset event. GetLastError: " <<
+                    GetLastError();
+      }
       break;
     } else
     if (result != (WAIT_OBJECT_0 + 1)) {
@@ -1315,9 +1331,12 @@ MessageChannel::NotifyWorkerThread()
     return;
   }
 
-  NS_ASSERTION(mEvent, "No signal event to set, this is really bad!");
+  MOZ_RELEASE_ASSERT(mEvent, "No signal event to set, this is really bad!");
   if (!SetEvent(mEvent)) {
     NS_WARNING("Failed to set NotifyWorkerThread event!");
+    gfxDevCrash(mozilla::gfx::LogReason::MessageChannelInvalidHandle) <<
+                "WindowsMessageChannel failed to SetEvent. GetLastError: " <<
+                GetLastError();
   }
 }
 

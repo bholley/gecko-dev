@@ -158,7 +158,6 @@ afxmt.h
 afxpriv.h
 afxtempl.h
 afxwin.h
-algorithm
 Aliases.h
 all.h
 alloca.h
@@ -183,6 +182,7 @@ app/Message.h
 app/MessageRunner.h
 arpa/inet.h
 arpa/nameser.h
+array
 asm/page.h
 asm/sigcontext.h
 asm/signal.h
@@ -244,6 +244,7 @@ cairo-atsui.h
 cairo-beos.h
 cairo-ft.h
 cairo-glitz.h
+cairo-gobject.h
 cairo-pdf.h
 cairo-ps.h
 cairo-tee.h
@@ -254,6 +255,7 @@ cairo-xlib-xrender.h
 cairo-directfb.h
 cairo-qpainter.h
 cairo-qt.h
+complex
 dfiff.h
 exception
 ffi.h
@@ -312,7 +314,6 @@ camera/CameraParameters.h
 Carbon/Carbon.h
 CarbonEvents.h
 Carbon.h
-cassert
 c_asm.h
 cctype
 cderr.h
@@ -329,7 +330,6 @@ CFString.h
 CFURL.h
 CGAffineTransform.h
 CheckBox.h
-climits
 Clipboard.h
 cmplrs/stsupport.h
 Cocoa/Cocoa.h
@@ -360,9 +360,6 @@ crtdbg.h
 crt_externs.h
 crypt.h
 cstddef
-cstdio
-cstdlib
-cstring
 ctime
 ctype.h
 curl/curl.h
@@ -384,7 +381,6 @@ dbus/dbus-glib.h
 dbus/dbus-glib-lowlevel.h
 ddeml.h
 Debug.h
-deque
 dem.h
 descrip.h
 Devices.h
@@ -417,7 +413,6 @@ ExDisp.h
 exe386.h
 execinfo.h
 extras.h
-fabdef.h
 fcntl.h
 features.h
 fibdef.h
@@ -548,6 +543,7 @@ image.h
 imagehlp.h
 imm.h
 initguid.h
+initializer_list
 InterfaceDefs.h
 InternetConfig.h
 IntlResources.h
@@ -560,18 +556,14 @@ IOKit/IOKitLib.h
 IOKit/IOMessage.h
 IOKit/pwr_mgt/IOPMLib.h
 iomanip
-ios
-iosfwd
-iostream
 iostream.h
-iterator
 JavaControl.h
 JavaEmbedding/JavaControl.h
 JavaVM/jni.h
 JManager.h
 JNIEnvTests.h
 jni.h
-#if MOZ_NATIVE_JPEG==1
+#if MOZ_SYSTEM_JPEG==1
 jpeglib.h
 #endif
 JVMManagerTests.h
@@ -627,8 +619,6 @@ libgnome/libgnome.h
 libgnomeui/gnome-icon-lookup.h
 libgnomeui/gnome-icon-theme.h
 libgnomeui/gnome-ui-init.h
-lib$routines.h
-limits
 limits.h
 link.h
 #ifdef ANDROID
@@ -640,7 +630,6 @@ linux/kernel.h
 linux/limits.h
 linux/rtc.h
 linux/version.h
-list
 List.h
 Lists.h
 LListBox.h
@@ -711,7 +700,6 @@ MacTypes.h
 MacWindows.h
 malloc.h
 malloc_np.h
-map
 mapicode.h
 mapidefs.h
 mapiguid.h
@@ -748,6 +736,7 @@ media/stagefright/foundation/hexdump.h
 media/stagefright/MediaBuffer.h
 media/stagefright/MediaBufferGroup.h
 media/stagefright/MediaCodec.h
+media/stagefright/MediaCodecList.h
 media/stagefright/MediaCodecSource.h
 media/stagefright/MediaDefs.h
 media/stagefright/MediaErrors.h
@@ -767,7 +756,6 @@ media/stagefright/openmax/OMX_Video.h
 media/stagefright/Utils.h
 #endif
 mem.h
-memory
 memory.h
 Memory.h
 MenuBar.h
@@ -795,7 +783,6 @@ net/if.h
 netinet/in.h
 netinet/in_systm.h
 netinet/tcp.h
-new
 newexe.h
 new.h
 nl_types.h
@@ -816,7 +803,6 @@ OpenTptInternet.h
 OpenTransport.h
 OS.h
 osreldate.h
-ostream
 OSUtils.h
 Packages.h
 Palettes.h
@@ -888,7 +874,6 @@ resolv.h
 Resources.h
 Retrace.h
 rld_interface.h
-rmsdef.h
 Roster.h
 rpc.h
 rpcproxy.h
@@ -907,7 +892,6 @@ security.h
 secutil.h
 semaphore.h
 servprov.h
-set
 setjmp.h
 SFNTLayoutTypes.h
 SFNTTypes.h
@@ -926,9 +910,7 @@ someincludefile.h
 Sound.h
 soundcard.h
 sqlite3.h
-ssdef.h
 sstream
-stack
 #ifdef ANDROID
 stagefright/AACWriter.h
 stagefright/AMRWriter.h
@@ -979,7 +961,6 @@ stdio.h
 stdlib.h
 storage/FindDirectory.h
 StorageKit.h
-string
 StringCompare.h
 string.h
 String.h
@@ -1153,7 +1134,6 @@ unikbd.h
 unistd.h
 unix.h
 unixio.h
-unixlib.h
 unknwn.h
 UPrinting.h
 UQuickTime.h
@@ -1161,7 +1141,6 @@ UReanimator.h
 URegions.h
 URegistrar.h
 UResourceMgr.h
-utility
 #ifdef ANDROID
 utils/BitSet.h
 utils/CallStack.h
@@ -1193,13 +1172,11 @@ UTETextAction.h
 UTEViewTextAction.h
 UTextEdit.h
 UTextTraits.h
-utility
 utime.h
 UWindows.h
 values.h
 varargs.h
 vcclr.h
-vector
 View.h
 Volume.h
 wab.h
@@ -1263,10 +1240,10 @@ soundtouch/SoundTouchFactory.h
 #if MOZ_LIBAV_FFT==1
 libavcodec/avfft.h
 #endif
-#if MOZ_NATIVE_PNG==1
+#if MOZ_SYSTEM_PNG==1
 png.h
 #endif
-#if MOZ_NATIVE_ZLIB==1
+#if MOZ_SYSTEM_ZLIB==1
 zlib.h
 #endif
 #ifdef MOZ_ENABLE_STARTUP_NOTIFICATION
@@ -1277,16 +1254,16 @@ libsn/sn-launcher.h
 libsn/sn-monitor.h
 libsn/sn-util.h
 #endif
-#if MOZ_NATIVE_HUNSPELL==1
+#if MOZ_SYSTEM_HUNSPELL==1
 hunspell.hxx
 #endif
-#if MOZ_NATIVE_BZ2==1
+#if MOZ_SYSTEM_BZ2==1
 bzlib.h
 #endif
 #ifdef MOZ_ENABLE_GIO
 gio/gio.h
 #endif
-#if MOZ_NATIVE_LIBEVENT==1
+#if MOZ_SYSTEM_LIBEVENT==1
 event.h
 #else
 sys/event.h
@@ -1305,7 +1282,8 @@ QtSparql/qsparqlresult.h
 #if MOZ_TREE_PIXMAN!=1
 pixman.h
 #endif
-#if MOZ_NATIVE_LIBVPX==1
+#if MOZ_SYSTEM_LIBVPX==1
+vpx/svc_context.h
 vpx/vpx_codec.h
 vpx/vpx_decoder.h
 vpx/vpx_encoder.h
@@ -1325,9 +1303,10 @@ kvm.h
 spawn.h
 err.h
 xlocale.h
-#ifdef MOZ_SHARED_ICU
+#ifdef MOZ_SYSTEM_ICU
 unicode/locid.h
 unicode/numsys.h
+unicode/timezone.h
 unicode/ucal.h
 unicode/uchar.h
 unicode/uclean.h

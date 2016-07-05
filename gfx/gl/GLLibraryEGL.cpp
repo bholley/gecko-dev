@@ -4,10 +4,13 @@
 
 #include "GLLibraryEGL.h"
 
+#include "gfxConfig.h"
 #include "gfxCrashReporterUtils.h"
 #include "gfxUtils.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/Telemetry.h"
+#include "mozilla/unused.h"
 #include "nsDirectoryServiceDefs.h"
 #include "nsDirectoryServiceUtils.h"
 #include "nsIGfxInfo.h"
@@ -28,11 +31,11 @@ namespace gl {
 StaticMutex GLLibraryEGL::sMutex;
 GLLibraryEGL sEGLLibrary;
 #ifdef MOZ_B2G
-ThreadLocal<EGLContext> GLLibraryEGL::sCurrentContext;
+MOZ_THREAD_LOCAL(EGLContext) GLLibraryEGL::sCurrentContext;
 #endif
 
 // should match the order of EGLExtensions, and be null-terminated.
-static const char *sEGLExtensionNames[] = {
+static const char* sEGLExtensionNames[] = {
     "EGL_KHR_image_base",
     "EGL_KHR_image_pixmap",
     "EGL_KHR_gl_texture_2D_image",
@@ -113,15 +116,24 @@ LoadLibraryForEGLOnWindows(const nsAString& filename)
 static EGLDisplay
 GetAndInitWARPDisplay(GLLibraryEGL& egl, void* displayType)
 {
-    EGLint attrib_list[] = {  LOCAL_EGL_PLATFORM_ANGLE_TYPE_ANGLE,
-                              LOCAL_EGL_PLATFORM_ANGLE_TYPE_D3D11_WARP_ANGLE,
+    EGLint attrib_list[] = {  LOCAL_EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE,
+                              LOCAL_EGL_PLATFORM_ANGLE_DEVICE_TYPE_WARP_ANGLE,
+                              // Requires:
+                              LOCAL_EGL_PLATFORM_ANGLE_TYPE_ANGLE,
+                              LOCAL_EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
                               LOCAL_EGL_NONE };
     EGLDisplay display = egl.fGetPlatformDisplayEXT(LOCAL_EGL_PLATFORM_ANGLE_ANGLE,
                                                     displayType,
                                                     attrib_list);
 
-    if (display == EGL_NO_DISPLAY)
+    if (display == EGL_NO_DISPLAY) {
+        const EGLint err = egl.fGetError();
+        if (err != LOCAL_EGL_SUCCESS) {
+            gfxCriticalError() << "Unexpected GL error: " << gfx::hexa(err);
+            MOZ_CRASH("GFX: Unexpected GL error.");
+        }
         return EGL_NO_DISPLAY;
+    }
 
     if (!egl.fInitialize(display, nullptr, nullptr))
         return EGL_NO_DISPLAY;
@@ -130,12 +142,20 @@ GetAndInitWARPDisplay(GLLibraryEGL& egl, void* displayType)
 }
 
 static bool
-IsAccelAngleSupported(const nsCOMPtr<nsIGfxInfo>& gfxInfo)
+IsAccelAngleSupported(const nsCOMPtr<nsIGfxInfo>& gfxInfo,
+                      nsACString* const out_failureId)
 {
     int32_t angleSupport;
+    nsCString failureId;
     gfxUtils::ThreadSafeGetFeatureStatus(gfxInfo,
                                          nsIGfxInfo::FEATURE_WEBGL_ANGLE,
+                                         failureId,
                                          &angleSupport);
+    Telemetry::Accumulate(Telemetry::CANVAS_WEBGL_ACCL_FAILURE_ID,
+                          failureId);
+    if (failureId.IsEmpty()) {
+        *out_failureId = failureId;
+    }
     return (angleSupport == nsIGfxInfo::FEATURE_STATUS_OK);
 }
 
@@ -152,12 +172,42 @@ GetAndInitDisplay(GLLibraryEGL& egl, void* displayType)
     return display;
 }
 
+static EGLDisplay
+GetAndInitDisplayForAccelANGLE(GLLibraryEGL& egl)
+{
+    EGLDisplay ret = 0;
+
+    FeatureState& d3d11ANGLE = gfxConfig::GetFeature(Feature::D3D11_HW_ANGLE);
+
+    if (!gfxPrefs::WebGLANGLETryD3D11())
+        d3d11ANGLE.UserDisable("User disabled D3D11 ANGLE by pref",
+                               NS_LITERAL_CSTRING("FAILURE_ID_ANGLE_PREF"));
+
+    if (gfxPrefs::WebGLANGLEForceD3D11())
+        d3d11ANGLE.UserForceEnable("User force-enabled D3D11 ANGLE on disabled hardware");
+
+    if (gfxConfig::IsForcedOnByUser(Feature::D3D11_HW_ANGLE))
+        return GetAndInitDisplay(egl, LOCAL_EGL_D3D11_ONLY_DISPLAY_ANGLE);
+
+    if (d3d11ANGLE.IsEnabled()) {
+        ret = GetAndInitDisplay(egl, LOCAL_EGL_D3D11_ELSE_D3D9_DISPLAY_ANGLE);
+    }
+
+    if (!ret) {
+        ret = GetAndInitDisplay(egl, EGL_DEFAULT_DISPLAY);
+    }
+
+    return ret;
+}
+
 bool
 GLLibraryEGL::ReadbackEGLImage(EGLImage image, gfx::DataSourceSurface* out_surface)
 {
     StaticMutexAutoUnlock lock(sMutex);
     if (!mReadbackGL) {
-        mReadbackGL = gl::GLContextProvider::CreateHeadless(gl::CreateContextFlags::NONE);
+        nsCString discardFailureId;
+        mReadbackGL = gl::GLContextProvider::CreateHeadless(gl::CreateContextFlags::NONE,
+                                                            &discardFailureId);
     }
 
     ScopedTexture destTex(mReadbackGL);
@@ -179,7 +229,7 @@ GLLibraryEGL::ReadbackEGLImage(EGLImage image, gfx::DataSourceSurface* out_surfa
 }
 
 bool
-GLLibraryEGL::EnsureInitialized(bool forceAccel)
+GLLibraryEGL::EnsureInitialized(bool forceAccel, nsACString* const out_failureId)
 {
     if (mInitialized) {
         return true;
@@ -189,7 +239,7 @@ GLLibraryEGL::EnsureInitialized(bool forceAccel)
 
 #ifdef MOZ_B2G
     if (!sCurrentContext.init())
-      MOZ_CRASH("Tls init failed");
+      MOZ_CRASH("GFX: Tls init failed");
 #endif
 
 #ifdef XP_WIN
@@ -306,12 +356,12 @@ GLLibraryEGL::EnsureInitialized(bool forceAccel)
     };
 
     // Do not warn about the failure to load this - see bug 1092191
-    GLLibraryLoader::LoadSymbols(mEGLLibrary, &optionalSymbols[0], nullptr, nullptr,
-                                 false);
+    Unused << GLLibraryLoader::LoadSymbols(mEGLLibrary, &optionalSymbols[0],
+                                           nullptr, nullptr, false);
 
 #if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 18
     MOZ_RELEASE_ASSERT(mSymbols.fQueryStringImplementationANDROID,
-                       "Couldn't find eglQueryStringImplementationANDROID");
+                       "GFX: Couldn't find eglQueryStringImplementationANDROID");
 #endif
 
     InitClientExtensions();
@@ -345,18 +395,16 @@ GLLibraryEGL::EnsureInitialized(bool forceAccel)
     EGLDisplay chosenDisplay = nullptr;
 
     if (IsExtensionSupported(ANGLE_platform_angle_d3d)) {
-        bool accelAngleSupport = IsAccelAngleSupported(gfxInfo);
-        bool warpAngleSupport = gfxPlatform::CanUseDirect3D11ANGLE();
+        bool accelAngleSupport = IsAccelAngleSupported(gfxInfo, out_failureId);
 
         bool shouldTryAccel = forceAccel || accelAngleSupport;
-        bool shouldTryWARP = !shouldTryAccel && warpAngleSupport;
+        bool shouldTryWARP = !shouldTryAccel;
         if (gfxPrefs::WebGLANGLEForceWARP()) {
             shouldTryWARP = true;
             shouldTryAccel = false;
         }
 
-        // Fallback to a WARP display if non-WARP is blacklisted,
-        // or if WARP is forced
+        // Fallback to a WARP display if non-WARP is blacklisted, or if WARP is forced.
         if (shouldTryWARP) {
             chosenDisplay = GetAndInitWARPDisplay(*this, EGL_DEFAULT_DISPLAY);
             if (chosenDisplay) {
@@ -366,36 +414,26 @@ GLLibraryEGL::EnsureInitialized(bool forceAccel)
 
         if (!chosenDisplay) {
             // If falling back to WARP did not work and we don't want to try
-            // using HW accelerated ANGLE, then fail
+            // using HW accelerated ANGLE, then fail.
             if (!shouldTryAccel) {
+                if (out_failureId->IsEmpty()) {
+                    *out_failureId = NS_LITERAL_CSTRING("FEATURE_FAILURE_WARP_FALLBACK");
+                }
                 NS_ERROR("Fallback WARP ANGLE context failed to initialize.");
                 return false;
             }
 
             // Hardware accelerated ANGLE path
-
-            // D3D11 ANGLE only works with OMTC; there's a bug in the non-OMTC layer
-            // manager, and it's pointless to try to fix it.  We also don't try
-            // D3D11 ANGLE if the layer manager is prefering D3D9 (hrm, do we care?)
-            if (gfxPrefs::LayersOffMainThreadCompositionEnabled() &&
-                !gfxPrefs::LayersPreferD3D9())
-            {
-                if (gfxPrefs::WebGLANGLEForceD3D11()) {
-                    chosenDisplay = GetAndInitDisplay(*this,
-                                                      LOCAL_EGL_D3D11_ONLY_DISPLAY_ANGLE);
-                } else if (gfxPrefs::WebGLANGLETryD3D11() &&
-                           gfxPlatform::CanUseDirect3D11ANGLE())
-                {
-                    chosenDisplay = GetAndInitDisplay(*this,
-                                                      LOCAL_EGL_D3D11_ELSE_D3D9_DISPLAY_ANGLE);
-                }
-            }
+            chosenDisplay = GetAndInitDisplayForAccelANGLE(*this);
         }
     } else {
         chosenDisplay = GetAndInitDisplay(*this, EGL_DEFAULT_DISPLAY);
     }
 
     if (!chosenDisplay) {
+        if (out_failureId->IsEmpty()) {
+            *out_failureId = NS_LITERAL_CSTRING("FEATURE_FAILURE_NO_DISPLAY");
+        }
         NS_WARNING("Failed to initialize a display.");
         return false;
     }
@@ -635,11 +673,11 @@ GLLibraryEGL::DumpEGLConfigs()
 {
     int nc = 0;
     fGetConfigs(mEGLDisplay, nullptr, 0, &nc);
-    EGLConfig *ec = new EGLConfig[nc];
+    EGLConfig* ec = new EGLConfig[nc];
     fGetConfigs(mEGLDisplay, ec, nc, &nc);
 
     for (int i = 0; i < nc; ++i) {
-        printf_stderr ("========= EGL Config %d ========\n", i);
+        printf_stderr("========= EGL Config %d ========\n", i);
         DumpEGLConfig(ec[i]);
     }
 
@@ -647,19 +685,25 @@ GLLibraryEGL::DumpEGLConfigs()
 }
 
 #ifdef DEBUG
+static bool
+ShouldTrace()
+{
+    static bool ret = gfxEnv::GlDebugVerbose();
+    return ret;
+}
+
 /*static*/ void
 GLLibraryEGL::BeforeGLCall(const char* glFunction)
 {
-    if (GLContext::DebugMode()) {
-        if (GLContext::DebugMode() & GLContext::DebugTrace)
-            printf_stderr("[egl] > %s\n", glFunction);
+    if (ShouldTrace()) {
+        printf_stderr("[egl] > %s\n", glFunction);
     }
 }
 
 /*static*/ void
 GLLibraryEGL::AfterGLCall(const char* glFunction)
 {
-    if (GLContext::DebugMode() & GLContext::DebugTrace) {
+    if (ShouldTrace()) {
         printf_stderr("[egl] < %s\n", glFunction);
     }
 }

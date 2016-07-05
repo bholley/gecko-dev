@@ -1,5 +1,3 @@
-/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 /* Copyright 2012 Mozilla Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +14,7 @@
  */
 /* jshint esnext:true */
 /* globals Components, Services, XPCOMUtils, PdfjsChromeUtils,
-           PdfjsContentUtils, DEFAULT_PREFERENCES, PdfStreamConverter */
+           PdfjsContentUtils, PdfStreamConverter */
 
 'use strict';
 
@@ -79,23 +77,22 @@ function isDefaultHandler() {
 }
 
 function initializeDefaultPreferences() {
-
-var DEFAULT_PREFERENCES = {
-  showPreviousViewOnLoad: true,
-  defaultZoomValue: '',
-  sidebarViewOnLoad: 0,
-  enableHandToolOnLoad: false,
-  enableWebGL: false,
-  pdfBugEnabled: false,
-  disableRange: false,
-  disableStream: false,
-  disableAutoFetch: false,
-  disableFontFace: false,
-  disableTextLayer: false,
-  useOnlyCssZoom: false,
-  externalLinkTarget: 0,
-};
-
+  var DEFAULT_PREFERENCES =
+{
+  "showPreviousViewOnLoad": true,
+  "defaultZoomValue": "",
+  "sidebarViewOnLoad": 0,
+  "enableHandToolOnLoad": false,
+  "enableWebGL": false,
+  "pdfBugEnabled": false,
+  "disableRange": false,
+  "disableStream": false,
+  "disableAutoFetch": false,
+  "disableFontFace": false,
+  "disableTextLayer": false,
+  "useOnlyCssZoom": false,
+  "externalLinkTarget": 0
+}
 
   var defaultBranch = Services.prefs.getDefaultBranch(PREF_PREFIX + '.');
   var defaultValue;

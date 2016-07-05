@@ -1,6 +1,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+/* import-globals-from ../performance-controller.js */
+/* import-globals-from ../performance-view.js */
 "use strict";
 
 /**
@@ -54,7 +56,7 @@ var JsFlameGraphView = Heritage.extend(DetailsSubview, {
    * @param object interval [optional]
    *        The { startTime, endTime }, in milliseconds.
    */
-  render: function (interval={}) {
+  render: function (interval = {}) {
     let recording = PerformanceController.getCurrentRecording();
     let duration = recording.getDuration();
     let profile = recording.getProfile();
@@ -78,7 +80,9 @@ var JsFlameGraphView = Heritage.extend(DetailsSubview, {
       }
     });
 
-    this.emit(EVENTS.JS_FLAMEGRAPH_RENDERED);
+    this.graph.focus();
+
+    this.emit(EVENTS.UI_JS_FLAMEGRAPH_RENDERED);
   },
 
   /**
@@ -98,7 +102,7 @@ var JsFlameGraphView = Heritage.extend(DetailsSubview, {
   /**
    * Called whenever a pref is changed and this view needs to be rerendered.
    */
-  _onRerenderPrefChanged: function() {
+  _onRerenderPrefChanged: function () {
     let recording = PerformanceController.getCurrentRecording();
     let profile = recording.getProfile();
     let thread = profile.threads[0];

@@ -108,7 +108,7 @@ VisitObserver.prototype = {
   {
     do_print("onVisit(" + aURI.spec + ", " + aVisitId + ", " + aTime +
              ", " + aSessionId + ", " + aReferringId + ", " +
-             aTransitionType + ", " + aGUID + ")"); 
+             aTransitionType + ", " + aGUID + ")");
     if (!this.uri.equals(aURI) || this.guid != aGUID) {
       return;
     }
@@ -333,7 +333,7 @@ add_task(function* test_add_visit_invalid_transitionType_throws() {
   }
 
   // Now, test something that has a transition type greater than the last one.
-  place.visits[0] = new VisitInfo(TRANSITION_FRAMED_LINK + 1);
+  place.visits[0] = new VisitInfo(TRANSITION_RELOAD + 1);
   try {
     yield promiseUpdatePlaces(place);
     do_throw("Should have thrown!");
@@ -371,7 +371,10 @@ add_task(function* test_non_addable_uri_errors() {
       };
       places.push(place);
     }
-    catch (e if e.result === Cr.NS_ERROR_FAILURE) {
+    catch (e) {
+      if (e.result != Cr.NS_ERROR_FAILURE) {
+        throw e;
+      }
       // NetUtil.newURI() can throw if e.g. our app knows about imap://
       // but the account is not set up and so the URL is invalid for us.
       // Note this in the log but ignore as it's not the subject of this test.
@@ -644,9 +647,8 @@ add_task(function* test_add_visit() {
     title: "test_add_visit title",
     visits: [],
   };
-  for (let transitionType = TRANSITION_LINK;
-       transitionType <= TRANSITION_FRAMED_LINK;
-       transitionType++) {
+  for (let t in PlacesUtils.history.TRANSITIONS) {
+    let transitionType = PlacesUtils.history.TRANSITIONS[t];
     place.visits.push(new VisitInfo(transitionType, VISIT_TIME));
   }
   do_check_false(yield promiseIsURIVisited(place.uri));
@@ -669,8 +671,8 @@ add_task(function* test_add_visit() {
     do_check_eq(visits.length, 1);
     let visit = visits[0];
     do_check_eq(visit.visitDate, VISIT_TIME);
-    do_check_true(visit.transitionType >= TRANSITION_LINK &&
-                    visit.transitionType <= TRANSITION_FRAMED_LINK);
+    let transitions =
+    do_check_true(Object.values(PlacesUtils.history.TRANSITIONS).includes(visit.transitionType));
     do_check_true(visit.referrerURI === null);
 
     // For TRANSITION_EMBED visits, many properties will always be zero or
@@ -703,9 +705,8 @@ add_task(function* test_add_visit() {
 add_task(function* test_properties_saved() {
   // Check each transition type to make sure it is saved properly.
   let places = [];
-  for (let transitionType = TRANSITION_LINK;
-       transitionType <= TRANSITION_FRAMED_LINK;
-       transitionType++) {
+  for (let t in PlacesUtils.history.TRANSITIONS) {
+    let transitionType = PlacesUtils.history.TRANSITIONS[t];
     let place = {
       uri: NetUtil.newURI(TEST_DOMAIN + "test_properties_saved/" +
                           transitionType),
@@ -1002,7 +1003,7 @@ add_task(function* test_title_change_notifies() {
             PlacesUtils.history.removeObserver(observer);
             resolve();
             break;
-        };
+        }
       });
 
       PlacesUtils.history.addObserver(observer, false);
@@ -1080,7 +1081,10 @@ add_task(function* test_callbacks_not_supplied() {
       };
       places.push(place);
     }
-    catch (e if e.result === Cr.NS_ERROR_FAILURE) {
+    catch (e) {
+      if (e.result != Cr.NS_ERROR_FAILURE) {
+        throw e;
+      }
       // NetUtil.newURI() can throw if e.g. our app knows about imap://
       // but the account is not set up and so the URL is invalid for us.
       // Note this in the log but ignore as it's not the subject of this test.

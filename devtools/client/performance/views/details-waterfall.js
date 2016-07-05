@@ -1,6 +1,9 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+/* import-globals-from ../performance-controller.js */
+/* import-globals-from ../performance-view.js */
+/* globals window */
 "use strict";
 
 const WATERFALL_RESIZE_EVENTS_DRAIN = 100; // ms
@@ -61,6 +64,8 @@ var WaterfallView = Heritage.extend(DetailsSubview, {
   destroy: function () {
     DetailsSubview.destroy.call(this);
 
+    clearNamedTimeout("waterfall-resize");
+
     this._cache = null;
 
     this.details.off("resize", this._onResize);
@@ -75,15 +80,18 @@ var WaterfallView = Heritage.extend(DetailsSubview, {
    * @param object interval [optional]
    *        The { startTime, endTime }, in milliseconds.
    */
-  render: function(interval={}) {
+  render: function (interval = {}) {
     let recording = PerformanceController.getCurrentRecording();
+    if (recording.isRecording()) {
+      return;
+    }
     let startTime = interval.startTime || 0;
     let endTime = interval.endTime || recording.getDuration();
     let markers = recording.getMarkers();
     let rootMarkerNode = this._prepareWaterfallTree(markers);
 
     this._populateWaterfallTree(rootMarkerNode, { startTime, endTime });
-    this.emit(EVENTS.WATERFALL_RENDERED);
+    this.emit(EVENTS.UI_WATERFALL_RENDERED);
   },
 
   /**
@@ -118,7 +126,7 @@ var WaterfallView = Heritage.extend(DetailsSubview, {
   /**
    * Called whenever an observed pref is changed.
    */
-  _onObservedPrefChange: function(_, prefName) {
+  _onObservedPrefChange: function (_, prefName) {
     this._hiddenMarkers = PerformanceController.getPref("hidden-markers");
 
     // Clear the cache as we'll need to recompute the collapsed
@@ -176,7 +184,7 @@ var WaterfallView = Heritage.extend(DetailsSubview, {
    * Called when the recording is stopped and prepares data to
    * populate the waterfall tree.
    */
-  _prepareWaterfallTree: function(markers) {
+  _prepareWaterfallTree: function (markers) {
     let cached = this._cache.get(markers);
     if (cached) {
       return cached;
@@ -197,7 +205,7 @@ var WaterfallView = Heritage.extend(DetailsSubview, {
   /**
    * Renders the waterfall tree.
    */
-  _populateWaterfallTree: function(rootMarkerNode, interval) {
+  _populateWaterfallTree: function (rootMarkerNode, interval) {
     let root = new MarkerView({
       marker: rootMarkerNode,
       // The root node is irrelevant in a waterfall tree.

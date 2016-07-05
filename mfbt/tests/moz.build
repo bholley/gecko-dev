@@ -9,6 +9,7 @@ CppUnitTests([
     'TestAtomics',
     'TestBinarySearch',
     'TestBloomFilter',
+    'TestBufferList',
     'TestCasting',
     'TestCeilingFloor',
     'TestCheckedInt',
@@ -19,6 +20,7 @@ CppUnitTests([
     'TestFastBernoulliTrial',
     'TestFloatingPoint',
     'TestFunction',
+    'TestInitializerList',
     'TestIntegerPrintfMacros',
     'TestIntegerRange',
     'TestJSONWriter',
@@ -27,9 +29,11 @@ CppUnitTests([
     'TestMacroForEach',
     'TestMathAlgorithms',
     'TestMaybe',
+    'TestNotNull',
     'TestPair',
     'TestRefPtr',
     'TestRollingMean',
+    'TestSaturate',
     'TestScopeExit',
     'TestSegmentedVector',
     'TestSHA1',
@@ -64,3 +68,6 @@ if CONFIG['_MSC_VER']:
 USE_LIBS += [
     'mfbt',
 ]
+
+if CONFIG['GNU_CXX']:
+    CXXFLAGS += ['-Wno-error=shadow']

@@ -13,7 +13,6 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/BrowserElementPromptService.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
-Cu.import("resource://gre/modules/Microformats.js");
 Cu.import("resource://gre/modules/ExtensionContent.jsm");
 
 XPCOMUtils.defineLazyServiceGetter(this, "acs",
@@ -72,15 +71,6 @@ const OBSERVED_EVENTS = [
   'invalid-widget',
   'will-launch-app'
 ];
-
-const COMMAND_MAP = {
-  'cut': 'cmd_cut',
-  'copy': 'cmd_copyAndCollapseToEnd',
-  'copyImage': 'cmd_copyImage',
-  'copyLink': 'cmd_copyLink',
-  'paste': 'cmd_paste',
-  'selectall': 'cmd_selectAll'
-};
 
 /**
  * The BrowserElementChild implements one half of <iframe mozbrowser>.
@@ -144,7 +134,6 @@ function BrowserElementChild() {
 
   this._isContentWindowCreated = false;
   this._pendingSetInputMethodActive = [];
-  this._selectionStateChangedTarget = null;
 
   this.forwarder = new BrowserElementProxyForwarder();
 
@@ -167,9 +156,11 @@ BrowserElementChild.prototype = {
                                  Ci.nsIWebProgress.NOTIFY_SECURITY |
                                  Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
 
-    docShell.QueryInterface(Ci.nsIWebNavigation)
-            .sessionHistory = Cc["@mozilla.org/browser/shistory;1"]
-                                .createInstance(Ci.nsISHistory);
+    let webNavigation = docShell.QueryInterface(Ci.nsIWebNavigation);
+    if (!webNavigation.sessionHistory) {
+      webNavigation.sessionHistory = Cc["@mozilla.org/browser/shistory;1"]
+                                       .createInstance(Ci.nsISHistory);
+    }
 
     // This is necessary to get security web progress notifications.
     var securityUI = Cc['@mozilla.org/secure_browser_ui;1']
@@ -229,11 +220,6 @@ BrowserElementChild.prototype = {
                      /* useCapture = */ true,
                      /* wantsUntrusted = */ false);
 
-    addEventListener('mozselectionstatechanged',
-                     this._selectionStateChangedHandler.bind(this),
-                     /* useCapture = */ true,
-                     /* wantsUntrusted = */ false);
-
     addEventListener('scrollviewchange',
                      this._ScrollViewChangeHandler.bind(this),
                      /* useCapture = */ true,
@@ -289,7 +275,6 @@ BrowserElementChild.prototype = {
       "activate-next-paint-listener": this._activateNextPaintListener.bind(this),
       "set-input-method-active": this._recvSetInputMethodActive.bind(this),
       "deactivate-next-paint-listener": this._deactivateNextPaintListener.bind(this),
-      "do-command": this._recvDoCommand,
       "find-all": this._recvFindAll.bind(this),
       "find-next": this._recvFindNext.bind(this),
       "clear-match": this._recvClearMatch.bind(this),
@@ -299,7 +284,6 @@ BrowserElementChild.prototype = {
       "get-audio-channel-muted": this._recvGetAudioChannelMuted,
       "set-audio-channel-muted": this._recvSetAudioChannelMuted,
       "get-is-audio-channel-active": this._recvIsAudioChannelActive,
-      "get-structured-data": this._recvGetStructuredData,
       "get-web-manifest": this._recvGetWebManifest,
     }
 
@@ -371,6 +355,11 @@ BrowserElementChild.prototype = {
           return;
         }
 
+        // If this is not a content process, let's not freeze painting.
+        if (Services.appinfo.processType != Services.appinfo.PROCESS_TYPE_CONTENT) {
+          return;
+        }
+
         docShell.contentViewer.pausePainting();
 
         this._paintFrozenTimer && this._paintFrozenTimer.cancel();
@@ -436,15 +425,6 @@ BrowserElementChild.prototype = {
         args.promptType == 'custom-prompt') {
       return returnValue;
     }
-  },
-
-  _isCommandEnabled: function(cmd) {
-    let command = COMMAND_MAP[cmd];
-    if (!command) {
-      return false;
-    }
-
-    return docShell.isCommandEnabled(command);
   },
 
   /**
@@ -550,7 +530,7 @@ BrowserElementChild.prototype = {
 
   _recvEnteredFullscreen: function() {
     if (!this._windowUtils.handleFullscreenRequests() &&
-        !content.document.mozFullScreen) {
+        !content.document.fullscreenElement) {
       // If we don't actually have any pending fullscreen request
       // to handle, neither we have been in fullscreen, tell the
       // parent to just exit.
@@ -622,6 +602,7 @@ BrowserElementChild.prototype = {
     let handlers = {
       'icon': this._iconChangedHandler.bind(this),
       'apple-touch-icon': this._iconChangedHandler.bind(this),
+      'apple-touch-icon-precomposed': this._iconChangedHandler.bind(this),
       'search': this._openSearchHandler,
       'manifest': this._manifestChangedHandler
     };
@@ -741,97 +722,6 @@ BrowserElementChild.prototype = {
         sendAsyncMsg('opentab', {url: node.href});
       }
     }
-  },
-
-  _selectionStateChangedHandler: function(e) {
-    e.stopPropagation();
-
-    if (!this._isContentWindowCreated) {
-      return;
-    }
-
-    let boundingClientRect = e.boundingClientRect;
-
-    let isCollapsed = (e.selectedText.length == 0);
-    let isMouseUp = (e.states.indexOf('mouseup') == 0);
-    let canPaste = this._isCommandEnabled("paste");
-
-    if (this._selectionStateChangedTarget != e.target) {
-      // SelectionStateChanged events with the following states are not
-      // necessary to trigger the text dialog, bypass these events
-      // by default.
-      //
-      if(e.states.length == 0 ||
-         e.states.indexOf('drag') == 0 ||
-         e.states.indexOf('keypress') == 0 ||
-         e.states.indexOf('mousedown') == 0) {
-        return;
-      }
-
-      // The collapsed SelectionStateChanged event is unnecessary to dispatch,
-      // bypass this event by default, but here comes some exceptional cases
-      if (isCollapsed) {
-        if (isMouseUp && canPaste) {
-          // Always dispatch to support shortcut mode which can paste previous
-          // copied content easily
-        } else if (e.states.indexOf('blur') == 0) {
-          // Always dispatch to notify the blur for the focus content
-        } else if (e.states.indexOf('taponcaret') == 0) {
-          // Always dispatch to notify the caret be touched
-        } else {
-          return;
-        }
-      }
-    }
-
-    // If we select something and selection range is visible, we cache current
-    // event's target to selectionStateChangedTarget.
-    // And dispatch the next SelectionStateChagne event if target is matched, so
-    // that the parent side can hide the text dialog.
-    // We clear selectionStateChangedTarget if selection carets are invisible.
-    if (e.visible && !isCollapsed) {
-      this._selectionStateChangedTarget = e.target;
-    } else if (canPaste && isCollapsed) {
-      this._selectionStateChangedTarget = e.target;
-    } else {
-      this._selectionStateChangedTarget = null;
-    }
-
-    let zoomFactor = content.screen.width / content.innerWidth;
-
-    let detail = {
-      rect: {
-        width: boundingClientRect ? boundingClientRect.width : 0,
-        height: boundingClientRect ? boundingClientRect.height : 0,
-        top: boundingClientRect ? boundingClientRect.top : 0,
-        bottom: boundingClientRect ? boundingClientRect.bottom : 0,
-        left: boundingClientRect ? boundingClientRect.left : 0,
-        right: boundingClientRect ? boundingClientRect.right : 0,
-      },
-      commands: {
-        canSelectAll: this._isCommandEnabled("selectall"),
-        canCut: this._isCommandEnabled("cut"),
-        canCopy: this._isCommandEnabled("copy"),
-        canPaste: this._isCommandEnabled("paste"),
-      },
-      zoomFactor: zoomFactor,
-      states: e.states,
-      isCollapsed: (e.selectedText.length == 0),
-      visible: e.visible,
-    };
-
-    // Get correct geometry information if we have nested iframe.
-    let currentWindow = e.target.defaultView;
-    while (currentWindow.realFrameElement) {
-      let currentRect = currentWindow.realFrameElement.getBoundingClientRect();
-      detail.rect.top += currentRect.top;
-      detail.rect.bottom += currentRect.top;
-      detail.rect.left += currentRect.left;
-      detail.rect.right += currentRect.left;
-      currentWindow = currentWindow.realFrameElement.ownerDocument.defaultView;
-    }
-
-    sendAsyncMsg('selectionstatechanged', detail);
   },
 
   _genericMetaHandler: function(name, eventType, target) {
@@ -1160,7 +1050,7 @@ BrowserElementChild.prototype = {
 
     try {
       let sandboxRv = Cu.evalInSandbox(data.json.args.script, sandbox, "1.8");
-      if (sandboxRv instanceof Promise) {
+      if (sandboxRv instanceof sandbox.Promise) {
         sandboxRv.then(rv => {
           if (isJSON(rv)) {
             sendSuccess(rv);
@@ -1317,14 +1207,16 @@ BrowserElementChild.prototype = {
   _recvFireCtxCallback: function(data) {
     debug("Received fireCtxCallback message: (" + data.json.menuitem + ")");
 
+    let doCommandIfEnabled = (command) => {
+      if (docShell.isCommandEnabled(command)) {
+        docShell.doCommand(command);
+      }
+    };
+
     if (data.json.menuitem == 'copy-image') {
-      // Set command
-      data.json.command = 'copyImage';
-      this._recvDoCommand(data);
+      doCommandIfEnabled('cmd_copyImage');
     } else if (data.json.menuitem == 'copy-link') {
-      // Set command
-      data.json.command = 'copyLink';
-      this._recvDoCommand(data);
+      doCommandIfEnabled('cmd_copyLink');
     } else if (data.json.menuitem in this._ctxHandlers) {
       this._ctxHandlers[data.json.menuitem].click();
       this._ctxHandlers = {};
@@ -1508,13 +1400,6 @@ BrowserElementChild.prototype = {
     docShell.contentViewer.fullZoom = data.json.zoom;
   },
 
-  _recvDoCommand: function(data) {
-    if (this._isCommandEnabled(data.json.command)) {
-      this._selectionStateChangedTarget = null;
-      docShell.doCommand(COMMAND_MAP[data.json.command]);
-    }
-  },
-
   _recvGetAudioChannelVolume: function(data) {
     debug("Received getAudioChannelVolume message: (" + data.json.id + ")");
 
@@ -1659,300 +1544,6 @@ BrowserElementChild.prototype = {
     sendAsyncMsg('got-set-input-method-active', msgData);
   },
 
-  _processMicroformatValue(field, value) {
-    if (['node', 'resolvedNode', 'semanticType'].includes(field)) {
-      return null;
-    } else if (Array.isArray(value)) {
-      var result = value.map(i => this._processMicroformatValue(field, i))
-                        .filter(i => i !== null);
-      return result.length ? result : null;
-    } else if (typeof value == 'string') {
-      return value;
-    } else if (typeof value == 'object' && value !== null) {
-      return this._processMicroformatItem(value);
-    }
-    return null;
-  },
-
-  // This function takes legacy Microformat data (hCard and hCalendar)
-  // and produces the same result that the equivalent Microdata data
-  // would produce.
-  _processMicroformatItem(microformatData) {
-    var result = {};
-
-    if (microformatData.semanticType == 'geo') {
-      return microformatData.latitude + ';' + microformatData.longitude;
-    }
-
-    if (microformatData.semanticType == 'hCard') {
-      result.type = ["http://microformats.org/profile/hcard"];
-    } else if (microformatData.semanticType == 'hCalendar') {
-      result.type = ["http://microformats.org/profile/hcalendar#vevent"];
-    }
-
-    for (let field of Object.getOwnPropertyNames(microformatData)) {
-      var processed = this._processMicroformatValue(field, microformatData[field]);
-      if (processed === null) {
-        continue;
-      }
-      if (!result.properties) {
-        result.properties = {};
-      }
-      if (Array.isArray(processed)) {
-        result.properties[field] = processed;
-      } else {
-        result.properties[field] = [processed];
-      }
-    }
-
-    return result;
-  },
-
-  _findItemProperties: function(node, properties, alreadyProcessed) {
-    if (node.itemProp) {
-      var value;
-
-      if (node.itemScope) {
-        value = this._processItem(node, alreadyProcessed);
-      } else {
-        value = node.itemValue;
-      }
-
-      for (let i = 0; i < node.itemProp.length; ++i) {
-        var property = node.itemProp[i];
-        if (!properties[property]) {
-          properties[property] = [];
-        }
-
-        properties[property].push(value);
-      }
-    }
-
-    if (!node.itemScope) {
-      var childNodes = node.childNodes;
-      for (var childNode of childNodes) {
-        this._findItemProperties(childNode, properties, alreadyProcessed);
-      }
-    }
-  },
-
-  _processItem: function(node, alreadyProcessed = []) {
-    if (alreadyProcessed.includes(node)) {
-      return "ERROR";
-    }
-
-    alreadyProcessed.push(node);
-
-    var result = {};
-
-    if (node.itemId) {
-      result.id = node.itemId;
-    }
-    if (node.itemType) {
-      result.type = [];
-      for (let i = 0; i < node.itemType.length; ++i) {
-        result.type.push(node.itemType[i]);
-      }
-    }
-
-    var properties = {};
-
-    var childNodes = node.childNodes;
-    for (var childNode of childNodes) {
-      this._findItemProperties(childNode, properties, alreadyProcessed);
-    }
-
-    if (node.itemRef) {
-      for (let i = 0; i < node.itemRef.length; ++i) {
-        var refNode = content.document.getElementById(node.itemRef[i]);
-        this._findItemProperties(refNode, properties, alreadyProcessed);
-      }
-    }
-
-    result.properties = properties;
-    return result;
-  },
-
-  _recvGetStructuredData: function(data) {
-    var result = {
-      items: []
-    };
-
-    var microdataItems = content.document.getItems();
-
-    for (let microdataItem of microdataItems) {
-      result.items.push(this._processItem(microdataItem));
-    }
-
-    var hCardItems = Microformats.get("hCard", content.document);
-    for (let hCardItem of hCardItems) {
-      if (!hCardItem.node.itemScope) {  // If it's also marked with Microdata, ignore the Microformat
-        result.items.push(this._processMicroformatItem(hCardItem));
-      }
-    }
-
-    var hCalendarItems = Microformats.get("hCalendar", content.document);
-    for (let hCalendarItem of hCalendarItems) {
-      if (!hCalendarItem.node.itemScope) {  // If it's also marked with Microdata, ignore the Microformat
-        result.items.push(this._processMicroformatItem(hCalendarItem));
-      }
-    }
-
-    var resultString = JSON.stringify(result);
-
-    sendAsyncMsg('got-structured-data', {
-      id: data.json.id,
-      successRv: resultString
-    });
-  },
-
-  _processMicroformatValue(field, value) {
-    if (['node', 'resolvedNode', 'semanticType'].includes(field)) {
-      return null;
-    } else if (Array.isArray(value)) {
-      var result = value.map(i => this._processMicroformatValue(field, i))
-                        .filter(i => i !== null);
-      return result.length ? result : null;
-    } else if (typeof value == 'string') {
-      return value;
-    } else if (typeof value == 'object' && value !== null) {
-      return this._processMicroformatItem(value);
-    }
-    return null;
-  },
-
-  // This function takes legacy Microformat data (hCard and hCalendar)
-  // and produces the same result that the equivalent Microdata data
-  // would produce.
-  _processMicroformatItem(microformatData) {
-    var result = {};
-
-    if (microformatData.semanticType == 'geo') {
-      return microformatData.latitude + ';' + microformatData.longitude;
-    }
-
-    if (microformatData.semanticType == 'hCard') {
-      result.type = ["http://microformats.org/profile/hcard"];
-    } else if (microformatData.semanticType == 'hCalendar') {
-      result.type = ["http://microformats.org/profile/hcalendar#vevent"];
-    }
-
-    for (let field of Object.getOwnPropertyNames(microformatData)) {
-      var processed = this._processMicroformatValue(field, microformatData[field]);
-      if (processed === null) {
-        continue;
-      }
-      if (!result.properties) {
-        result.properties = {};
-      }
-      if (Array.isArray(processed)) {
-        result.properties[field] = processed;
-      } else {
-        result.properties[field] = [processed];
-      }
-    }
-
-    return result;
-  },
-
-  _findItemProperties: function(node, properties, alreadyProcessed) {
-    if (node.itemProp) {
-      var value;
-
-      if (node.itemScope) {
-        value = this._processItem(node, alreadyProcessed);
-      } else {
-        value = node.itemValue;
-      }
-
-      for (let i = 0; i < node.itemProp.length; ++i) {
-        var property = node.itemProp[i];
-        if (!properties[property]) {
-          properties[property] = [];
-        }
-
-        properties[property].push(value);
-      }
-    }
-
-    if (!node.itemScope) {
-      var childNodes = node.childNodes;
-      for (var childNode of childNodes) {
-        this._findItemProperties(childNode, properties, alreadyProcessed);
-      }
-    }
-  },
-
-  _processItem: function(node, alreadyProcessed = []) {
-    if (alreadyProcessed.includes(node)) {
-      return "ERROR";
-    }
-
-    alreadyProcessed.push(node);
-
-    var result = {};
-
-    if (node.itemId) {
-      result.id = node.itemId;
-    }
-    if (node.itemType) {
-      result.type = [];
-      for (let i = 0; i < node.itemType.length; ++i) {
-        result.type.push(node.itemType[i]);
-      }
-    }
-
-    var properties = {};
-
-    var childNodes = node.childNodes;
-    for (var childNode of childNodes) {
-      this._findItemProperties(childNode, properties, alreadyProcessed);
-    }
-
-    if (node.itemRef) {
-      for (let i = 0; i < node.itemRef.length; ++i) {
-        var refNode = content.document.getElementById(node.itemRef[i]);
-        this._findItemProperties(refNode, properties, alreadyProcessed);
-      }
-    }
-
-    result.properties = properties;
-    return result;
-  },
-
-  _recvGetStructuredData: function(data) {
-    var result = {
-      items: []
-    };
-
-    var microdataItems = content.document.getItems();
-
-    for (let microdataItem of microdataItems) {
-      result.items.push(this._processItem(microdataItem));
-    }
-
-    var hCardItems = Microformats.get("hCard", content.document);
-    for (let hCardItem of hCardItems) {
-      if (!hCardItem.node.itemScope) {  // If it's also marked with Microdata, ignore the Microformat
-        result.items.push(this._processMicroformatItem(hCardItem));
-      }
-    }
-
-    var hCalendarItems = Microformats.get("hCalendar", content.document);
-    for (let hCalendarItem of hCalendarItems) {
-      if (!hCalendarItem.node.itemScope) {  // If it's also marked with Microdata, ignore the Microformat
-        result.items.push(this._processMicroformatItem(hCalendarItem));
-      }
-    }
-
-    var resultString = JSON.stringify(result);
-
-    sendAsyncMsg('got-structured-data', {
-      id: data.json.id,
-      successRv: resultString
-    });
-  },
-
   // The docShell keeps a weak reference to the progress listener, so we need
   // to keep a strong ref to it ourselves.
   _progressListener: {
@@ -2002,6 +1593,7 @@ BrowserElementChild.prototype = {
           case Cr.NS_BINDING_ABORTED :
             // Ignoring NS_BINDING_ABORTED, which is set when loading page is
             // stopped.
+          case Cr.NS_ERROR_PARSED_DATA_CACHED:
             return;
 
           // TODO See nsDocShell::DisplayLoadError to see what extra
@@ -2029,13 +1621,16 @@ BrowserElementChild.prototype = {
             sendAsyncMsg('error', { type: 'cspBlocked' });
             return;
           case Cr.NS_ERROR_PHISHING_URI :
-            sendAsyncMsg('error', { type: 'phishingBlocked' });
+            sendAsyncMsg('error', { type: 'deceptiveBlocked' });
             return;
           case Cr.NS_ERROR_MALWARE_URI :
             sendAsyncMsg('error', { type: 'malwareBlocked' });
             return;
           case Cr.NS_ERROR_UNWANTED_URI :
             sendAsyncMsg('error', { type: 'unwantedBlocked' });
+            return;
+          case Cr.NS_ERROR_FORBIDDEN_URI :
+            sendAsyncMsg('error', { type: 'forbiddenBlocked' });
             return;
 
           case Cr.NS_ERROR_OFFLINE :
@@ -2078,7 +1673,7 @@ BrowserElementChild.prototype = {
             sendAsyncMsg('error', { type: 'unsafeContentType' });
             return;
           case Cr.NS_ERROR_CORRUPTED_CONTENT :
-            sendAsyncMsg('error', { type: 'corruptedContentError' });
+            sendAsyncMsg('error', { type: 'corruptedContentErrorv2' });
             return;
 
           default:

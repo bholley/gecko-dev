@@ -28,9 +28,10 @@
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
 var { XPCOMUtils } = Cu.import("resource://gre/modules/XPCOMUtils.jsm", {});
-var { Services }   = Cu.import("resource://gre/modules/Services.jsm", {});
+var { NetUtil } = Cu.import("resource://gre/modules/NetUtil.jsm", {});
 var { LoadContextInfo } = Cu.import("resource://gre/modules/LoadContextInfo.jsm", {});
 var { require } = Cu.import("resource://devtools/shared/Loader.jsm", {});
+var Services = require("Services");
 var promise = require("promise");
 
 this.EXPORTED_SYMBOLS = ["AppCacheUtils"];
@@ -68,7 +69,7 @@ AppCacheUtils.prototype = {
       this._getURIInfo(this.manifestURI).then(uriInfo => {
         this._parseManifest(uriInfo).then(() => {
           // Sort errors by line number.
-          this.errors.sort(function(a, b) {
+          this.errors.sort(function (a, b) {
             return a.line - b.line;
           });
           deferred.resolve(this.errors);
@@ -186,20 +187,17 @@ AppCacheUtils.prototype = {
                         .createInstance(Ci.nsIScriptableInputStream);
     let deferred = promise.defer();
     let buffer = "";
-    let channel = Services.io.newChannel2(uri,
-                                          null,
-                                          null,
-                                          null,      // aLoadingNode
-                                          Services.scriptSecurityManager.getSystemPrincipal(),
-                                          null,      // aTriggeringPrincipal
-                                          Ci.nsILoadInfo.SEC_NORMAL,
-                                          Ci.nsIContentPolicy.TYPE_OTHER);
+    var channel = NetUtil.newChannel({
+      uri: uri,
+      loadUsingSystemPrincipal: true,
+      securityFlags: Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_IS_NULL
+    });
 
     // Avoid the cache:
     channel.loadFlags |= Ci.nsIRequest.LOAD_BYPASS_CACHE;
     channel.loadFlags |= Ci.nsIRequest.INHIBIT_CACHING;
 
-    channel.asyncOpen({
+    channel.asyncOpen2({
       onStartRequest: function (request, context) {
         // This empty method is needed in order for onDataAvailable to be
         // called.
@@ -228,12 +226,12 @@ AppCacheUtils.prototype = {
           };
 
           result.requestHeaders = {};
-          request.visitRequestHeaders(function(header, value) {
+          request.visitRequestHeaders(function (header, value) {
             result.requestHeaders[header] = value;
           });
 
           result.responseHeaders = {};
-          request.visitResponseHeaders(function(header, value) {
+          request.visitResponseHeaders(function (header, value) {
             result.responseHeaders[header] = value;
           });
 
@@ -245,7 +243,7 @@ AppCacheUtils.prototype = {
           });
         }
       }
-    }, null);
+    });
     return deferred.promise;
   },
 
@@ -258,9 +256,9 @@ AppCacheUtils.prototype = {
 
     let appCacheStorage = Services.cache2.appCacheStorage(LoadContextInfo.default, null);
     appCacheStorage.asyncVisitStorage({
-      onCacheStorageInfo: function() {},
+      onCacheStorageInfo: function () {},
 
-      onCacheEntryInfo: function(aURI, aIdEnhance, aDataSize, aFetchCount, aLastModifiedTime, aExpirationTime) {
+      onCacheEntryInfo: function (aURI, aIdEnhance, aDataSize, aFetchCount, aLastModifiedTime, aExpirationTime) {
         let lowerKey = aURI.asciiSpec.toLowerCase();
 
         if (searchTerm && lowerKey.indexOf(searchTerm.toLowerCase()) == -1) {
@@ -307,7 +305,7 @@ AppCacheUtils.prototype = {
 
     let appCacheStorage = Services.cache2.appCacheStorage(LoadContextInfo.default, null);
     appCacheStorage.asyncEvictStorage({
-      onCacheEntryDoomed: function(result) {}
+      onCacheEntryDoomed: function (result) {}
     });
   },
 
@@ -619,12 +617,12 @@ ManifestParser.prototype = {
 XPCOMUtils.defineLazyGetter(this, "l10n", () => Services.strings
   .createBundle("chrome://devtools/locale/appcacheutils.properties"));
 
-XPCOMUtils.defineLazyGetter(this, "appcacheservice", function() {
+XPCOMUtils.defineLazyGetter(this, "appcacheservice", function () {
   return Cc["@mozilla.org/network/application-cache-service;1"]
            .getService(Ci.nsIApplicationCacheService);
 
 });
 
-XPCOMUtils.defineLazyGetter(this, "_DOMParser", function() {
+XPCOMUtils.defineLazyGetter(this, "_DOMParser", function () {
   return Cc["@mozilla.org/xmlextras/domparser;1"].createInstance(Ci.nsIDOMParser);
 });

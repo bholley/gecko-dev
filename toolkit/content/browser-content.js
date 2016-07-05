@@ -11,6 +11,9 @@ var Cr = Components.results;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "ReaderMode",
+  "resource://gre/modules/ReaderMode.jsm");
+
 var global = this;
 
 
@@ -207,6 +210,9 @@ var ClickEventHandler = {
       this._scrollErrorX = (desiredScrollX - actualScrollX);
     }
 
+    const kAutoscroll = 15;  // defined in mozilla/layers/ScrollInputMethods.h
+    Services.telemetry.getHistogramById("SCROLL_INPUT_METHODS").add(kAutoscroll);
+
     if (this._scrollable instanceof content.Window) {
       this._scrollable.scrollBy(actualScrollX, actualScrollY);
     } else { // an element with overflow
@@ -260,6 +266,7 @@ var PopupBlocking = {
     addEventListener("pagehide", this, true);
 
     addMessageListener("PopupBlocking:UnblockPopup", this);
+    addMessageListener("PopupBlocking:GetBlockedPopupList", this);
   },
 
   receiveMessage: function(msg) {
@@ -274,9 +281,34 @@ var PopupBlocking = {
           // If we have a requesting window and the requesting document is
           // still the current document, open the popup.
           if (dwi && dwi.document == internals.requestingDocument) {
-            dwi.open(data.popupWindowURI, data.popupWindowName, data.popupWindowFeatures);
+            dwi.open(data.popupWindowURIspec, data.popupWindowName, data.popupWindowFeatures);
           }
         }
+        break;
+      }
+
+      case "PopupBlocking:GetBlockedPopupList": {
+        let popupData = [];
+        let length = this.popupData ? this.popupData.length : 0;
+
+        // Limit 15 popup URLs to be reported through the UI
+        length = Math.min(length, 15);
+
+        for (let i = 0; i < length; i++) {
+          let popupWindowURIspec = this.popupData[i].popupWindowURIspec;
+
+          if (popupWindowURIspec == global.content.location.href) {
+            popupWindowURIspec = "<self>";
+          } else {
+            // Limit 500 chars to be sent because the URI will be cropped
+            // by the UI anyway, and data: URIs can be significantly larger.
+            popupWindowURIspec = popupWindowURIspec.substring(0, 500)
+          }
+
+          popupData.push({popupWindowURIspec});
+        }
+
+        sendAsyncMessage("PopupBlocking:ReplyGetBlockedPopupList", {popupData});
         break;
       }
     }
@@ -291,6 +323,7 @@ var PopupBlocking = {
       case "pagehide":
         return this.onPageHide(ev);
     }
+    return undefined;
   },
 
   onPopupBlocked: function(ev) {
@@ -300,7 +333,7 @@ var PopupBlocking = {
     }
 
     let obj = {
-      popupWindowURI: ev.popupWindowURI.spec,
+      popupWindowURIspec: ev.popupWindowURI ? ev.popupWindowURI.spec : "about:blank",
       popupWindowFeatures: ev.popupWindowFeatures,
       popupWindowName: ev.popupWindowName
     };
@@ -347,7 +380,10 @@ var PopupBlocking = {
 
   updateBlockedPopups: function(freshPopup) {
     sendAsyncMessage("PopupBlocking:UpdateBlockedPopups",
-                     {blockedPopups: this.popupData, freshPopup: freshPopup});
+      {
+        count: this.popupData ? this.popupData.length : 0,
+        freshPopup
+      });
   },
 };
 PopupBlocking.init();
@@ -372,6 +408,7 @@ var Printing = {
     "Printing:Preview:Enter",
     "Printing:Preview:Exit",
     "Printing:Preview:Navigate",
+    "Printing:Preview:ParseDocument",
     "Printing:Preview:UpdatePageCount",
     "Printing:Print",
   ],
@@ -404,7 +441,7 @@ var Printing = {
     let data = message.data;
     switch(message.name) {
       case "Printing:Preview:Enter": {
-        this.enterPrintPreview(Services.wm.getOuterWindowWithId(data.windowID));
+        this.enterPrintPreview(Services.wm.getOuterWindowWithId(data.windowID), data.simplifiedMode);
         break;
       }
 
@@ -415,6 +452,11 @@ var Printing = {
 
       case "Printing:Preview:Navigate": {
         this.navigate(data.navType, data.pageNum);
+        break;
+      }
+
+      case "Printing:Preview:ParseDocument": {
+        this.parseDocument(data.URL, Services.wm.getOuterWindowWithId(data.windowID));
         break;
       }
 
@@ -454,7 +496,98 @@ var Printing = {
     return null;
   },
 
-  enterPrintPreview(contentWindow) {
+  parseDocument(URL, contentWindow) {
+    // By using ReaderMode primitives, we parse given document and place the
+    // resulting JS object into the DOM of current browser.
+    let articlePromise = ReaderMode.parseDocument(contentWindow.document).catch(Cu.reportError);
+    articlePromise.then(function (article) {
+      content.document.head.innerHTML = "";
+
+      // Set title of document
+      content.document.title = article.title;
+
+      // Set base URI of document. Print preview code will read this value to
+      // populate the URL field in print settings so that it doesn't show
+      // "about:blank" as its URI.
+      let headBaseElement = content.document.createElement("base");
+      headBaseElement.setAttribute("href", URL);
+      content.document.head.appendChild(headBaseElement);
+
+      // Create link element referencing aboutReader.css and append it to head
+      let headStyleElement = content.document.createElement("link");
+      headStyleElement.setAttribute("rel", "stylesheet");
+      headStyleElement.setAttribute("href", "chrome://global/skin/aboutReader.css");
+      headStyleElement.setAttribute("type", "text/css");
+      content.document.head.appendChild(headStyleElement);
+
+      content.document.body.innerHTML = "";
+
+      // Create container div (main element) and append it to body
+      let containerElement = content.document.createElement("div");
+      containerElement.setAttribute("id", "container");
+      content.document.body.appendChild(containerElement);
+
+      // Create header div and append it to container
+      let headerElement = content.document.createElement("div");
+      headerElement.setAttribute("id", "reader-header");
+      headerElement.setAttribute("class", "header");
+      containerElement.appendChild(headerElement);
+
+      // Create style element for header div and import simplifyMode.css
+      let controlHeaderStyle = content.document.createElement("style");
+      controlHeaderStyle.setAttribute("scoped", "");
+      controlHeaderStyle.textContent = "@import url(\"chrome://global/content/simplifyMode.css\");";
+      headerElement.appendChild(controlHeaderStyle);
+
+      // Jam the article's title and byline into header div
+      let titleElement = content.document.createElement("h1");
+      titleElement.setAttribute("id", "reader-title");
+      titleElement.textContent = article.title;
+      headerElement.appendChild(titleElement);
+
+      let bylineElement = content.document.createElement("div");
+      bylineElement.setAttribute("id", "reader-credits");
+      bylineElement.setAttribute("class", "credits");
+      bylineElement.textContent = article.byline;
+      headerElement.appendChild(bylineElement);
+
+      // Display header element
+      headerElement.style.display = "block";
+
+      // Create content div and append it to container
+      let contentElement = content.document.createElement("div");
+      contentElement.setAttribute("class", "content");
+      containerElement.appendChild(contentElement);
+
+      // Create style element for content div and import aboutReaderContent.css
+      let controlContentStyle = content.document.createElement("style");
+      controlContentStyle.setAttribute("scoped", "");
+      controlContentStyle.textContent = "@import url(\"chrome://global/skin/aboutReaderContent.css\");";
+      contentElement.appendChild(controlContentStyle);
+
+      // Jam the article's content into content div
+      let readerContent = content.document.createElement("div");
+      readerContent.setAttribute("id", "moz-reader-content");
+      contentElement.appendChild(readerContent);
+
+      let articleUri = Services.io.newURI(article.url, null, null);
+      let parserUtils = Cc["@mozilla.org/parserutils;1"].getService(Ci.nsIParserUtils);
+      let contentFragment = parserUtils.parseFragment(article.content,
+        Ci.nsIParserUtils.SanitizerDropForms | Ci.nsIParserUtils.SanitizerAllowStyle,
+        false, articleUri, readerContent);
+
+      readerContent.appendChild(contentFragment);
+
+      // Display reader content element
+      readerContent.style.display = "block";
+
+      // Here we tell the parent that we have parsed the document successfully
+      // using ReaderMode primitives and we are able to enter on preview mode.
+      sendAsyncMessage("Printing:Preview:ReaderModeReady");
+    });
+  },
+
+  enterPrintPreview(contentWindow, simplifiedMode) {
     // We'll call this whenever we've finished reflowing the document, or if
     // we errored out while attempting to print preview (in which case, we'll
     // notify the parent that we've failed).
@@ -478,6 +611,13 @@ var Printing = {
 
     try {
       let printSettings = this.getPrintSettings();
+
+      // If we happen to be on simplified mode, we need to set docURL in order
+      // to generate header/footer content correctly, since simplified tab has
+      // "about:blank" as its URI.
+      if (printSettings && simplifiedMode)
+        printSettings.docURL = contentWindow.document.baseURI;
+
       docShell.printPreview.printPreview(printSettings, contentWindow, this);
     } catch(error) {
       // This might fail if we, for example, attempt to print a XUL document.
@@ -580,15 +720,10 @@ var FindBar = {
   FIND_NORMAL: 0,
   FIND_TYPEAHEAD: 1,
   FIND_LINKS: 2,
-  FAYT_LINKS_KEY: "'".charCodeAt(0),
-  FAYT_TEXT_KEY: "/".charCodeAt(0),
 
   _findMode: 0,
-  _findAsYouType: false,
 
   init() {
-    this._findAsYouType =
-      Services.prefs.getBoolPref("accessibility.typeaheadfind");
     addMessageListener("Findbar:UpdateState", this);
     Services.els.addSystemEventListener(global, "keypress", this, false);
     Services.els.addSystemEventListener(global, "mouseup", this, false);
@@ -598,7 +733,6 @@ var FindBar = {
     switch (msg.name) {
       case "Findbar:UpdateState":
         this._findMode = msg.data.findMode;
-        this._findAsYouType = msg.data.findAsYouType;
         break;
     }
   },
@@ -618,43 +752,51 @@ var FindBar = {
    * Returns whether FAYT can be used for the given event in
    * the current content state.
    */
-  _shouldFastFind() {
-    //XXXgijs: why all these shenanigans? Why not use the event's target?
-    let focusedWindow = {};
-    let elt = Services.focus.getFocusedElementForWindow(content, true, focusedWindow);
-    let win = focusedWindow.value;
+  _canAndShouldFastFind() {
     let {BrowserUtils} = Cu.import("resource://gre/modules/BrowserUtils.jsm", {});
-    return BrowserUtils.shouldFastFind(elt, win);
+    let should = false;
+    let can = BrowserUtils.canFastFind(content);
+    if (can) {
+      //XXXgijs: why all these shenanigans? Why not use the event's target?
+      let focusedWindow = {};
+      let elt = Services.focus.getFocusedElementForWindow(content, true, focusedWindow);
+      let win = focusedWindow.value;
+      should = BrowserUtils.shouldFastFind(elt, win);
+    }
+    return { can, should }
   },
 
   _onKeypress(event) {
     // Useless keys:
     if (event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) {
-      return;
-    }
-    // Not interested in random keypresses most of the time:
-    if (this._findMode == this.FIND_NORMAL && !this._findAsYouType &&
-        event.charCode != this.FAYT_LINKS_KEY && event.charCode != this.FAYT_TEXT_KEY) {
-      return;
+      return undefined;
     }
 
     // Check the focused element etc.
-    if (!this._shouldFastFind()) {
-      return;
+    let fastFind = this._canAndShouldFastFind();
+
+    // Can we even use find in this page at all?
+    if (!fastFind.can) {
+      return undefined;
     }
 
     let fakeEvent = {};
     for (let k in event) {
-      if (typeof event[k] != "object" && typeof event[k] != "function") {
+      if (typeof event[k] != "object" && typeof event[k] != "function" &&
+          !(k in content.KeyboardEvent)) {
         fakeEvent[k] = event[k];
       }
     }
     // sendSyncMessage returns an array of the responses from all listeners
-    let rv = sendSyncMessage("Findbar:Keypress", fakeEvent);
+    let rv = sendSyncMessage("Findbar:Keypress", {
+      fakeEvent: fakeEvent,
+      shouldFastFind: fastFind.should
+    });
     if (rv.indexOf(false) !== -1) {
       event.preventDefault();
       return false;
     }
+    return undefined;
   },
 
   _onMouseup(event) {
@@ -713,7 +855,10 @@ var AudioPlaybackListener = {
 
   init() {
     Services.obs.addObserver(this, "audio-playback", false);
-    addMessageListener("AudioPlaybackMute", this);
+    Services.obs.addObserver(this, "AudioFocusChanged", false);
+    Services.obs.addObserver(this, "MediaControl", false);
+
+    addMessageListener("AudioPlayback", this);
     addEventListener("unload", () => {
       AudioPlaybackListener.uninit();
     });
@@ -721,7 +866,48 @@ var AudioPlaybackListener = {
 
   uninit() {
     Services.obs.removeObserver(this, "audio-playback");
-    removeMessageListener("AudioPlaybackMute", this);
+    Services.obs.removeObserver(this, "AudioFocusChanged");
+    Services.obs.removeObserver(this, "MediaControl");
+
+    removeMessageListener("AudioPlayback", this);
+  },
+
+  handleMediaControlMessage(msg) {
+    let utils = global.content.QueryInterface(Ci.nsIInterfaceRequestor)
+                              .getInterface(Ci.nsIDOMWindowUtils);
+    let suspendTypes = Ci.nsISuspendedTypes;
+    switch (msg) {
+      case "mute":
+        utils.audioMuted = true;
+        break;
+      case "unmute":
+        utils.audioMuted = false;
+        break;
+      case "lostAudioFocus":
+        utils.mediaSuspend = suspendTypes.SUSPENDED_PAUSE_DISPOSABLE;
+        break;
+      case "lostAudioFocusTransiently":
+        utils.mediaSuspend = suspendTypes.SUSPENDED_PAUSE;
+        break;
+      case "gainAudioFocus":
+        utils.mediaSuspend = suspendTypes.NONE_SUSPENDED;
+        break;
+      case "mediaControlPaused":
+        utils.mediaSuspend = suspendTypes.SUSPENDED_PAUSE_DISPOSABLE;
+        break;
+      case "mediaControlStopped":
+        utils.mediaSuspend = suspendTypes.SUSPENDED_STOP_DISPOSABLE;
+        break;
+      case "blockInactivePageMedia":
+        utils.mediaSuspend = suspendTypes.SUSPENDED_BLOCK;
+        break;
+      case "resumeMedia":
+        utils.mediaSuspend = suspendTypes.NONE_SUSPENDED;
+        break;
+      default:
+        dump("Error : wrong media control msg!\n");
+        break;
+    }
   },
 
   observe(subject, topic, data) {
@@ -731,14 +917,14 @@ var AudioPlaybackListener = {
         name += (data === "active") ? "Start" : "Stop";
         sendAsyncMessage(name);
       }
+    } else if (topic == "AudioFocusChanged" || topic == "MediaControl") {
+      this.handleMediaControlMessage(data);
     }
   },
 
   receiveMessage(msg) {
-    if (msg.name == "AudioPlaybackMute") {
-      let utils = global.content.QueryInterface(Ci.nsIInterfaceRequestor)
-                                .getInterface(Ci.nsIDOMWindowUtils);
-      utils.audioMuted = msg.data.type === "mute";
+    if (msg.name == "AudioPlayback") {
+      this.handleMediaControlMessage(msg.data.type);
     }
   },
 };
@@ -965,7 +1151,7 @@ var ViewSelectionSource = {
       topNode = topNode.parentNode;
     }
     if (!topNode)
-      return;
+      return undefined;
 
     // serialize
     const VIEW_SOURCE_CSS = "resource://gre-resources/viewsource.css";
@@ -1126,3 +1312,15 @@ var ViewSelectionSource = {
 };
 
 ViewSelectionSource.init();
+
+addEventListener("MozApplicationManifest", function(e) {
+  let doc = e.target;
+  let info = {
+    uri: doc.documentURI,
+    characterSet: doc.characterSet,
+    manifest: doc.documentElement.getAttribute("manifest"),
+    principal: doc.nodePrincipal,
+  };
+  sendAsyncMessage("MozApplicationManifest", info);
+}, false);
+

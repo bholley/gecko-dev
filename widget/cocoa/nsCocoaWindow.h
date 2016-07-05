@@ -10,45 +10,15 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "mozilla/RefPtr.h"
 #include "nsBaseWidget.h"
 #include "nsPIWidgetCocoa.h"
-#include "nsAutoPtr.h"
 #include "nsCocoaUtils.h"
 
 class nsCocoaWindow;
 class nsChildView;
 class nsMenuBarX;
 @class ChildView;
-
-// If we are using an SDK older than 10.7, define bits we need that are missing
-// from it.
-#if !defined(MAC_OS_X_VERSION_10_7) || \
-    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_7
-
-enum {
-    NSWindowAnimationBehaviorDefault = 0,
-    NSWindowAnimationBehaviorNone = 2,
-    NSWindowAnimationBehaviorDocumentWindow = 3,
-    NSWindowAnimationBehaviorUtilityWindow = 4,
-    NSWindowAnimationBehaviorAlertPanel = 5,
-    NSWindowCollectionBehaviorFullScreenPrimary = 128, // 1 << 7
-};
-
-typedef NSInteger NSWindowAnimationBehavior;
-
-@interface NSWindow (LionWindowFeatures)
-- (void)setAnimationBehavior:(NSWindowAnimationBehavior)newAnimationBehavior;
-- (void)toggleFullScreen:(id)sender;
-@end
-
-typedef struct NSEdgeInsets {
-    CGFloat top;
-    CGFloat left;
-    CGFloat bottom;
-    CGFloat right;
-} NSEdgeInsets;
-
-#endif
 
 typedef struct _nsCocoaWindowList {
   _nsCocoaWindowList() : prev(nullptr), window(nullptr) {}
@@ -182,11 +152,7 @@ typedef struct _nsCocoaWindowList {
 
 @end
 
-#if defined( MAC_OS_X_VERSION_10_6 ) && ( MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6 )
 @interface WindowDelegate : NSObject <NSWindowDelegate>
-#else
-@interface WindowDelegate : NSObject
-#endif
 {
   nsCocoaWindow* mGeckoWindow; // [WEAK] (we are owned by the window)
   // Used to avoid duplication when we send NS_ACTIVATE and
@@ -241,12 +207,13 @@ typedef struct _nsCocoaWindowList {
 - (void)placeFullScreenButton:(NSRect)aRect;
 - (NSPoint)windowButtonsPositionWithDefaultPosition:(NSPoint)aDefaultPosition;
 - (NSPoint)fullScreenButtonPositionWithDefaultPosition:(NSPoint)aDefaultPosition;
+- (void)setTemporaryBackgroundColor;
+- (void)restoreBackgroundColor;
 @end
 
 class nsCocoaWindow : public nsBaseWidget, public nsPIWidgetCocoa
 {
 private:
-  
   typedef nsBaseWidget Inherited;
 
 public:
@@ -255,11 +222,16 @@ public:
 
     NS_DECL_ISUPPORTS_INHERITED
     NS_DECL_NSPIWIDGETCOCOA
-      
+
     NS_IMETHOD              Create(nsIWidget* aParent,
                                    nsNativeWidget aNativeParent,
-                                   const nsIntRect &aRect,
-                                   nsWidgetInitData *aInitData = nullptr) override;
+                                   const DesktopIntRect& aRect,
+                                   nsWidgetInitData* aInitData = nullptr) override;
+
+    NS_IMETHOD              Create(nsIWidget* aParent,
+                                   nsNativeWidget aNativeParent,
+                                   const LayoutDeviceIntRect& aRect,
+                                   nsWidgetInitData* aInitData = nullptr) override;
 
     NS_IMETHOD              Destroy() override;
 
@@ -268,6 +240,7 @@ public:
     NS_IMETHOD              Enable(bool aState) override;
     virtual bool            IsEnabled() const override;
     NS_IMETHOD              SetModal(bool aState) override;
+    NS_IMETHOD              SetFakeModal(bool aState) override;
     virtual bool            IsVisible() const override;
     NS_IMETHOD              SetFocus(bool aState=false) override;
     virtual LayoutDeviceIntPoint WidgetToScreenOffset() override;
@@ -319,9 +292,13 @@ public:
     virtual double          GetDefaultScaleInternal() override;
     virtual int32_t         RoundsWidgetCoordinatesTo() override;
 
+    mozilla::DesktopToLayoutDeviceScale GetDesktopToDeviceScale() final {
+      return mozilla::DesktopToLayoutDeviceScale(BackingScaleFactor());
+    }
+
     NS_IMETHOD              SetTitle(const nsAString& aTitle) override;
 
-    NS_IMETHOD Invalidate(const nsIntRect &aRect) override;
+    NS_IMETHOD Invalidate(const LayoutDeviceIntRect& aRect) override;
     virtual nsresult ConfigureChildren(const nsTArray<Configuration>& aConfigurations) override;
     virtual LayerManager* GetLayerManager(PLayerTransactionChild* aShadowManager = nullptr,
                                           LayersBackend aBackendHint = mozilla::layers::LayersBackend::LAYERS_NONE,
@@ -365,16 +342,6 @@ public:
                         const InputContextAction& aAction) override;
     NS_IMETHOD_(InputContext) GetInputContext() override
     {
-      NSView* view = mWindow ? [mWindow contentView] : nil;
-      if (view) {
-        mInputContext.mNativeIMEContext = [view inputContext];
-      }
-      // If inputContext isn't available on this window, returns this window's
-      // pointer since nullptr means the platform has only one context per
-      // process.
-      if (!mInputContext.mNativeIMEContext) {
-        mInputContext.mNativeIMEContext = this;
-      }
       return mInputContext;
     }
     NS_IMETHOD_(bool) ExecuteNativeKeyBinding(
@@ -386,13 +353,18 @@ public:
     void SetPopupWindowLevel();
 
     NS_IMETHOD         ReparentNativeWidget(nsIWidget* aNewParent) override;
+
+    CompositorWidgetProxy* NewCompositorWidgetProxy() override {
+      return nullptr;
+    }
+
 protected:
   virtual ~nsCocoaWindow();
 
   nsresult             CreateNativeWindow(const NSRect &aRect,
                                           nsBorderStyle aBorderStyle,
                                           bool aRectIsFrameRect);
-  nsresult             CreatePopupContentView(const nsIntRect &aRect);
+  nsresult             CreatePopupContentView(const LayoutDeviceIntRect &aRect);
   void                 DestroyNativeWindow();
   void                 AdjustWindowShadow();
   void                 SetWindowBackgroundBlur();
@@ -413,10 +385,8 @@ protected:
     return widget.forget();
   }
 
-  virtual nsresult NotifyIMEInternal(
-                     const IMENotification& aIMENotification) override;
-
   nsIWidget*           mParent;         // if we're a popup, this is our parent [WEAK]
+  nsIWidget*           mAncestorLink;   // link to traverse ancestors [WEAK]
   BaseWindow*          mWindow;         // our cocoa window [STRONG]
   WindowDelegate*      mDelegate;       // our delegate for processing window msgs [STRONG]
   RefPtr<nsMenuBarX> mMenuBar;
@@ -438,12 +408,12 @@ protected:
   bool                 mInFullScreenTransition; // true from the request to enter/exit fullscreen
                                                 // (MakeFullScreen() call) to EnteredFullScreen()
   bool                 mModal;
+  bool                 mFakeModal;
 
   // Only true on 10.7+ if SetShowsFullScreenButton(true) is called.
   bool                 mSupportsNativeFullScreen;
-  // Whether we are currently using Lion native fullscreen. It could be
-  // false either because we are not on Lion, or we are in the DOM
-  // fullscreen where we do not use the native fullscreen.
+  // Whether we are currently using native fullscreen. It could be false because
+  // we are in the DOM fullscreen where we do not use the native fullscreen.
   bool                 mInNativeFullScreenMode;
 
   bool                 mIsAnimationSuppressed;

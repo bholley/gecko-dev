@@ -31,7 +31,7 @@
 }
 
 #social-sidebar-button[loading="true"] {
-  list-style-image: url("chrome://global/skin/icons/loading_16.png");
+  list-style-image: url("chrome://global/skin/icons/loading.png");
 }
 
 #social-sidebar-favico {
@@ -105,40 +105,10 @@ chatbar > chatbox > .chat-titlebar > .chat-swap-button {
   transform: none;
 }
 
-chatbox[src^="about:loopconversation#"] .chat-minimize-button {
-  list-style-image: url("chrome://browser/skin/social/chat-icons.svg#minimize-white");
-}
-
-chatbox[src^="about:loopconversation#"] .chat-swap-button {
-  list-style-image: url("chrome://browser/skin/social/chat-icons.svg#expand-white");
-}
-
-.chat-loop-hangup {
-  list-style-image: url("chrome://browser/skin/social/chat-icons.svg#exit-white");
-  background-color: #d13f1a;
-  border: 1px solid #d13f1a;
-  border-top-right-radius: 4px;
-  width: 32px;
-  height: 26px;
-  margin-top: -6px;
-  margin-bottom: -5px;
-  -moz-margin-start: 6px;
-  -moz-margin-end: -5px;
-}
-
-.chat-toolbarbutton.chat-loop-hangup:-moz-any(:hover,:hover:active) {
-  background-color: #ef6745;
-  border-color: #ef6745;
-}
-
 .chat-title {
   color: #666;
   text-shadow: none;
   cursor: inherit;
-}
-
-chatbox[src^="about:loopconversation#"] .chat-title {
-  color: white;
 }
 
 .chat-titlebar {
@@ -157,11 +127,6 @@ chatbox[src^="about:loopconversation#"] .chat-title {
 
 .chat-titlebar[selected] {
   background-color: #f0f0f0;
-}
-
-chatbox[src^="about:loopconversation#"] > .chat-titlebar {
-  background-color: #00a9dc;
-  border-color: #00a9dc;
 }
 
 .chat-titlebar > .notification-anchor-icon {
@@ -245,11 +210,11 @@ chatbox[src^="about:loopconversation#"] > .chat-titlebar {
 }
 
 chatbar {
-  -moz-margin-end: 20px;
+  margin-inline-end: 20px;
 }
 
 chatbox {
-  -moz-margin-start: 4px;
+  margin-inline-start: 4px;
   background-color: transparent;
 }
 
@@ -261,11 +226,11 @@ chatbar > chatbox {
   box-shadow: 0 0 5px rgba(0,0,0,.3);
   /* Offset the chatbox the same amount as the box-shadows' spread, to make it
      visible. */
-  -moz-margin-end: 5px;
+  margin-inline-end: 5px;
 }
 
 window > chatbox {
-  -moz-margin-start: 0px;
+  margin-inline-start: 0px;
   margin: 0px;
   border: none;
   padding: 0px;

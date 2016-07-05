@@ -196,7 +196,7 @@ PlacesViewBase.prototype = {
     if (selectedNode) {
       let popup = document.popupNode;
       if (!popup._placesNode || popup._placesNode == this._resultNode ||
-          popup._placesNode.itemId == -1) {
+          popup._placesNode.itemId == -1 || !selectedNode.parent) {
         // If a static menuitem is selected, or if the root node is selected,
         // the insertion point is inside the folder, at the end.
         container = selectedNode;
@@ -633,7 +633,7 @@ PlacesViewBase.prototype = {
     if (!parentElt._built)
       return;
 
-    let index = Array.indexOf(parentElt.childNodes, parentElt._startMarker) +
+    let index = Array.prototype.indexOf.call(parentElt.childNodes, parentElt._startMarker) +
                 aIndex + 1;
     this._insertNewItemToPopup(aPlacesNode, parentElt,
                                parentElt.childNodes[index]);
@@ -663,7 +663,7 @@ PlacesViewBase.prototype = {
     if (parentElt._built) {
       // Move the node.
       parentElt.removeChild(elt);
-      let index = Array.indexOf(parentElt.childNodes, parentElt._startMarker) +
+      let index = Array.prototype.indexOf.call(parentElt.childNodes, parentElt._startMarker) +
                   aNewIndex + 1;
       parentElt.insertBefore(elt, parentElt.childNodes[index]);
     }
@@ -894,7 +894,8 @@ PlacesViewBase.prototype = {
         break;
       }
 
-      if (child._placesNode && !firstNonStaticNodeFound) {
+      if (child._placesNode && !child.hasAttribute("simulated-places-node") &&
+          !firstNonStaticNodeFound) {
         firstNonStaticNodeFound = true;
         aPopup.insertBefore(aPopup._startMarker, child);
       }
@@ -1232,7 +1233,7 @@ PlacesToolbar.prototype = {
         let childRect = child.getBoundingClientRect();
         childOverflowed = this.isRTL ? (childRect.left < scrollRect.left)
                                      : (childRect.right > scrollRect.right);
-                                      
+
       }
       child.style.visibility = childOverflowed ? "hidden" : "visible";
     }
@@ -1411,7 +1412,7 @@ PlacesToolbar.prototype = {
     if (elt._placesNode && elt != this._rootElt &&
         elt.localName != "menupopup") {
       let eltRect = elt.getBoundingClientRect();
-      let eltIndex = Array.indexOf(this._rootElt.childNodes, elt);
+      let eltIndex = Array.prototype.indexOf.call(this._rootElt.childNodes, elt);
       if (PlacesUtils.nodeIsFolder(elt._placesNode) &&
           !PlacesUIUtils.isContentsReadOnly(elt._placesNode)) {
         // This is a folder.
@@ -1659,7 +1660,7 @@ PlacesToolbar.prototype = {
       }
 
       ind.style.transform = "translate(" + Math.round(translateX) + "px)";
-      ind.style.MozMarginStart = (-ind.clientWidth) + "px";
+      ind.style.marginInlineStart = (-ind.clientWidth) + "px";
       ind.collapsed = false;
 
       // Clear out old folder information.

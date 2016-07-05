@@ -7,7 +7,7 @@
 #include <string.h>
 
 #include "mozilla/DebugOnly.h"
-#include "mozilla/Endian.h"
+#include "mozilla/EndianUtils.h"
 #include <stdint.h>
 
 #include "nsDebug.h"
@@ -1448,7 +1448,7 @@ bool SkeletonState::DecodeFisbone(ogg_packet* aPacket)
     }
     msgLength--;
     msgProbe++;
-  };
+  }
 
   if (!mMsgFieldStore.Contains(serialno)) {
     mMsgFieldStore.Put(serialno, field.forget());

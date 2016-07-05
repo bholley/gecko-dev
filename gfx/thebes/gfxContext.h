@@ -14,7 +14,6 @@
 #include "gfxMatrix.h"
 #include "gfxPattern.h"
 #include "nsTArray.h"
-#include "nsAutoPtr.h"
 
 #include "mozilla/gfx/2D.h"
 
@@ -58,38 +57,26 @@ class gfxContext final {
     NS_INLINE_DECL_REFCOUNTING(gfxContext)
 
 public:
-
     /**
      * Initialize this context from a DrawTarget.
      * Strips any transform from aTarget.
      * aTarget will be flushed in the gfxContext's destructor.
+     * If aTarget is null or invalid, nullptr is returned.  The caller
+     * is responsible for handling this scenario as appropriate.
      */
-    explicit gfxContext(mozilla::gfx::DrawTarget *aTarget,
-                        const mozilla::gfx::Point& aDeviceOffset = mozilla::gfx::Point());
+    static already_AddRefed<gfxContext>
+        CreateOrNull(mozilla::gfx::DrawTarget* aTarget,
+                     const mozilla::gfx::Point& aDeviceOffset = mozilla::gfx::Point());
 
     /**
      * Create a new gfxContext wrapping aTarget and preserving aTarget's
      * transform. Note that the transform is moved from aTarget to the resulting
      * gfxContext, aTarget will no longer have its transform.
+     * If aTarget is null or invalid, nullptr is returned.  The caller
+     * is responsible for handling this scenario as appropriate.
      */
-    static already_AddRefed<gfxContext> ContextForDrawTarget(mozilla::gfx::DrawTarget* aTarget);
-
-    /**
-     * Return the current transparency group target, if any, along
-     * with its device offsets from the top.  If no group is
-     * active, returns the surface the gfxContext was created with,
-     * and 0,0 in dx,dy.
-     */
-    already_AddRefed<gfxASurface> CurrentSurface(gfxFloat *dx, gfxFloat *dy);
-    already_AddRefed<gfxASurface> CurrentSurface() {
-        return CurrentSurface(nullptr, nullptr);
-    }
-
-    /**
-     * Return the raw cairo_t object.
-     * XXX this should go away at some point.
-     */
-    cairo_t *GetCairo();
+    static already_AddRefed<gfxContext>
+        CreatePreservingTransformOrNull(mozilla::gfx::DrawTarget* aTarget);
 
     mozilla::gfx::DrawTarget *GetDrawTarget() { return mDT; }
 
@@ -317,13 +304,6 @@ public:
      */
     void Mask(mozilla::gfx::SourceSurface *aSurface, mozilla::gfx::Float aAlpha, const mozilla::gfx::Matrix& aTransform);
     void Mask(mozilla::gfx::SourceSurface *aSurface, const mozilla::gfx::Matrix& aTransform) { Mask(aSurface, 1.0f, aTransform); }
-
-    /**
-     * Shorthand for creating a pattern and calling the pattern-taking
-     * variant of Mask.
-     */
-    void Mask(gfxASurface *surface, const gfxPoint& offset = gfxPoint(0.0, 0.0));
-
     void Mask(mozilla::gfx::SourceSurface *surface, float alpha = 1.0f, const mozilla::gfx::Point& offset = mozilla::gfx::Point());
 
     /**
@@ -365,13 +345,6 @@ public:
 
     void SetMiterLimit(gfxFloat limit);
     gfxFloat CurrentMiterLimit() const;
-
-    /**
-     ** Fill Properties
-     **/
-
-    void SetFillRule(FillRule rule);
-    FillRule CurrentFillRule() const;
 
     /**
      * Sets the operator used for all further drawing. The operator affects
@@ -452,9 +425,6 @@ public:
 
     mozilla::gfx::Point GetDeviceOffset() const;
 
-    // Work out whether cairo will snap inter-glyph spacing to pixels.
-    void GetRoundOffsetsToPixels(bool *aRoundX, bool *aRoundY);
-
 #ifdef MOZ_DUMP_PAINTING
     /**
      * Debug functions to encode the current surface as a PNG and export it.
@@ -479,6 +449,16 @@ public:
     static mozilla::gfx::UserDataKey sDontUseAsSourceKey;
 
 private:
+
+    /**
+     * Initialize this context from a DrawTarget.
+     * Strips any transform from aTarget.
+     * aTarget will be flushed in the gfxContext's destructor.  Use the static
+     * ContextForDrawTargetNoTransform() when you want this behavior, as that
+     * version deals with null DrawTarget better.
+     */
+    explicit gfxContext(mozilla::gfx::DrawTarget *aTarget,
+                        const mozilla::gfx::Point& aDeviceOffset = mozilla::gfx::Point());
     ~gfxContext();
 
   friend class PatternFromState;
@@ -496,10 +476,9 @@ private:
     AzureState()
       : op(mozilla::gfx::CompositionOp::OP_OVER)
       , color(0, 0, 0, 1.0f)
-      , clipWasReset(false)
-      , fillRule(mozilla::gfx::FillRule::FILL_WINDING)
       , aaMode(mozilla::gfx::AntialiasMode::SUBPIXEL)
       , patternTransformChanged(false)
+      , mBlendOpacity(0.0f)
     {}
 
     mozilla::gfx::CompositionOp op;
@@ -517,11 +496,8 @@ private:
     };
     nsTArray<PushedClip> pushedClips;
     nsTArray<Float> dashPattern;
-    bool clipWasReset;
-    mozilla::gfx::FillRule fillRule;
     StrokeOptions strokeOptions;
     RefPtr<DrawTarget> drawTarget;
-    RefPtr<DrawTarget> parentTarget;
     mozilla::gfx::AntialiasMode aaMode;
     bool patternTransformChanged;
     Matrix patternTransform;
@@ -532,7 +508,9 @@ private:
     mozilla::gfx::Float mBlendOpacity;
     RefPtr<SourceSurface> mBlendMask;
     Matrix mBlendMaskTransform;
-    mozilla::DebugOnly<bool> mWasPushedForBlendBack;
+#ifdef DEBUG
+    bool mWasPushedForBlendBack;
+#endif
   };
 
   // This ensures mPath contains a valid path (in user space!)
@@ -560,10 +538,7 @@ private:
   AzureState &CurrentState() { return mStateStack[mStateStack.Length() - 1]; }
   const AzureState &CurrentState() const { return mStateStack[mStateStack.Length() - 1]; }
 
-  cairo_t *mRefCairo;
-
   RefPtr<DrawTarget> mDT;
-  RefPtr<DrawTarget> mOriginalDT;
 };
 
 /**
@@ -654,23 +629,27 @@ public:
         return mMatrix;
     }
 
+    bool HasMatrix() const { return !!mContext; }
+
 private:
     gfxContext *mContext;
     gfxMatrix   mMatrix;
 };
 
 
-class gfxContextAutoDisableSubpixelAntialiasing {
+class DrawTargetAutoDisableSubpixelAntialiasing {
 public:
-    gfxContextAutoDisableSubpixelAntialiasing(gfxContext *aContext, bool aDisable)
+    typedef mozilla::gfx::DrawTarget DrawTarget;
+
+    DrawTargetAutoDisableSubpixelAntialiasing(DrawTarget *aDT, bool aDisable)
     {
         if (aDisable) {
-            mDT = aContext->GetDrawTarget();
+            mDT = aDT;
             mSubpixelAntialiasingEnabled = mDT->GetPermitSubpixelAA();
             mDT->SetPermitSubpixelAA(false);
         }
     }
-    ~gfxContextAutoDisableSubpixelAntialiasing()
+    ~DrawTargetAutoDisableSubpixelAntialiasing()
     {
         if (mDT) {
             mDT->SetPermitSubpixelAA(mSubpixelAntialiasingEnabled);
@@ -678,7 +657,7 @@ public:
     }
 
 private:
-    RefPtr<mozilla::gfx::DrawTarget> mDT;
+    RefPtr<DrawTarget> mDT;
     bool mSubpixelAntialiasingEnabled;
 };
 

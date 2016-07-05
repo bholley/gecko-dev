@@ -50,6 +50,9 @@ function submitPendingReport(event) {
 }
 
 function populateReportList() {
+
+  Services.telemetry.getHistogramById("ABOUTCRASHES_OPENED_COUNT").add(1);
+
   var prefService = Cc["@mozilla.org/preferences-service;1"].
                     getService(Ci.nsIPrefBranch);
 
@@ -139,7 +142,10 @@ var clearReports = Task.async(function*() {
           yield OS.File.remove(aEntry.path);
         }
       }));
-    } catch (e if e instanceof OS.File.Error && e.becauseNoSuchFile) {
+    } catch (e) {
+      if (!(e instanceof OS.File.Error) || !e.becauseNoSuchFile) {
+        throw e;
+      }
     } finally {
       iterator.close();
     }

@@ -95,6 +95,8 @@ function RootActor(aConnection, aParameters) {
   this._onTabListChanged = this.onTabListChanged.bind(this);
   this._onAddonListChanged = this.onAddonListChanged.bind(this);
   this._onWorkerListChanged = this.onWorkerListChanged.bind(this);
+  this._onServiceWorkerRegistrationListChanged = this.onServiceWorkerRegistrationListChanged.bind(this);
+  this._onProcessListChanged = this.onProcessListChanged.bind(this);
   this._extraActors = {};
 
   this._globalActorPool = new ActorPool(this.conn);
@@ -184,7 +186,7 @@ RootActor.prototype = {
   /**
    * Return a 'hello' packet as specified by the Remote Debugging Protocol.
    */
-  sayHello: function() {
+  sayHello: function () {
     return {
       from: this.actorID,
       applicationType: this.applicationType,
@@ -197,7 +199,7 @@ RootActor.prototype = {
   /**
    * Disconnects the actor from the browser window.
    */
-  disconnect: function() {
+  disconnect: function () {
     /* Tell the live lists we aren't watching any more. */
     if (this._parameters.tabList) {
       this._parameters.tabList.onListChanged = null;
@@ -205,7 +207,13 @@ RootActor.prototype = {
     if (this._parameters.addonList) {
       this._parameters.addonList.onListChanged = null;
     }
-    if (typeof this._parameters.onShutdown === 'function') {
+    if (this._parameters.workerList) {
+      this._parameters.workerList.onListChanged = null;
+    }
+    if (this._parameters.serviceWorkerRegistrationList) {
+      this._parameters.serviceWorkerRegistrationList.onListChanged = null;
+    }
+    if (typeof this._parameters.onShutdown === "function") {
       this._parameters.onShutdown();
     }
     this._extraActors = null;
@@ -222,7 +230,7 @@ RootActor.prototype = {
    * Handles the listTabs request. The actors will survive until at least
    * the next listTabs request.
    */
-  onListTabs: function() {
+  onListTabs: function () {
     let tabList = this._parameters.tabList;
     if (!tabList) {
       return { from: this.actorID, error: "noTabs",
@@ -301,19 +309,19 @@ RootActor.prototype = {
     }
     return tabList.getTab(options)
                   .then(tabActor => {
-      tabActor.parentID = this.actorID;
-      this._tabActorPool.addActor(tabActor);
+                    tabActor.parentID = this.actorID;
+                    this._tabActorPool.addActor(tabActor);
 
-      return { tab: tabActor.form() };
-    }, error => {
-      if (error.error) {
+                    return { tab: tabActor.form() };
+                  }, error => {
+                    if (error.error) {
         // Pipe expected errors as-is to the client
-        return error;
-      } else {
-        return { error: "noTab",
+                      return error;
+                    } else {
+                      return { error: "noTab",
                  message: "Unexpected error while calling getTab(): " + error };
-      }
-    });
+                    }
+                  });
   },
 
   onTabListChanged: function () {
@@ -332,7 +340,7 @@ RootActor.prototype = {
     return addonList.getList().then((addonActors) => {
       let addonActorPool = new ActorPool(this.conn);
       for (let addonActor of addonActors) {
-          addonActorPool.addActor(addonActor);
+        addonActorPool.addActor(addonActor);
       }
 
       if (this._addonActorPool) {
@@ -386,16 +394,52 @@ RootActor.prototype = {
     this._parameters.workerList.onListChanged = null;
   },
 
-  onListProcesses: function () {
-    let processes = [];
-    for (let i = 0; i < ppmm.childCount; i++) {
-      processes.push({
-        id: i, // XXX: may not be a perfect id, but process message manager doesn't expose anything...
-        parent: i == 0, // XXX Weak, but appear to be stable
-        tabCount: undefined, // TODO: exposes process message manager on frameloaders in order to compute this
-      });
+  onListServiceWorkerRegistrations: function () {
+    let registrationList = this._parameters.serviceWorkerRegistrationList;
+    if (!registrationList) {
+      return { from: this.actorID, error: "noServiceWorkerRegistrations",
+               message: "This root actor has no service worker registrations." };
     }
-    return { processes: processes };
+
+    return registrationList.getList().then(actors => {
+      let pool = new ActorPool(this.conn);
+      for (let actor of actors) {
+        pool.addActor(actor);
+      }
+
+      this.conn.removeActorPool(this._serviceWorkerRegistrationActorPool);
+      this._serviceWorkerRegistrationActorPool = pool;
+      this.conn.addActorPool(this._serviceWorkerRegistrationActorPool);
+
+      registrationList.onListChanged = this._onServiceWorkerRegistrationListChanged;
+
+      return {
+        "from": this.actorID,
+        "registrations": actors.map(actor => actor.form())
+      };
+    });
+  },
+
+  onServiceWorkerRegistrationListChanged: function () {
+    this.conn.send({ from: this.actorID, type: "serviceWorkerRegistrationListChanged" });
+    this._parameters.serviceWorkerRegistrationList.onListChanged = null;
+  },
+
+  onListProcesses: function () {
+    let { processList } = this._parameters;
+    if (!processList) {
+      return { from: this.actorID, error: "noProcesses",
+               message: "This root actor has no processes." };
+    }
+    processList.onListChanged = this._onProcessListChanged;
+    return {
+      processes: processList.getList()
+    };
+  },
+
+  onProcessListChanged: function () {
+    this.conn.send({ from: this.actorID, type: "processListChanged" });
+    this._parameters.processList.onListChanged = null;
   },
 
   onGetProcess: function (aRequest) {
@@ -403,7 +447,7 @@ RootActor.prototype = {
       return { error: "forbidden",
                message: "You are not allowed to debug chrome." };
     }
-    if (("id" in aRequest) && typeof(aRequest.id) != "number") {
+    if (("id" in aRequest) && typeof (aRequest.id) != "number") {
       return { error: "wrongParameter",
                message: "getProcess requires a valid `id` attribute." };
     }
@@ -439,7 +483,7 @@ RootActor.prototype = {
   },
 
   onProtocolDescription: function () {
-    return require("devtools/server/protocol").dumpProtocolSpec();
+    return require("devtools/shared/protocol").dumpProtocolSpec();
   },
 
   /* Support for DebuggerServer.addGlobalActor. */
@@ -450,7 +494,7 @@ RootActor.prototype = {
    * Remove the extra actor (added by DebuggerServer.addGlobalActor or
    * DebuggerServer.addTabActor) name |aName|.
    */
-  removeActorByName: function(aName) {
+  removeActorByName: function (aName) {
     if (aName in this._extraActors) {
       const actor = this._extraActors[aName];
       if (this._globalActorPool.has(actor)) {
@@ -465,7 +509,7 @@ RootActor.prototype = {
       }
       delete this._extraActors[aName];
     }
-   }
+  }
 };
 
 RootActor.prototype.requestTypes = {
@@ -473,6 +517,7 @@ RootActor.prototype.requestTypes = {
   "getTab": RootActor.prototype.onGetTab,
   "listAddons": RootActor.prototype.onListAddons,
   "listWorkers": RootActor.prototype.onListWorkers,
+  "listServiceWorkerRegistrations": RootActor.prototype.onListServiceWorkerRegistrations,
   "listProcesses": RootActor.prototype.onListProcesses,
   "getProcess": RootActor.prototype.onGetProcess,
   "echo": RootActor.prototype.onEcho,

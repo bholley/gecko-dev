@@ -2,6 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/* Webconsole specific theme variables */
+.theme-firebug {
+  --error-color: #FF0000;
+  --error-background-color: #FFEBEB;
+  --warning-background-color: #FFFFC8;
+}
+
 /* General output styles */
 
 a {
@@ -40,6 +47,20 @@ a {
   padding: 0 4px;
   height: 1em;
   align-self: flex-start;
+}
+
+.theme-firebug .message > .icon {
+  margin: 0;
+  margin-inline-end: 6px;
+}
+
+.theme-firebug .message[severity="error"] {
+  color: var(--error-color);
+  background-color: var(--error-background-color);
+}
+
+.theme-firebug .message[severity="warn"] {
+  background-color: var(--warning-background-color);
 }
 
 .message > .icon::before {
@@ -97,19 +118,18 @@ a {
   white-space: nowrap;
 }
 
+/* More space for the location data for location URL */
+.theme-firebug .message-location {
+  width: 13em;
+}
+
 .message-location:hover,
 .message-location:focus {
   text-decoration: underline;
 }
 
-.message-location > .filename {
-  text-overflow: ellipsis;
-  text-align: end;
-  overflow: hidden;
-}
-
-.message-location > .line-number {
-  flex: none;
+.message-location > .frame-link .frame-link-source {
+  width: 10em;
 }
 
 .message-flex-body {
@@ -134,19 +154,15 @@ a {
 #output-wrapper {
   direction: ltr;
   overflow: auto;
+  -moz-user-select: text;
 }
 
-#output-container {
-  -moz-user-select: text;
-  -moz-box-flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
+/* The width on #output-container is set to a hardcoded px in webconsole.js
+   since it's way faster than using 100% with -moz-box-flex (see Bug 1237368) */
 
 #output-container.hideTimestamps > .message {
-  -moz-padding-start: 0;
-  -moz-margin-start: 7px;
+  padding-inline-start: 0;
+  margin-inline-start: 7px;
   width: calc(100% - 7px);
 }
 
@@ -217,7 +233,7 @@ a {
 }
 
 .message[category=network] > .indent {
-  -moz-border-end: solid #000 6px;
+  border-inline-end: solid var(--theme-body-color-alt) 6px;
 }
 
 .message[category=network][severity=error] > .icon::before {
@@ -226,6 +242,7 @@ a {
 
 .message[category=network] > .message-body {
   display: flex;
+  flex-wrap: wrap;
 }
 
 .message[category=network] .method {
@@ -244,7 +261,7 @@ a {
 
 .message[category=network] .status {
   flex: none;
-  -moz-margin-start: 6px;
+  margin-inline-start: 6px;
 }
 
 .message[category=network].mixed-content .url {
@@ -264,7 +281,8 @@ a {
   font-size: 10px;
   padding: 2px;
   line-height: 10px;
-  -moz-margin-end: 1ex;
+  margin-inline-start: 3px;
+  margin-inline-end: 1ex;
 }
 
 /* CSS styles */
@@ -274,7 +292,7 @@ a {
 }
 
 .message[category=cssparser] > .indent {
-  -moz-border-end: solid #00b6f0 6px;
+  border-inline-end: solid #00b6f0 6px;
 }
 
 .message[category=cssparser][severity=error] > .icon::before {
@@ -292,7 +310,7 @@ a {
 }
 
 .message[category=exception] > .indent {
-  -moz-border-end: solid #fb9500 6px;
+  border-inline-end: solid #fb9500 6px;
 }
 
 .message[category=exception][severity=error] > .icon::before {
@@ -310,7 +328,7 @@ a {
 }
 
 .message[category=console] > .indent {
-  -moz-border-end: solid #cbcbcb 6px;
+  border-inline-end: solid #cbcbcb 6px;
 }
 
 .message[category=console][severity=error] > .icon::before,
@@ -337,13 +355,13 @@ a {
 }
 
 .message[category=server] > .indent {
-  -moz-border-end: solid #90B090 6px;
+  border-inline-end: solid #90B090 6px;
 }
 
 /* Input and output styles */
 .message[category=input] > .indent,
 .message[category=output] > .indent {
-  -moz-border-end: solid #808080 6px;
+  border-inline-end: solid #808080 6px;
 }
 
 .message[category=input] > .icon::before {
@@ -367,12 +385,23 @@ a {
   border-top-color: #e0e0e0;
 }
 
+.theme-firebug .jsterm-input-container {
+  border-top: 1px solid #ccc;
+}
+
 .jsterm-input-node,
 .jsterm-complete-node {
   border: none;
-  padding: 0 0 0 16px;
+  padding: 0;
+  padding-inline-start: 20px;
+  margin: 0;
   -moz-appearance: none;
   background-color: transparent;
+}
+
+.jsterm-input-node[focused="true"] {
+  background-image: var(--theme-command-line-image-focus);
+  box-shadow: none;
 }
 
 .jsterm-complete-node {
@@ -383,21 +412,20 @@ a {
   /* Always allow scrolling on input - it auto expands in js by setting height,
      but don't want it to get bigger than the window. 24px = toolbar height. */
   max-height: calc(90vh - 24px);
-  background-image: -moz-image-rect(url("chrome://devtools/skin/images/commandline-icon.png"), 0, 32, 16, 16);
+  background-image: var(--theme-command-line-image);
   background-repeat: no-repeat;
   background-size: 16px 16px;
+  background-position: 4px 50%;
   color: var(--theme-content-color1);
-}
-
-@media (min-resolution: 1.1dppx) {
-  .jsterm-input-node {
-    background-image: -moz-image-rect(url('chrome://devtools/skin/images/commandline-icon@2x.png'), 0, 64, 32, 32);
-  }
 }
 
 :-moz-any(.jsterm-input-node,
           .jsterm-complete-node) > .textbox-input-box > .textbox-textarea {
   overflow-x: hidden;
+  /* Set padding for console input on textbox to make sure it is inlcuded in
+     scrollHeight that is used when resizing JSTerminal's input. Note: textbox
+     default style has important already */
+  padding: 4px 0 !important;
 }
 
 .inlined-variables-view .message-body {
@@ -412,7 +440,7 @@ a {
   flex: 1;
   margin-top: 5px;
   margin-bottom: 15px;
-  -moz-margin-end: 15px;
+  margin-inline-end: 15px;
   border: 1px solid var(--theme-splitter-color);
   border-radius: 3px;
 }
@@ -422,6 +450,11 @@ a {
   border: none;
 }
 
+/* Firebug theme has the tabs visible. */
+.theme-firebug #webconsole-sidebar > tabs {
+  height: 28px;
+}
+
 .devtools-side-splitter ~ #webconsole-sidebar[hidden] {
   display: none;
 }
@@ -429,7 +462,7 @@ a {
 /* Security styles */
 
 .message[category=security] > .indent {
-  -moz-border-end: solid red 6px;
+  border-inline-end: solid red 6px;
 }
 
 .webconsole-filter-button[category="security"] > .toolbarbutton-menubutton-button:before {
@@ -455,7 +488,7 @@ a {
 }
 
 .navigation-marker .url {
-  -moz-padding-end: 9px;
+  padding-inline-end: 9px;
   text-decoration: none;
   background: var(--theme-body-background);
 }
@@ -494,7 +527,8 @@ a {
 .message .theme-twisty {
   display: inline-block;
   vertical-align: middle;
-  margin: 3px 3px 0 0;
+  margin: 3px 0 0 0;
+  flex-shrink: 0;
 }
 
 .stacktrace li {
@@ -515,6 +549,10 @@ a {
 .cm-s-mozilla a[class]:hover,
 .cm-s-mozilla a[class]:focus {
   text-decoration: underline;
+}
+
+a.learn-more-link.webconsole-learn-more-link {
+    font-style: normal;
 }
 
 /* Open DOMNode in inspector button */
@@ -574,13 +612,21 @@ a {
   }
 }
 
-%ifdef XP_WIN
 /*
  * This hardcoded width likely due to a toolkit Windows specific bug.
  * See http://hg.mozilla.org/mozilla-central/annotate/f38d6df93cad/toolkit/themes/winstripe/global/textbox-aero.css#l7
  */
 
-.hud-filter-box {
+:root[platform="win"] .hud-filter-box {
   width: 200px;
 }
-%endif
+
+/* Firebug theme support for console.table() */
+
+.theme-firebug .consoletable .theme-body {
+  width: 100%;
+  border-top: 1px solid #D7D7D7;
+  border-bottom: 2px solid #D7D7D7;
+  border-left: 1px solid #D7D7D7;
+  border-right: 1px solid #D7D7D7;
+}

@@ -3,12 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-const { Cc, Ci, Cu, Cr } = require("chrome");
-
-loader.lazyRequireGetter(this, "JITOptimizations",
-  "devtools/client/performance/modules/logic/jit", true);
-loader.lazyRequireGetter(this, "FrameUtils",
-  "devtools/client/performance/modules/logic/frame-utils");
+const { JITOptimizations } = require("devtools/client/performance/modules/logic/jit");
+const FrameUtils = require("devtools/client/performance/modules/logic/frame-utils");
 
 /**
  * A call tree for a thread. This is essentially a linkage between all frames
@@ -350,7 +346,7 @@ ThreadNode.prototype = {
    *
    * @return object
    */
-  getInfo: function(options) {
+  getInfo: function (options) {
     return FrameUtils.getFrameInfo(this, options);
   },
 
@@ -485,7 +481,7 @@ FrameNode.prototype = {
       let opts = this._optimizations;
       let otherOpts = otherNode._optimizations;
       for (let i = 0; i < otherOpts.length; i++) {
-       opts.push(otherOpts[i]);
+        opts.push(otherOpts[i]);
       }
     }
 
@@ -514,7 +510,7 @@ FrameNode.prototype = {
    *         The computed { name, file, url, line } properties for this
    *         function call, as well as additional params if options specified.
    */
-  getInfo: function(options) {
+  getInfo: function (options) {
     return FrameUtils.getFrameInfo(this, options);
   },
 

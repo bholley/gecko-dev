@@ -8,6 +8,7 @@
 #include "mozilla/dom/ContentChild.h"
 #include "nsScreenManagerProxy.h"
 #include "nsServiceManagerUtils.h"
+#include "nsContentUtils.h"
 #include "nsIAppShell.h"
 #include "nsIScreen.h"
 #include "nsIScreenManager.h"
@@ -198,9 +199,7 @@ nsScreenManagerProxy::InvalidateCacheOnNextTick()
 
   mCacheWillInvalidate = true;
 
-  nsCOMPtr<nsIRunnable> r =
-    NS_NewRunnableMethod(this, &nsScreenManagerProxy::InvalidateCache);
-  nsContentUtils::RunInStableState(r.forget());
+  nsContentUtils::RunInStableState(NewRunnableMethod(this, &nsScreenManagerProxy::InvalidateCache));
 }
 
 void

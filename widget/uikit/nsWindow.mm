@@ -51,7 +51,7 @@ UIKitPointsToDevPixels(CGPoint aPoint, CGFloat aBackingScale)
 }
 
 static CGRect
-DevPixelsToUIKitPoints(const nsIntRect& aRect, CGFloat aBackingScale)
+DevPixelsToUIKitPoints(const LayoutDeviceIntRect& aRect, CGFloat aBackingScale)
 {
     return CGRectMake((CGFloat)aRect.x / aBackingScale,
                       (CGFloat)aRect.y / aBackingScale,
@@ -143,10 +143,10 @@ private:
     WidgetMouseEvent event(true, aType, aWindow,
                            WidgetMouseEvent::eReal, WidgetMouseEvent::eNormal);
 
-    event.refPoint = aPoint;
-    event.clickCount = 1;
+    event.mRefPoint = aPoint;
+    event.mClickCount = 1;
     event.button = WidgetMouseEvent::eLeftButton;
-    event.time = PR_IntervalNow();
+    event.mTime = PR_IntervalNow();
     event.inputSource = nsIDOMMouseEvent::MOZ_SOURCE_UNKNOWN;
 
     nsEventStatus status;
@@ -169,8 +169,8 @@ private:
     WidgetTouchEvent event(true, aType, aWindow);
     //XXX: I think nativeEvent.timestamp * 1000 is probably usable here but
     // I don't care that much right now.
-    event.time = PR_IntervalNow();
-    event.touches.SetCapacity(aTouches.count);
+    event.mTime = PR_IntervalNow();
+    event.mTouches.SetCapacity(aTouches.count);
     for (UITouch* touch in aTouches) {
         LayoutDeviceIntPoint loc = UIKitPointsToDevPixels([touch locationInView:self], [self contentScaleFactor]);
         LayoutDeviceIntPoint radius = UIKitPointsToDevPixels([touch majorRadius], [touch majorRadius]);
@@ -182,10 +182,10 @@ private:
         }
         int id = reinterpret_cast<int>(value);
         RefPtr<Touch> t = new Touch(id, loc, radius, 0.0f, 1.0f);
-        event.refPoint = loc;
-        event.touches.AppendElement(t);
+        event.mRefPoint = loc;
+        event.mTouches.AppendElement(t);
     }
-    aWindow->DispatchAPZAwareEvent(&event);
+    aWindow->DispatchInputEvent(&event);
 }
 
 - (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event
@@ -278,9 +278,9 @@ private:
 
   mWaitingForPaint = NO;
 
-  nsIntRect geckoBounds;
-  mGeckoChild->GetBoundsUntyped(geckoBounds);
-  nsIntRegion region(geckoBounds);
+  LayoutDeviceIntRect geckoBounds;
+  mGeckoChild->GetBounds(geckoBounds);
+  LayoutDeviceIntRegion region(geckoBounds);
 
   mGeckoChild->PaintWindow(region);
 }
@@ -340,14 +340,15 @@ private:
   CGContextScaleCTM(aContext, 1.0 / scale, 1.0 / scale);
 
   CGSize viewSize = [self bounds].size;
-  nsIntSize backingSize(viewSize.width * scale, viewSize.height * scale);
+  gfx::IntSize backingSize(viewSize.width * scale, viewSize.height * scale);
 
   CGContextSaveGState(aContext);
 
-  nsIntRegion region = nsIntRect(NSToIntRound(aRect.origin.x * scale),
-                                 NSToIntRound(aRect.origin.y * scale),
-                                 NSToIntRound(aRect.size.width * scale),
-                                 NSToIntRound(aRect.size.height * scale));
+  LayoutDeviceIntRegion region =
+    LayoutDeviceIntRect(NSToIntRound(aRect.origin.x * scale),
+                        NSToIntRound(aRect.origin.y * scale),
+                        NSToIntRound(aRect.size.width * scale),
+                        NSToIntRound(aRect.size.height * scale));
 
   // Create Cairo objects.
   RefPtr<gfxQuartzSurface> targetSurface;
@@ -355,11 +356,13 @@ private:
   RefPtr<gfxContext> targetContext;
   if (gfxPlatform::GetPlatform()->SupportsAzureContentForType(gfx::BackendType::COREGRAPHICS)) {
     RefPtr<gfx::DrawTarget> dt =
-      gfx::Factory::CreateDrawTargetForCairoCGContext(aContext,
-                                                      gfx::IntSize(backingSize.width,
-                                                                   backingSize.height));
+      gfx::Factory::CreateDrawTargetForCairoCGContext(aContext, backingSize);
+    if (!dt || !dt->IsValid()) {
+        gfxDevCrash(mozilla::gfx::LogReason::InvalidContext) << "Window context problem 1 " << backingSize;
+        return;
+    }
     dt->AddUserData(&gfxContext::sDontUseAsSourceKey, dt, nullptr);
-    targetContext = new gfxContext(dt);
+    targetContext = gfxContext::CreateOrNull(dt);
   } else if (gfxPlatform::GetPlatform()->SupportsAzureContentForType(gfx::BackendType::CAIRO)) {
     // This is dead code unless you mess with prefs, but keep it around for
     // debugging.
@@ -367,22 +370,23 @@ private:
     targetSurface->SetAllowUseAsSource(false);
     RefPtr<gfx::DrawTarget> dt =
       gfxPlatform::GetPlatform()->CreateDrawTargetForSurface(targetSurface,
-                                                             gfx::IntSize(backingSize.width,
-                                                                          backingSize.height));
+                                                             backingSize);
+    if (!dt || !dt->IsValid()) {
+        gfxDevCrash(mozilla::gfx::LogReason::InvalidContext) << "Window context problem 2 " << backingSize;
+        return;
+    }
     dt->AddUserData(&gfxContext::sDontUseAsSourceKey, dt, nullptr);
-    targetContext = new gfxContext(dt);
+    targetContext = gfxContext::CreateOrNull(dt);
   } else {
-    MOZ_ASSERT_UNREACHABLE("COREGRAPHICS is the only supported backed");
+    MOZ_ASSERT_UNREACHABLE("COREGRAPHICS is the only supported backend");
   }
+  MOZ_ASSERT(targetContext); // already checked for valid draw targets above
 
   // Set up the clip region.
-  nsIntRegionRectIterator iter(region);
   targetContext->NewPath();
-  for (;;) {
-    const nsIntRect* r = iter.Next();
-    if (!r)
-      break;
-    targetContext->Rectangle(gfxRect(r->x, r->y, r->width, r->height));
+  for (auto iter = region.RectIter(); !iter.Done(); iter.Next()) {
+    const LayoutDeviceIntRect& r = iter.Get();
+    targetContext->Rectangle(gfxRect(r.x, r.y, r.width, r.height));
   }
   targetContext->Clip();
 
@@ -466,10 +470,10 @@ nsWindow::IsTopLevel()
 //
 
 NS_IMETHODIMP
-nsWindow::Create(nsIWidget *aParent,
+nsWindow::Create(nsIWidget* aParent,
                  nsNativeWidget aNativeParent,
-                 const nsIntRect &aRect,
-                 nsWidgetInitData *aInitData)
+                 const LayoutDeviceIntRect& aRect,
+                 nsWidgetInitData* aInitData)
 {
     ALOG("nsWindow[%p]::Create %p/%p [%d %d %d %d]", (void*)this, (void*)aParent, (void*)aNativeParent, aRect.x, aRect.y, aRect.width, aRect.height);
     nsWindow* parent = (nsWindow*) aParent;
@@ -484,16 +488,14 @@ nsWindow::Create(nsIWidget *aParent,
     if (parent == nullptr) {
         if (nsAppShell::gWindow == nil) {
             mBounds = UIKitScreenManager::GetBounds();
-        }
-        else {
+        } else {
             CGRect cgRect = [nsAppShell::gWindow bounds];
             mBounds.x = cgRect.origin.x;
             mBounds.y = cgRect.origin.y;
             mBounds.width = cgRect.size.width;
             mBounds.height = cgRect.size.height;
         }
-    }
-    else {
+    } else {
         mBounds = aRect;
     }
 
@@ -504,7 +506,7 @@ nsWindow::Create(nsIWidget *aParent,
     mWindowType = eWindowType_toplevel;
     mBorderStyle = eBorderStyle_default;
 
-    Inherited::BaseCreate(aParent, mBounds, aInitData);
+    Inherited::BaseCreate(aParent, aInitData);
 
     NS_ASSERTION(IsTopLevel() || parent, "non top level window doesn't have a parent!");
 
@@ -700,7 +702,7 @@ nsWindow::SetSizeMode(nsSizeMode aMode)
 }
 
 NS_IMETHODIMP
-nsWindow::Invalidate(const nsIntRect &aRect)
+nsWindow::Invalidate(const LayoutDeviceIntRect& aRect)
 {
   if (!mNativeView || !mVisible)
     return NS_OK;
@@ -730,7 +732,7 @@ void nsWindow::WillPaintWindow()
   }
 }
 
-bool nsWindow::PaintWindow(nsIntRegion aRegion)
+bool nsWindow::PaintWindow(LayoutDeviceIntRegion aRegion)
 {
   if (!mWidgetListener)
     return false;
@@ -816,7 +818,7 @@ nsWindow::DispatchEvent(mozilla::WidgetGUIEvent* aEvent,
                         nsEventStatus& aStatus)
 {
   aStatus = nsEventStatus_eIgnore;
-  nsCOMPtr<nsIWidget> kungFuDeathGrip = do_QueryInterface(aEvent->widget);
+  nsCOMPtr<nsIWidget> kungFuDeathGrip(aEvent->mWidget);
 
   if (mWidgetListener)
     aStatus = mWidgetListener->HandleEvent(aEvent, mUseAttachedEvents);
@@ -835,7 +837,6 @@ nsWindow::SetInputContext(const InputContext& aContext,
 NS_IMETHODIMP_(mozilla::widget::InputContext)
 nsWindow::GetInputContext()
 {
-    mInputContext.mNativeIMEContext = nullptr;
     return mInputContext;
 }
 
@@ -878,6 +879,14 @@ void* nsWindow::GetNativeData(uint32_t aDataType)
     case NS_NATIVE_PLUGIN_PORT:
         // not implemented
         break;
+
+    case NS_RAW_NATIVE_IME_CONTEXT:
+      retVal = GetPseudoIMEContext();
+      if (retVal) {
+        break;
+      }
+      retVal = NS_ONLY_ONE_NATIVE_IME_CONTEXT;
+      break;
   }
 
   return retVal;

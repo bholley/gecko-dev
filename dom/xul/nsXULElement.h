@@ -29,7 +29,6 @@
 #include "nsLayoutCID.h"
 #include "nsAttrAndChildArray.h"
 #include "nsGkAtoms.h"
-#include "nsAutoPtr.h"
 #include "nsStyledElement.h"
 #include "nsIFrameLoader.h"
 #include "nsFrameLoader.h"
@@ -54,6 +53,7 @@ class StyleRule;
 } // namespace css
 namespace dom {
 class BoxObject;
+class HTMLIFrameElement;
 } // namespace dom
 } // namespace mozilla
 
@@ -124,11 +124,6 @@ public:
                                  nsIURI* aDocumentURI,
                                  const nsTArray<RefPtr<mozilla::dom::NodeInfo>> *aNodeInfos) = 0;
 
-#ifdef NS_BUILD_REFCNT_LOGGING
-    virtual const char* ClassName() = 0;
-    virtual uint32_t ClassSize() = 0;
-#endif
-
     /**
      * The prototype document must call ReleaseSubtree when it is going
      * away.  This makes the parents through the tree stop owning their
@@ -165,11 +160,6 @@ public:
     {
         Unlink();
     }
-
-#ifdef NS_BUILD_REFCNT_LOGGING
-    virtual const char* ClassName() override { return "nsXULPrototypeElement"; }
-    virtual uint32_t ClassSize() override { return sizeof(*this); }
-#endif
 
     virtual void ReleaseSubtree() override
     {
@@ -219,11 +209,6 @@ public:
     nsXULPrototypeScript(uint32_t aLineNo, uint32_t version);
     virtual ~nsXULPrototypeScript();
 
-#ifdef NS_BUILD_REFCNT_LOGGING
-    virtual const char* ClassName() override { return "nsXULPrototypeScript"; }
-    virtual uint32_t ClassSize() override { return sizeof(*this); }
-#endif
-
     virtual nsresult Serialize(nsIObjectOutputStream* aStream,
                                nsXULPrototypeDocument* aProtoDoc,
                                const nsTArray<RefPtr<mozilla::dom::NodeInfo>> *aNodeInfos) override;
@@ -264,9 +249,7 @@ public:
 
     void TraceScriptObject(JSTracer* aTrc)
     {
-        if (mScriptObject) {
-            JS_CallScriptTracer(aTrc, &mScriptObject, "active window XUL prototype script");
-        }
+        JS::TraceEdge(aTrc, &mScriptObject, "active window XUL prototype script");
     }
 
     void Trace(const TraceCallbacks& aCallbacks, void* aClosure)
@@ -298,11 +281,6 @@ public:
     {
     }
 
-#ifdef NS_BUILD_REFCNT_LOGGING
-    virtual const char* ClassName() override { return "nsXULPrototypeText"; }
-    virtual uint32_t ClassSize() override { return sizeof(*this); }
-#endif
-
     virtual nsresult Serialize(nsIObjectOutputStream* aStream,
                                nsXULPrototypeDocument* aProtoDoc,
                                const nsTArray<RefPtr<mozilla::dom::NodeInfo>> *aNodeInfos) override;
@@ -325,11 +303,6 @@ public:
     virtual ~nsXULPrototypePI()
     {
     }
-
-#ifdef NS_BUILD_REFCNT_LOGGING
-    virtual const char* ClassName() override { return "nsXULPrototypePI"; }
-    virtual uint32_t ClassSize() override { return sizeof(*this); }
-#endif
 
     virtual nsresult Serialize(nsIObjectOutputStream* aStream,
                                nsXULPrototypeDocument* aProtoDoc,
@@ -437,8 +410,8 @@ public:
     virtual mozilla::EventStates IntrinsicState() const override;
 
     nsresult GetFrameLoader(nsIFrameLoader** aFrameLoader);
+    nsresult GetParentApplication(mozIApplication** aApplication);
     nsresult SetIsPrerendered();
-    nsresult SwapFrameLoaders(nsIFrameLoaderOwner* aOtherOwner);
 
     virtual void RecompileScriptEventListeners() override;
 
@@ -602,7 +575,12 @@ public:
                                mozilla::ErrorResult& rv);
     // Style() inherited from nsStyledElement
     already_AddRefed<nsFrameLoader> GetFrameLoader();
-    void SwapFrameLoaders(nsXULElement& aOtherOwner, mozilla::ErrorResult& rv);
+    void SwapFrameLoaders(mozilla::dom::HTMLIFrameElement& aOtherLoaderOwner,
+                          mozilla::ErrorResult& rv);
+    void SwapFrameLoaders(nsXULElement& aOtherLoaderOwner,
+                          mozilla::ErrorResult& rv);
+    void SwapFrameLoaders(RefPtr<nsFrameLoader>& aOtherLoader,
+                          mozilla::ErrorResult& rv);
 
     nsINode* GetScopeChainParent() const override
     {
@@ -672,7 +650,7 @@ protected:
     virtual mozilla::EventListenerManager*
       GetEventListenerManagerForAttr(nsIAtom* aAttrName,
                                      bool* aDefer) override;
-  
+
     /**
      * Add a listener for the specified attribute, if appropriate.
      */
@@ -699,7 +677,7 @@ protected:
     // appropriate value.
     nsIControllers *Controllers() {
       nsDOMSlots* slots = GetExistingDOMSlots();
-      return slots ? slots->mControllers : nullptr; 
+      return slots ? slots->mControllers : nullptr;
     }
 
     void UnregisterAccessKey(const nsAString& aOldValue);

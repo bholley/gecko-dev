@@ -18,7 +18,7 @@
 #include "mozilla/Telemetry.h"
 #include "mozilla/ArrayUtils.h"
 
-// NSPR_LOG_MODULES=LoadManager:5
+// MOZ_LOG=LoadManager:5
 mozilla::LazyLogModule gLoadManagerLog("LoadManager");
 #undef LOG
 #undef LOG_ENABLED
@@ -170,14 +170,6 @@ LoadManagerSingleton::AddObserver(webrtc::CPULoadStateObserver * aObserver)
   LOG(("LoadManager - Adding Observer"));
   MutexAutoLock lock(mLock);
   mObservers.AppendElement(aObserver);
-  if (mObservers.Length() == 1) {
-    if (!mLoadMonitor) {
-      mLoadMonitor = new LoadMonitor(mLoadMeasurementInterval);
-      mLoadMonitor->Init(mLoadMonitor);
-      mLoadMonitor->SetLoadChangeCallback(this);
-      mLastStateChange = TimeStamp::Now();
-    }
-  }
 }
 
 void

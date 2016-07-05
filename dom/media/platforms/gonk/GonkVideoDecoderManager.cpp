@@ -8,6 +8,7 @@
 #include <gui/Surface.h>
 #include <ICrypto.h>
 #include "GonkVideoDecoderManager.h"
+#include "GrallocImages.h"
 #include "MediaDecoderReader.h"
 #include "ImageContainer.h"
 #include "VideoUtils.h"
@@ -19,7 +20,6 @@
 #include <stagefright/MediaErrors.h>
 #include <stagefright/foundation/AString.h>
 #include "GonkNativeWindow.h"
-#include "GonkNativeWindowClient.h"
 #include "mozilla/layers/GrallocTextureClient.h"
 #include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/TextureClient.h"
@@ -32,36 +32,76 @@
 #include <android/log.h>
 #define GVDM_LOG(...) __android_log_print(ANDROID_LOG_DEBUG, "GonkVideoDecoderManager", __VA_ARGS__)
 
-extern mozilla::LogModule* GetPDMLog();
-#define LOG(...) MOZ_LOG(GetPDMLog(), mozilla::LogLevel::Debug, (__VA_ARGS__))
+#define LOG(...) MOZ_LOG(sPDMLog, mozilla::LogLevel::Debug, (__VA_ARGS__))
 using namespace mozilla::layers;
 using namespace android;
 typedef android::MediaCodecProxy MediaCodecProxy;
 
 namespace mozilla {
 
+class GonkTextureClientAllocationHelper : public layers::ITextureClientAllocationHelper
+{
+public:
+  GonkTextureClientAllocationHelper(uint32_t aGrallocFormat,
+                                    gfx::IntSize aSize)
+    : ITextureClientAllocationHelper(gfx::SurfaceFormat::UNKNOWN,
+                                     aSize,
+                                     BackendSelector::Content,
+                                     TextureFlags::DEALLOCATE_CLIENT,
+                                     ALLOC_DISALLOW_BUFFERTEXTURECLIENT)
+    , mGrallocFormat(aGrallocFormat)
+  {}
+
+  already_AddRefed<TextureClient> Allocate(TextureForwarder* aAllocator) override
+  {
+    uint32_t usage = android::GraphicBuffer::USAGE_SW_READ_OFTEN |
+                     android::GraphicBuffer::USAGE_SW_WRITE_OFTEN |
+                     android::GraphicBuffer::USAGE_HW_TEXTURE;
+
+    GrallocTextureData* texData = GrallocTextureData::Create(mSize, mGrallocFormat,
+                                                             gfx::BackendType::NONE,
+                                                             usage, aAllocator);
+    if (!texData) {
+      return nullptr;
+    }
+    sp<GraphicBuffer> graphicBuffer = texData->GetGraphicBuffer();
+    if (!graphicBuffer.get()) {
+      return nullptr;
+    }
+    RefPtr<TextureClient> textureClient =
+      TextureClient::CreateWithData(texData, TextureFlags::DEALLOCATE_CLIENT, aAllocator);
+    return textureClient.forget();
+  }
+
+  bool IsCompatible(TextureClient* aTextureClient) override
+  {
+    if (!aTextureClient) {
+      return false;
+    }
+    sp<GraphicBuffer> graphicBuffer =
+      static_cast<GrallocTextureData*>(aTextureClient->GetInternalData())->GetGraphicBuffer();
+    if (!graphicBuffer.get() ||
+        static_cast<uint32_t>(graphicBuffer->getPixelFormat()) != mGrallocFormat ||
+        aTextureClient->GetSize() != mSize) {
+      return false;
+    }
+    return true;
+  }
+
+private:
+  uint32_t mGrallocFormat;
+};
+
 GonkVideoDecoderManager::GonkVideoDecoderManager(
   mozilla::layers::ImageContainer* aImageContainer,
   const VideoInfo& aConfig)
-  : mImageContainer(aImageContainer)
+  : mConfig(aConfig)
+  , mImageContainer(aImageContainer)
   , mColorConverterBufferSize(0)
-  , mNativeWindow(nullptr)
   , mPendingReleaseItemsLock("GonkVideoDecoderManager::mPendingReleaseItemsLock")
   , mNeedsCopyBuffer(false)
 {
   MOZ_COUNT_CTOR(GonkVideoDecoderManager);
-  mMimeType = aConfig.mMimeType;
-  mVideoWidth  = aConfig.mDisplay.width;
-  mVideoHeight = aConfig.mDisplay.height;
-  mDisplayWidth = aConfig.mDisplay.width;
-  mDisplayHeight = aConfig.mDisplay.height;
-  mInfo.mVideo = aConfig;
-
-  mCodecSpecificData = aConfig.mCodecSpecificConfig;
-  nsIntRect pictureRect(0, 0, mVideoWidth, mVideoHeight);
-  nsIntSize frameSize(mVideoWidth, mVideoHeight);
-  mPicture = pictureRect;
-  mInitialFrame = frameSize;
 }
 
 GonkVideoDecoderManager::~GonkVideoDecoderManager()
@@ -81,9 +121,6 @@ GonkVideoDecoderManager::Init()
 {
   mNeedsCopyBuffer = false;
 
-  nsIntSize displaySize(mDisplayWidth, mDisplayHeight);
-  nsIntRect pictureRect(0, 0, mVideoWidth, mVideoHeight);
-
   uint32_t maxWidth, maxHeight;
   char propValue[PROPERTY_VALUE_MAX];
   property_get("ro.moz.omx.hw.max_width", propValue, "-1");
@@ -91,15 +128,14 @@ GonkVideoDecoderManager::Init()
   property_get("ro.moz.omx.hw.max_height", propValue, "-1");
   maxHeight = -1 == atoi(propValue) ? MAX_VIDEO_HEIGHT : atoi(propValue) ;
 
-  if (mVideoWidth * mVideoHeight > maxWidth * maxHeight) {
+  if (uint32_t(mConfig.mImage.width * mConfig.mImage.height) > maxWidth * maxHeight) {
     GVDM_LOG("Video resolution exceeds hw codec capability");
     return InitPromise::CreateAndReject(DecoderFailureReason::INIT_ERROR, __func__);
   }
 
   // Validate the container-reported frame and pictureRect sizes. This ensures
   // that our video frame creation code doesn't overflow.
-  nsIntSize frameSize(mVideoWidth, mVideoHeight);
-  if (!IsValidVideoRegion(frameSize, pictureRect, displaySize)) {
+  if (!IsValidVideoRegion(mConfig.mImage, mConfig.ImageRect(), mConfig.mDisplay)) {
     GVDM_LOG("It is not a valid region");
     return InitPromise::CreateAndReject(DecoderFailureReason::INIT_ERROR, __func__);
   }
@@ -117,12 +153,20 @@ GonkVideoDecoderManager::Init()
 
   RefPtr<InitPromise> p = mInitPromise.Ensure(__func__);
   android::sp<GonkVideoDecoderManager> self = this;
-  mDecoder = MediaCodecProxy::CreateByType(mDecodeLooper, mMimeType.get(), false);
+  mDecoder = MediaCodecProxy::CreateByType(mDecodeLooper,
+                                           mConfig.mMimeType.get(),
+                                           false);
 
   uint32_t capability = MediaCodecProxy::kEmptyCapability;
   if (mDecoder->getCapability(&capability) == OK && (capability &
       MediaCodecProxy::kCanExposeGraphicBuffer)) {
+#if ANDROID_VERSION >= 21
+    sp<IGonkGraphicBufferConsumer> consumer;
+    GonkBufferQueue::createBufferQueue(&mGraphicBufferProducer, &consumer);
+    mNativeWindow = new GonkNativeWindow(consumer);
+#else
     mNativeWindow = new GonkNativeWindow();
+#endif
   }
 
   mVideoCodecRequest.Begin(mDecoder->AsyncAllocateVideoMediaCodec()
@@ -176,19 +220,8 @@ GonkVideoDecoderManager::CreateVideoData(MediaBuffer* aBuffer,
     keyFrame = 0;
   }
 
-  gfx::IntRect picture = mPicture;
-  if (mFrameInfo.mWidth != mInitialFrame.width ||
-      mFrameInfo.mHeight != mInitialFrame.height) {
-
-    // Frame size is different from what the container reports. This is legal,
-    // and we will preserve the ratio of the crop rectangle as it
-    // was reported relative to the picture size reported by the container.
-    picture.x = (mPicture.x * mFrameInfo.mWidth) / mInitialFrame.width;
-    picture.y = (mPicture.y * mFrameInfo.mHeight) / mInitialFrame.height;
-    picture.width = (mFrameInfo.mWidth * mPicture.width) / mInitialFrame.width;
-    picture.height = (mFrameInfo.mHeight * mPicture.height) / mInitialFrame.height;
-  }
-
+  gfx::IntRect picture =
+    mConfig.ScaledImageRect(mFrameInfo.mWidth, mFrameInfo.mHeight);
   if (aBuffer->graphicBuffer().get()) {
     data = CreateVideoDataFromGraphicBuffer(aBuffer, picture);
     if (data && !mNeedsCopyBuffer) {
@@ -263,8 +296,38 @@ Align(int aX, int aAlign)
   return (aX + aAlign - 1) & ~(aAlign - 1);
 }
 
+// Venus formats are doucmented in kernel/include/media/msm_media_info.h:
+// * Y_Stride : Width aligned to 128
+// * UV_Stride : Width aligned to 128
+// * Y_Scanlines: Height aligned to 32
+// * UV_Scanlines: Height/2 aligned to 16
+// * Total size = align((Y_Stride * Y_Scanlines
+// *          + UV_Stride * UV_Scanlines + 4096), 4096)
 static void
-CopyGraphicBuffer(sp<GraphicBuffer>& aSource, sp<GraphicBuffer>& aDestination, gfx::IntRect& aPicture)
+CopyVenus(uint8_t* aSrc, uint8_t* aDest, uint32_t aWidth, uint32_t aHeight)
+{
+  size_t yStride = Align(aWidth, 128);
+  uint8_t* s = aSrc;
+  uint8_t* d = aDest;
+  for (size_t i = 0; i < aHeight; i++) {
+    memcpy(d, s, aWidth);
+    s += yStride;
+    d += yStride;
+  }
+  size_t uvStride = yStride;
+  size_t uvLines = (aHeight + 1) / 2;
+  size_t ySize = yStride * Align(aHeight, 32);
+  s = aSrc + ySize;
+  d = aDest + ySize;
+  for (size_t i = 0; i < uvLines; i++) {
+    memcpy(d, s, aWidth);
+    s += uvStride;
+    d += uvStride;
+  }
+}
+
+static void
+CopyGraphicBuffer(sp<GraphicBuffer>& aSource, sp<GraphicBuffer>& aDestination)
 {
   void* srcPtr = nullptr;
   aSource->lock(GraphicBuffer::USAGE_SW_READ_OFTEN, &srcPtr);
@@ -275,7 +338,7 @@ CopyGraphicBuffer(sp<GraphicBuffer>& aSource, sp<GraphicBuffer>& aDestination, g
   // Build PlanarYCbCrData for source buffer.
   PlanarYCbCrData srcData;
   switch (aSource->getPixelFormat()) {
-    case HAL_PIXEL_FORMAT_YV12:
+    case HAL_PIXEL_FORMAT_YV12: {
       // Android YV12 format is defined in system/core/include/system/graphics.h
       srcData.mYChannel = static_cast<uint8_t*>(srcPtr);
       srcData.mYSkip = 0;
@@ -291,46 +354,37 @@ CopyGraphicBuffer(sp<GraphicBuffer>& aSource, sp<GraphicBuffer>& aDestination, g
       srcData.mCrSkip = 0;
       srcData.mCbChannel = srcData.mCrChannel + (srcData.mCbCrStride * srcData.mCbCrSize.height);
       srcData.mCbSkip = 0;
+
+      // Build PlanarYCbCrData for destination buffer.
+      PlanarYCbCrData destData;
+      destData.mYChannel = static_cast<uint8_t*>(destPtr);
+      destData.mYSkip = 0;
+      destData.mYSize.width = aDestination->getWidth();
+      destData.mYSize.height = aDestination->getHeight();
+      destData.mYStride = aDestination->getStride();
+      // 4:2:0.
+      destData.mCbCrSize.width = destData.mYSize.width / 2;
+      destData.mCbCrSize.height = destData.mYSize.height / 2;
+      destData.mCrChannel = destData.mYChannel + (destData.mYStride * destData.mYSize.height);
+      // Aligned to 16 bytes boundary.
+      destData.mCbCrStride = Align(destData.mYStride / 2, 16);
+      destData.mCrSkip = 0;
+      destData.mCbChannel = destData.mCrChannel + (destData.mCbCrStride * destData.mCbCrSize.height);
+      destData.mCbSkip = 0;
+
+      CopyYUV(srcData, destData);
       break;
+    }
     case GrallocImage::HAL_PIXEL_FORMAT_YCbCr_420_SP_VENUS:
-      // Venus formats are doucmented in kernel/include/media/msm_media_info.h:
-      srcData.mYChannel = static_cast<uint8_t*>(srcPtr);
-      srcData.mYSkip = 0;
-      srcData.mYSize.width = aSource->getWidth();
-      srcData.mYSize.height = aSource->getHeight();
-      // - Y & UV Width aligned to 128
-      srcData.mYStride = aSource->getStride();
-      srcData.mCbCrSize.width = (srcData.mYSize.width + 1) / 2;
-      srcData.mCbCrSize.height = (srcData.mYSize.height + 1) / 2;
-      // - Y height aligned to 32
-      srcData.mCbChannel = srcData.mYChannel + (srcData.mYStride * Align(srcData.mYSize.height, 32));
-      // Interleaved VU plane.
-      srcData.mCbSkip = 1;
-      srcData.mCrChannel = srcData.mCbChannel + 1;
-      srcData.mCrSkip = 1;
-      srcData.mCbCrStride = srcData.mYStride;
+      CopyVenus(static_cast<uint8_t*>(srcPtr),
+                static_cast<uint8_t*>(destPtr),
+                aSource->getWidth(),
+                aSource->getHeight());
       break;
     default:
       NS_ERROR("Unsupported input gralloc image type. Should never be here.");
   }
-  // Build PlanarYCbCrData for destination buffer.
-  PlanarYCbCrData destData;
-  destData.mYChannel = static_cast<uint8_t*>(destPtr);
-  destData.mYSkip = 0;
-  destData.mYSize.width = aDestination->getWidth();
-  destData.mYSize.height = aDestination->getHeight();
-  destData.mYStride = aDestination->getStride();
-  // 4:2:0.
-  destData.mCbCrSize.width = destData.mYSize.width / 2;
-  destData.mCbCrSize.height = destData.mYSize.height / 2;
-  destData.mCrChannel = destData.mYChannel + (destData.mYStride * destData.mYSize.height);
-  // Aligned to 16 bytes boundary.
-  destData.mCbCrStride = Align(destData.mYStride / 2, 16);
-  destData.mCrSkip = 0;
-  destData.mCbChannel = destData.mCrChannel + (destData.mCbCrStride * destData.mCbCrSize.height);
-  destData.mCbSkip = 0;
 
-  CopyYUV(srcData, destData);
 
   aSource->unlock();
   aDestination->unlock();
@@ -353,32 +407,25 @@ GonkVideoDecoderManager::CreateVideoDataFromGraphicBuffer(MediaBuffer* aSource,
       return nullptr;
     }
 
-    gfx::IntSize size(Align(srcBuffer->getWidth(), 2) , Align(srcBuffer->getHeight(), 2));
-    textureClient =
-      mCopyAllocator->CreateOrRecycle(gfx::SurfaceFormat::YUV, size,
-                                      BackendSelector::Content,
-                                      TextureFlags::DEFAULT,
-                                      ALLOC_DISALLOW_BUFFERTEXTURECLIENT);
+    gfx::IntSize size(srcBuffer->getWidth(), srcBuffer->getHeight());
+    GonkTextureClientAllocationHelper helper(srcBuffer->getPixelFormat(), size);
+    textureClient = mCopyAllocator->CreateOrRecycle(helper);
     if (!textureClient) {
       GVDM_LOG("Copy buffer allocation failed!");
       return nullptr;
     }
-    // Update size to match buffer's.
-    aPicture.width = size.width;
-    aPicture.height = size.height;
 
     sp<GraphicBuffer> destBuffer =
-      static_cast<GrallocTextureClientOGL*>(textureClient.get())->GetGraphicBuffer();
+      static_cast<GrallocTextureData*>(textureClient->GetInternalData())->GetGraphicBuffer();
 
-    CopyGraphicBuffer(srcBuffer, destBuffer, aPicture);
+    CopyGraphicBuffer(srcBuffer, destBuffer);
   } else {
     textureClient = mNativeWindow->getTextureClientFromBuffer(srcBuffer.get());
     textureClient->SetRecycleCallback(GonkVideoDecoderManager::RecycleCallback, this);
-    GrallocTextureClientOGL* grallocClient = static_cast<GrallocTextureClientOGL*>(textureClient.get());
-    grallocClient->SetMediaBuffer(aSource);
+    static_cast<GrallocTextureData*>(textureClient->GetInternalData())->SetMediaBuffer(aSource);
   }
 
-  RefPtr<VideoData> data = VideoData::Create(mInfo.mVideo,
+  RefPtr<VideoData> data = VideoData::Create(mConfig,
                                              mImageContainer,
                                              0, // Filled later by caller.
                                              0, // Filled later by caller.
@@ -447,7 +494,7 @@ GonkVideoDecoderManager::CreateVideoDataFromDataBuffer(MediaBuffer* aSource, gfx
   b.mPlanes[2].mOffset = 0;
   b.mPlanes[2].mSkip = 0;
 
-  RefPtr<VideoData> data = VideoData::Create(mInfo.mVideo,
+  RefPtr<VideoData> data = VideoData::Create(mConfig,
                                              mImageContainer,
                                              0, // Filled later by caller.
                                              0, // Filled later by caller.
@@ -493,7 +540,9 @@ GonkVideoDecoderManager::SetVideoFormat()
     mFrameInfo.mColorFormat = color_format;
 
     nsIntSize displaySize(width, height);
-    if (!IsValidVideoRegion(mInitialFrame, mPicture, displaySize)) {
+    if (!IsValidVideoRegion(mConfig.mDisplay,
+                            mConfig.ScaledImageRect(width, height),
+                            displaySize)) {
       GVDM_LOG("It is not a valid region");
       return false;
     }
@@ -596,22 +645,26 @@ GonkVideoDecoderManager::codecReserved()
   sp<Surface> surface;
   status_t rv = OK;
   // Fixed values
-  GVDM_LOG("Configure video mime type: %s, width:%d, height:%d", mMimeType.get(), mVideoWidth, mVideoHeight);
-  format->setString("mime", mMimeType.get());
-  format->setInt32("width", mVideoWidth);
-  format->setInt32("height", mVideoHeight);
+  GVDM_LOG("Configure video mime type: %s, width:%d, height:%d", mConfig.mMimeType.get(), mConfig.mImage.width, mConfig.mImage.height);
+  format->setString("mime", mConfig.mMimeType.get());
+  format->setInt32("width", mConfig.mImage.width);
+  format->setInt32("height", mConfig.mImage.height);
   // Set the "moz-use-undequeued-bufs" to use the undeque buffers to accelerate
   // the video decoding.
   format->setInt32("moz-use-undequeued-bufs", 1);
   if (mNativeWindow != nullptr) {
+#if ANDROID_VERSION >= 21
+    surface = new Surface(mGraphicBufferProducer);
+#else
     surface = new Surface(mNativeWindow->getBufferQueue());
+#endif
   }
   mDecoder->configure(format, surface, nullptr, 0);
   mDecoder->Prepare();
 
-  if (mMimeType.EqualsLiteral("video/mp4v-es")) {
-    rv = mDecoder->Input(mCodecSpecificData->Elements(),
-                         mCodecSpecificData->Length(), 0,
+  if (mConfig.mMimeType.EqualsLiteral("video/mp4v-es")) {
+    rv = mDecoder->Input(mConfig.mCodecSpecificConfig->Elements(),
+                         mConfig.mCodecSpecificConfig->Length(), 0,
                          android::MediaCodec::BUFFER_FLAG_CODECCONFIG,
                          CODECCONFIG_TIMEOUT_US);
   }
@@ -660,8 +713,7 @@ GonkVideoDecoderManager::GetColorConverterBuffer(int32_t aWidth, int32_t aHeight
   size_t yuv420p_v_size = yuv420p_u_size;
   size_t yuv420p_size = yuv420p_y_size + yuv420p_u_size + yuv420p_v_size;
   if (mColorConverterBufferSize != yuv420p_size) {
-    mColorConverterBuffer = nullptr; // release the previous buffer first
-    mColorConverterBuffer = new uint8_t[yuv420p_size];
+    mColorConverterBuffer = MakeUnique<uint8_t[]>(yuv420p_size);
     mColorConverterBufferSize = yuv420p_size;
   }
   return mColorConverterBuffer.get();
@@ -673,7 +725,7 @@ GonkVideoDecoderManager::RecycleCallback(TextureClient* aClient, void* aClosure)
 {
   MOZ_ASSERT(aClient && !aClient->IsDead());
   GonkVideoDecoderManager* videoManager = static_cast<GonkVideoDecoderManager*>(aClosure);
-  GrallocTextureClientOGL* client = static_cast<GrallocTextureClientOGL*>(aClient);
+  GrallocTextureData* client = static_cast<GrallocTextureData*>(aClient->GetInternalData());
   aClient->ClearRecycleCallback();
   FenceHandle handle = aClient->GetAndResetReleaseFenceHandle();
   videoManager->PostReleaseVideoBuffer(client->GetMediaBuffer(), handle);

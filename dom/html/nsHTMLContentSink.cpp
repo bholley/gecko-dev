@@ -160,7 +160,7 @@ protected:
   RefPtr<nsGenericHTMLElement> mBody;
   RefPtr<nsGenericHTMLElement> mHead;
 
-  nsAutoTArray<SinkContext*, 8> mContextStack;
+  AutoTArray<SinkContext*, 8> mContextStack;
   SinkContext* mCurrentContext;
   SinkContext* mHeadContext;
 
@@ -920,8 +920,6 @@ HTMLContentSink::OpenBody()
     }
     mUpdatesInNotification = oldUpdates;
   }
-
-  StartLayout(false);
 
   return NS_OK;
 }

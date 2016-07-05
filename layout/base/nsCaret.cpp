@@ -46,9 +46,6 @@ using namespace mozilla::gfx;
 // an insignificant dot
 static const int32_t kMinBidiIndicatorPixels = 2;
 
-/*static*/ bool nsCaret::sSelectionCaretEnabled = false;
-/*static*/ bool nsCaret::sSelectionCaretsAffectCaret = false;
-
 /**
  * Find the first frame in an in-order traversal of the frame subtree rooted
  * at aFrame which is either a text frame logically at the end of a line,
@@ -65,7 +62,7 @@ CheckForTrailingTextFrameRecursive(nsIFrame* aFrame, nsIFrame* aStopAtFrame)
   if (!aFrame->IsFrameOfType(nsIFrame::eLineParticipant))
     return nullptr;
 
-  for (nsIFrame* f = aFrame->GetFirstPrincipalChild(); f; f = f->GetNextSibling())
+  for (nsIFrame* f : aFrame->PrincipalChildList())
   {
     nsIFrame* r = CheckForTrailingTextFrameRecursive(f, aStopAtFrame);
     if (r)
@@ -147,15 +144,6 @@ nsresult nsCaret::Init(nsIPresShell *inPresShell)
   mShowDuringSelection =
     LookAndFeel::GetInt(LookAndFeel::eIntID_ShowCaretDuringSelection,
                         mShowDuringSelection ? 1 : 0) != 0;
-
-  static bool addedCaretPref = false;
-  if (!addedCaretPref) {
-    Preferences::AddBoolVarCache(&sSelectionCaretEnabled,
-      "selectioncaret.enabled");
-    Preferences::AddBoolVarCache(&sSelectionCaretsAffectCaret,
-      "selectioncaret.visibility.affectscaret");
-    addedCaretPref = true;
-  }
 
   // get the selection from the pres shell, and set ourselves up as a selection
   // listener
@@ -266,8 +254,7 @@ bool nsCaret::IsVisible()
     return false;
   }
 
-  if (!mShowDuringSelection &&
-      !(sSelectionCaretEnabled && sSelectionCaretsAffectCaret)) {
+  if (!mShowDuringSelection) {
     Selection* selection = GetSelectionInternal();
     if (!selection) {
       return false;
@@ -275,20 +262,6 @@ bool nsCaret::IsVisible()
     bool isCollapsed;
     if (NS_FAILED(selection->GetIsCollapsed(&isCollapsed)) || !isCollapsed) {
       return false;
-    }
-  }
-
-  // The Android IME can have a visible caret when there is a composition
-  // selection, due to auto-suggest/auto-correct styling (underlining),
-  // but never when the SelectionCarets are visible.
-  if (sSelectionCaretEnabled && sSelectionCaretsAffectCaret) {
-    nsCOMPtr<nsISelectionController> selCon = do_QueryReferent(mPresShell);
-    if (selCon) {
-      bool visible = false;
-      selCon->GetSelectionCaretsVisibility(&visible);
-      if (visible) {
-        return false;
-      }
     }
   }
 
@@ -348,9 +321,8 @@ nsCaret::GetGeometryForFrame(nsIFrame* aFrame,
                "We should not be in the middle of reflow");
   nscoord baseline = frame->GetCaretBaseline();
   nscoord ascent = 0, descent = 0;
-  RefPtr<nsFontMetrics> fm;
-  nsLayoutUtils::GetFontMetricsForFrame(aFrame, getter_AddRefs(fm),
-    nsLayoutUtils::FontSizeInflationFor(aFrame));
+  RefPtr<nsFontMetrics> fm =
+    nsLayoutUtils::GetInflatedFontMetricsForFrame(aFrame);
   NS_ASSERTION(fm, "We should be able to get the font metrics");
   if (fm) {
     ascent = fm->MaxAscent();
@@ -445,8 +417,8 @@ nsCaret::GetFrameAndOffset(Selection* aSelection,
 nsCaret::GetGeometry(nsISelection* aSelection, nsRect* aRect)
 {
   int32_t frameOffset;
-  nsIFrame* frame = GetFrameAndOffset(
-      static_cast<Selection*>(aSelection), nullptr, 0, &frameOffset);
+  Selection* selection = aSelection ? aSelection->AsSelection() : nullptr;
+  nsIFrame* frame = GetFrameAndOffset(selection, nullptr, 0, &frameOffset);
   if (frame) {
     *aRect = GetGeometryForFrame(frame, frameOffset, nullptr);
   }
@@ -456,7 +428,8 @@ nsCaret::GetGeometry(nsISelection* aSelection, nsRect* aRect)
 Selection*
 nsCaret::GetSelectionInternal()
 {
-  return static_cast<Selection*>(GetSelection());
+  nsISelection* domSelection = GetSelection();
+  return domSelection ? domSelection->AsSelection() : nullptr;
 }
 
 void nsCaret::SchedulePaint()
@@ -564,8 +537,7 @@ nsCaret::GetPaintGeometry(nsRect* aRect)
   return frame;
 }
 
-void nsCaret::PaintCaret(nsDisplayListBuilder *aBuilder,
-                         DrawTarget& aDrawTarget,
+void nsCaret::PaintCaret(DrawTarget& aDrawTarget,
                          nsIFrame* aForFrame,
                          const nsPoint &aOffset)
 {
@@ -698,8 +670,9 @@ nsCaret::GetCaretFrameForNodeOffset(nsFrameSelection*    aFrameSelection,
   if (theFrame->PresContext()->BidiEnabled())
   {
     // If there has been a reflow, take the caret Bidi level to be the level of the current frame
-    if (aBidiLevel & BIDI_LEVEL_UNDEFINED)
-      aBidiLevel = NS_GET_EMBEDDING_LEVEL(theFrame);
+    if (aBidiLevel & BIDI_LEVEL_UNDEFINED) {
+      aBidiLevel = nsBidi::GetEmbeddingLevel(theFrame);
+    }
 
     int32_t start;
     int32_t end;
@@ -746,7 +719,7 @@ nsCaret::GetCaretFrameForNodeOffset(nsFrameSelection*    aFrameSelection,
                 // so we stay with the current frame.
                 // Exception: when the first frame on the line has a different Bidi level from the paragraph level, there is no
                 // real frame for the caret to be in. We have to find the visually first frame on the line.
-                nsBidiLevel baseLevel = NS_GET_BASE_LEVEL(frameAfter);
+                nsBidiLevel baseLevel = nsBidi::GetBaseLevel(frameAfter);
                 if (baseLevel != levelAfter)
                 {
                   nsPeekOffsetStruct pos(eSelectBeginLine, eDirPrevious, 0,
@@ -781,7 +754,7 @@ nsCaret::GetCaretFrameForNodeOffset(nsFrameSelection*    aFrameSelection,
                 // so we stay with the current frame.
                 // Exception: when the last frame on the line has a different Bidi level from the paragraph level, there is no
                 // real frame for the caret to be in. We have to find the visually last frame on the line.
-                nsBidiLevel baseLevel = NS_GET_BASE_LEVEL(frameBefore);
+                nsBidiLevel baseLevel = nsBidi::GetBaseLevel(frameBefore);
                 if (baseLevel != levelBefore)
                 {
                   nsPeekOffsetStruct pos(eSelectEndLine, eDirNext, 0,
@@ -802,7 +775,7 @@ nsCaret::GetCaretFrameForNodeOffset(nsFrameSelection*    aFrameSelection,
             if (NS_SUCCEEDED(aFrameSelection->GetFrameFromLevel(frameAfter, eDirNext, aBidiLevel, &theFrame)))
             {
               theFrame->GetOffsets(start, end);
-              levelAfter = NS_GET_EMBEDDING_LEVEL(theFrame);
+              levelAfter = nsBidi::GetEmbeddingLevel(theFrame);
               if (IS_LEVEL_RTL(aBidiLevel)) // c8: caret to the right of the rightmost character
                 theFrameOffset = IS_LEVEL_RTL(levelAfter) ? start : end;
               else               // c7: caret to the left of the leftmost character
@@ -816,7 +789,7 @@ nsCaret::GetCaretFrameForNodeOffset(nsFrameSelection*    aFrameSelection,
             if (NS_SUCCEEDED(aFrameSelection->GetFrameFromLevel(frameBefore, eDirPrevious, aBidiLevel, &theFrame)))
             {
               theFrame->GetOffsets(start, end);
-              levelBefore = NS_GET_EMBEDDING_LEVEL(theFrame);
+              levelBefore = nsBidi::GetEmbeddingLevel(theFrame);
               if (IS_LEVEL_RTL(aBidiLevel)) // c12: caret to the left of the leftmost character
                 theFrameOffset = IS_LEVEL_RTL(levelBefore) ? end : start;
               else               // c11: caret to the right of the rightmost character

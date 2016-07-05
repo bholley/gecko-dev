@@ -1,5 +1,7 @@
+/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
+/* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* Any copyright is dedicated to the Public Domain.
-   http://creativecommons.org/publicdomain/zero/1.0/ */
+ * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 /**
  * Tests that conditional breakpoint expressions survive disabled breakpoints.
@@ -8,83 +10,69 @@
 const TAB_URL = EXAMPLE_URL + "doc_conditional-breakpoints.html";
 
 function test() {
-  let gTab, gPanel, gDebugger;
-  let gSources, gBreakpoints, gLocation;
-
-  initDebugger(TAB_URL).then(([aTab,, aPanel]) => {
-    gTab = aTab;
-    gPanel = aPanel;
-    gDebugger = gPanel.panelWin;
-    gSources = gDebugger.DebuggerView.Sources;
-    gBreakpoints = gDebugger.DebuggerController.Breakpoints;
+  initDebugger().then(([aTab,, aPanel]) => {
+    const gTab = aTab;
+    const gPanel = aPanel;
+    const gDebugger = gPanel.panelWin;
+    const gSources = gDebugger.DebuggerView.Sources;
+    const queries = gDebugger.require("./content/queries");
+    const constants = gDebugger.require("./content/constants");
+    const actions = bindActionCreators(gPanel);
+    const getState = gDebugger.DebuggerController.getState;
 
     // This test forces conditional breakpoints to be evaluated on the
     // client-side
     var client = gPanel.target.client;
     client.mainRoot.traits.conditionalBreakpoints = false;
 
-    gLocation = { actor: gSources.selectedValue, line: 18 };
+    function waitForConditionUpdate() {
+      // This will close the popup and send another request to update
+      // the condition
+      gSources._hideConditionalPopup();
+      return waitForDispatch(gPanel, constants.SET_BREAKPOINT_CONDITION);
+    }
 
-    waitForSourceAndCaretAndScopes(gPanel, ".html", 17)
-      .then(addBreakpoint)
-      .then(setConditional)
-      .then(() => {
-        let finished = waitForDebuggerEvents(gPanel, gDebugger.EVENTS.BREAKPOINT_REMOVED);
-        toggleBreakpoint();
-        return finished;
-      })
-      .then(() => {
-        let finished = waitForDebuggerEvents(gPanel, gDebugger.EVENTS.BREAKPOINT_ADDED);
-        toggleBreakpoint();
-        return finished;
-      })
-      .then(testConditionalExpressionOnClient)
-      .then(() => {
-        let finished = waitForDebuggerEvents(gPanel, gDebugger.EVENTS.CONDITIONAL_BREAKPOINT_POPUP_SHOWING);
-        openConditionalPopup();
-        return finished;
-      })
-      .then(testConditionalExpressionInPopup)
-      .then(() => {
-        // Reset traits back to default value
-        client.mainRoot.traits.conditionalBreakpoints = true;
-      })
-      .then(() => resumeDebuggerThenCloseAndFinish(gPanel))
-      .then(null, aError => {
-        ok(false, "Got an error: " + aError.message + "\n" + aError.stack);
-      });
+    Task.spawn(function* () {
+      let onCaretUpdated = waitForCaretUpdated(gPanel, 17);
+      yield navigateActiveTabTo(gPanel,
+                                TAB_URL,
+                                gDebugger.EVENTS.SOURCE_SHOWN);
+      callInTab(gTab, "ermahgerd");
+      yield onCaretUpdated;
 
-    callInTab(gTab, "ermahgerd");
-  });
+      const location = { actor: gSources.selectedValue, line: 18 };
 
-  function addBreakpoint() {
-    return gPanel.addBreakpoint(gLocation);
-  }
+      yield actions.addBreakpoint(location, "hello");
+      yield actions.disableBreakpoint(location);
+      yield actions.addBreakpoint(location);
 
-  function setConditional(aClient) {
-    aClient.conditionalExpression = "hello";
-  }
+      const bp = queries.getBreakpoint(getState(), location);
+      is(bp.condition, "hello", "The conditional expression is correct.");
 
-  function toggleBreakpoint() {
-    EventUtils.sendMouseEvent({ type: "click" },
-      gDebugger.document.querySelector(".dbg-breakpoint-checkbox"),
-      gDebugger);
-  }
+      let finished = waitForDebuggerEvents(gPanel, gDebugger.EVENTS.CONDITIONAL_BREAKPOINT_POPUP_SHOWING);
+      EventUtils.sendMouseEvent({ type: "click" },
+                                gDebugger.document.querySelector(".dbg-breakpoint"),
+                                gDebugger);
+      yield finished;
 
-  function openConditionalPopup() {
-    EventUtils.sendMouseEvent({ type: "click" },
-      gDebugger.document.querySelector(".dbg-breakpoint"),
-      gDebugger);
-  }
+      const textbox = gDebugger.document.getElementById("conditional-breakpoint-panel-textbox");
+      is(textbox.value, "hello", "The expression is correct (2).");
 
-  function testConditionalExpressionOnClient() {
-    return gBreakpoints._getAdded(gLocation).then(aClient => {
-      is(aClient.conditionalExpression, "hello", "The expression is correct (1).");
+      yield waitForConditionUpdate();
+      yield actions.disableBreakpoint(location);
+      yield actions.setBreakpointCondition(location, "foo");
+      yield actions.addBreakpoint(location);
+
+      finished = waitForDebuggerEvents(gPanel, gDebugger.EVENTS.CONDITIONAL_BREAKPOINT_POPUP_SHOWING);
+      EventUtils.sendMouseEvent({ type: "click" },
+                                gDebugger.document.querySelector(".dbg-breakpoint"),
+                                gDebugger);
+      yield finished;
+      is(textbox.value, "foo", "The expression is correct (3).");
+
+      // Reset traits back to default value
+      client.mainRoot.traits.conditionalBreakpoints = true;
+      resumeDebuggerThenCloseAndFinish(gPanel);
     });
-  }
-
-  function testConditionalExpressionInPopup() {
-    let textbox = gDebugger.document.getElementById("conditional-breakpoint-panel-textbox");
-    is(textbox.value, "hello", "The expression is correct (2).")
-  }
+  });
 }

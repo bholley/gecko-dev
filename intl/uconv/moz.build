@@ -7,7 +7,6 @@
 TEST_DIRS += ['tests']
 
 XPIDL_SOURCES += [
-    'nsICurrentCharsetListener.idl',
     'nsIScriptableUConv.idl',
     'nsITextToSubURI.idl',
     'nsIUTF8ConverterService.idl',
@@ -167,3 +166,6 @@ LOCAL_INCLUDES += [
 ]
 
 FINAL_LIBRARY = 'xul'
+
+if CONFIG['GNU_CXX']:
+    CXXFLAGS += ['-Wno-error=shadow']

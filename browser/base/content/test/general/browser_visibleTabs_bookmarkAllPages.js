@@ -5,12 +5,6 @@
 function test() {
   waitForExplicitFinish();
 
-  // Ensure TabView has been initialized already. Otherwise it could
-  // activate at an unexpected time and show/hide tabs.
-  TabView._initFrame(runTest);
-}
-
-function runTest() {
   let tabOne = gBrowser.addTab("about:blank");
   let tabTwo = gBrowser.addTab("http://mochi.test:8888/");
   gBrowser.selectedTab = tabTwo;
@@ -26,7 +20,7 @@ function runTest() {
     let uris = PlacesCommandHook.uniqueCurrentPages;
     is(uris.length, 1, "Only one uri is returned");
 
-    is(uris[0].spec, tabTwo.linkedBrowser.currentURI.spec, "It's the correct URI");
+    is(uris[0].uri.spec, tabTwo.linkedBrowser.currentURI.spec, "It's the correct URI");
 
     gBrowser.removeTab(tabOne);
     gBrowser.removeTab(tabTwo);

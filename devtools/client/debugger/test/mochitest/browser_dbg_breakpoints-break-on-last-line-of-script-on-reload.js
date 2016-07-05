@@ -1,5 +1,7 @@
+/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
+/* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* Any copyright is dedicated to the Public Domain.
-   http://creativecommons.org/publicdomain/zero/1.0/ */
+ * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 /**
  * Bug 978019: Setting a breakpoint on the last line of a Debugger.Script and
@@ -15,12 +17,17 @@ function test() {
 
   let gPanel, gDebugger, gThreadClient, gEvents, gSources;
 
-  initDebugger(TAB_URL).then(([aTab,, aPanel]) => {
+  const options = {
+    source: CODE_URL,
+    line: 1
+  };
+  initDebugger(TAB_URL, options).then(([aTab,, aPanel]) => {
     gPanel = aPanel;
     gDebugger = gPanel.panelWin;
     gThreadClient = gDebugger.gThreadClient;
     gEvents = gDebugger.EVENTS;
     gSources = gDebugger.DebuggerView.Sources;
+    const actions = bindActionCreators(gPanel);
 
     Task.spawn(function* () {
       try {
@@ -38,17 +45,18 @@ function test() {
         is(paused.why.type, "debuggerStatement");
 
         // Set our breakpoints.
-        const [bp1, bp2, bp3] = yield promise.all([
-          setBreakpoint({
-            url: CODE_URL,
+        const sourceActor = getSourceActor(gSources, CODE_URL);
+        yield promise.all([
+          actions.addBreakpoint({
+            actor: sourceActor,
             line: 3
           }),
-          setBreakpoint({
-            url: CODE_URL,
+          actions.addBreakpoint({
+            actor: sourceActor,
             line: 4
           }),
-          setBreakpoint({
-            url: CODE_URL,
+          actions.addBreakpoint({
+            actor: sourceActor,
             line: 5
           })
         ]);
@@ -75,9 +83,9 @@ function test() {
 
         // Clean up the breakpoints.
         yield promise.all([
-          rdpInvoke(bp1, bp1.remove),
-          rdpInvoke(bp2, bp1.remove),
-          rdpInvoke(bp3, bp1.remove),
+          actions.removeBreakpoint({ actor: sourceActor, line: 3 }),
+          actions.removeBreakpoint({ actor: sourceActor, line: 4 }),
+          actions.removeBreakpoint({ actor: sourceActor, line: 5 })
         ]);
 
         yield resumeDebuggerThenCloseAndFinish(gPanel);

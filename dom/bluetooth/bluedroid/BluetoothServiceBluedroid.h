@@ -15,9 +15,12 @@
 
 BEGIN_BLUETOOTH_NAMESPACE
 
-class BluetoothServiceBluedroid : public BluetoothService
-                                , public BluetoothNotificationHandler
+class BluetoothServiceBluedroid
+  : public BluetoothService
+  , public BluetoothCoreNotificationHandler
+  , public BluetoothNotificationHandler
 {
+  class CancelBondResultHandler;
   class CleanupResultHandler;
   class DisableResultHandler;
   class DispatchReplyErrorResultHandler;
@@ -281,6 +284,15 @@ public:
   virtual void StopLeScanInternal(const BluetoothUuid& aScanUuid,
                                   BluetoothReplyRunnable* aRunnable);
 
+  virtual void StartAdvertisingInternal(
+    const BluetoothUuid& aAppUuid,
+    const BluetoothGattAdvertisingData& aAdvData,
+    BluetoothReplyRunnable* aRunnable) override;
+
+  virtual void StopAdvertisingInternal(
+    const BluetoothUuid& aAppUuid,
+    BluetoothReplyRunnable* aRunnable) override;
+
   virtual void
   ConnectGattClientInternal(const BluetoothUuid& aAppUuid,
                             const BluetoothAddress& aDeviceAddress,
@@ -349,6 +361,11 @@ public:
     const BluetoothGattId& aCharacteristicId,
     const BluetoothGattId& aDescriptorId,
     const nsTArray<uint8_t>& aValue,
+    BluetoothReplyRunnable* aRunnable) override;
+
+  virtual void
+  GattServerRegisterInternal(
+    const BluetoothUuid& aAppUuid,
     BluetoothReplyRunnable* aRunnable) override;
 
   virtual void
@@ -494,7 +511,7 @@ protected:
 
   // Adapter properties
   BluetoothAddress mBdAddress;
-  nsString mBdName;
+  BluetoothRemoteName mBdName;
   bool mEnabled;
   bool mDiscoverable;
   bool mDiscovering;
@@ -519,7 +536,7 @@ protected:
   nsTArray<GetDeviceRequest> mGetDeviceRequests;
 
   // <address, name> mapping table for remote devices
-  nsDataHashtable<BluetoothAddressHashKey, nsString> mDeviceNameMap;
+  nsDataHashtable<BluetoothAddressHashKey, BluetoothRemoteName> mDeviceNameMap;
 
   // Arrays for SDP operations
   nsTArray<GetRemoteServiceRecordRequest> mGetRemoteServiceRecordArray;

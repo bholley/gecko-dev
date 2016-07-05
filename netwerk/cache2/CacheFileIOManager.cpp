@@ -68,9 +68,10 @@ CacheFileHandle::DispatchRelease()
     return false;
   }
 
-  RefPtr<nsRunnableMethod<CacheFileHandle, MozExternalRefCountType, false> > event =
-    NS_NewNonOwningRunnableMethod(this, &CacheFileHandle::Release);
-  nsresult rv = ioTarget->Dispatch(event, nsIEventTarget::DISPATCH_NORMAL);
+  nsresult rv =
+    ioTarget->Dispatch(NewNonOwningRunnableMethod(this,
+						  &CacheFileHandle::Release),
+		       nsIEventTarget::DISPATCH_NORMAL);
   if (NS_FAILED(rv)) {
     return false;
   }
@@ -110,14 +111,15 @@ NS_INTERFACE_MAP_END_THREADSAFE
 
 CacheFileHandle::CacheFileHandle(const SHA1Sum::Hash *aHash, bool aPriority, PinningStatus aPinning)
   : mHash(aHash)
-  , mPriority(aPriority)
+  , mIsDoomed(false)
   , mClosed(false)
+  , mPriority(aPriority)
   , mSpecialFile(false)
   , mInvalid(false)
   , mFileExists(false)
-  , mPinning(aPinning)
   , mDoomWhenFoundPinned(false)
   , mDoomWhenFoundNonPinned(false)
+  , mPinning(aPinning)
   , mFileSize(-1)
   , mFD(nullptr)
 {
@@ -132,14 +134,15 @@ CacheFileHandle::CacheFileHandle(const SHA1Sum::Hash *aHash, bool aPriority, Pin
 
 CacheFileHandle::CacheFileHandle(const nsACString &aKey, bool aPriority, PinningStatus aPinning)
   : mHash(nullptr)
-  , mPriority(aPriority)
+  , mIsDoomed(false)
   , mClosed(false)
+  , mPriority(aPriority)
   , mSpecialFile(true)
   , mInvalid(false)
   , mFileExists(false)
-  , mPinning(aPinning)
   , mDoomWhenFoundPinned(false)
   , mDoomWhenFoundNonPinned(false)
+  , mPinning(aPinning)
   , mFileSize(-1)
   , mFD(nullptr)
   , mKey(aKey)
@@ -171,16 +174,19 @@ CacheFileHandle::Log()
   }
 
   if (mSpecialFile) {
-    LOG(("CacheFileHandle::Log() - special file [this=%p, isDoomed=%d, "
-         "priority=%d, closed=%d, invalid=%d, fileExists=%d, fileSize=%lld, "
-         "leafName=%s, key=%s]", this, int(mIsDoomed), mPriority, mClosed, mInvalid,
-         mFileExists, mFileSize, leafName.get(), mKey.get()));
+    LOG(("CacheFileHandle::Log() - special file [this=%p, "
+         "isDoomed=%d, priority=%d, closed=%d, invalid=%d, "
+         "pinning=%d, fileExists=%d, fileSize=%lld, leafName=%s, key=%s]",
+         this,
+         bool(mIsDoomed), bool(mPriority), bool(mClosed), bool(mInvalid),
+         mPinning, bool(mFileExists), mFileSize, leafName.get(), mKey.get()));
   } else {
-    LOG(("CacheFileHandle::Log() - entry file [this=%p, hash=%08x%08x%08x%08x"
-         "%08x, isDoomed=%d, priority=%d, closed=%d, invalid=%d, fileExists=%d,"
-         " fileSize=%lld, leafName=%s, key=%s]", this, LOGSHA1(mHash),
-         int(mIsDoomed), mPriority, mClosed, mInvalid, mFileExists, mFileSize,
-         leafName.get(), mKey.get()));
+    LOG(("CacheFileHandle::Log() - entry file [this=%p, hash=%08x%08x%08x%08x%08x, "
+         "isDoomed=%d, priority=%d, closed=%d, invalid=%d, "
+         "pinning=%d, fileExists=%d, fileSize=%lld, leafName=%s, key=%s]",
+         this, LOGSHA1(mHash),
+         bool(mIsDoomed), bool(mPriority), bool(mClosed), bool(mInvalid),
+         mPinning, bool(mFileExists), mFileSize, leafName.get(), mKey.get()));
   }
 }
 
@@ -320,7 +326,7 @@ CacheFileHandles::HandleHashKey::SizeOfExcludingThis(mozilla::MallocSizeOf mallo
   MOZ_ASSERT(CacheFileIOManager::IsOnIOThread());
 
   size_t n = 0;
-  n += mallocSizeOf(mHash);
+  n += mallocSizeOf(mHash.get());
   for (uint32_t i = 0; i < mHandles.Length(); ++i) {
     n += mHandles[i]->SizeOfIncludingThis(mallocSizeOf);
   }
@@ -531,11 +537,11 @@ CacheFileHandles::SizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const
 
 // Events
 
-class ShutdownEvent : public nsRunnable {
+class ShutdownEvent : public Runnable {
 public:
-  ShutdownEvent(mozilla::Mutex *aLock, mozilla::CondVar *aCondVar)
-    : mLock(aLock)
-    , mCondVar(aCondVar)
+  ShutdownEvent()
+    : mMonitor("ShutdownEvent.mMonitor")
+    , mNotified(false)
   {
     MOZ_COUNT_CTOR(ShutdownEvent);
   }
@@ -549,20 +555,35 @@ protected:
 public:
   NS_IMETHOD Run()
   {
-    MutexAutoLock lock(*mLock);
+    MonitorAutoLock mon(mMonitor);
 
     CacheFileIOManager::gInstance->ShutdownInternal();
 
-    mCondVar->Notify();
+    mNotified = true;
+    mon.Notify();
+
     return NS_OK;
   }
 
+  void PostAndWait()
+  {
+    MonitorAutoLock mon(mMonitor);
+
+    DebugOnly<nsresult> rv;
+    rv = CacheFileIOManager::gInstance->mIOThread->Dispatch(
+      this, CacheIOThread::CLOSE);
+    MOZ_ASSERT(NS_SUCCEEDED(rv));
+    while (!mNotified) {
+      mon.Wait();
+    }
+  }
+
 protected:
-  mozilla::Mutex   *mLock;
-  mozilla::CondVar *mCondVar;
+  mozilla::Monitor mMonitor;
+  bool             mNotified;
 };
 
-class OpenFileEvent : public nsRunnable {
+class OpenFileEvent : public Runnable {
 public:
   OpenFileEvent(const nsACString &aKey, uint32_t aFlags,
                 CacheFileIOListener *aCallback)
@@ -622,7 +643,7 @@ protected:
   nsCString                     mKey;
 };
 
-class ReadEvent : public nsRunnable {
+class ReadEvent : public Runnable {
 public:
   ReadEvent(CacheFileHandle *aHandle, int64_t aOffset, char *aBuf,
             int32_t aCount, CacheFileIOListener *aCallback)
@@ -646,7 +667,7 @@ public:
   {
     nsresult rv;
 
-    if (mHandle->IsClosed()) {
+    if (mHandle->IsClosed() || (mCallback && mCallback->IsKilled())) {
       rv = NS_ERROR_NOT_INITIALIZED;
     } else {
       rv = CacheFileIOManager::gInstance->ReadInternal(
@@ -665,7 +686,7 @@ protected:
   nsCOMPtr<CacheFileIOListener> mCallback;
 };
 
-class WriteEvent : public nsRunnable {
+class WriteEvent : public Runnable {
 public:
   WriteEvent(CacheFileHandle *aHandle, int64_t aOffset, const char *aBuf,
              int32_t aCount, bool aValidate, bool aTruncate,
@@ -696,8 +717,14 @@ public:
   {
     nsresult rv;
 
-    if (mHandle->IsClosed()) {
-      rv = NS_ERROR_NOT_INITIALIZED;
+    if (mHandle->IsClosed() || (mCallback && mCallback->IsKilled())) {
+      // We usually get here only after the internal shutdown
+      // (i.e. mShuttingDown == true).  Pretend write has succeeded
+      // to avoid any past-shutdown file dooming.
+      rv = (CacheObserver::IsPastShutdownIOLag() ||
+            CacheFileIOManager::gInstance->mShuttingDown)
+        ? NS_OK
+        : NS_ERROR_NOT_INITIALIZED;
     } else {
       rv = CacheFileIOManager::gInstance->WriteInternal(
           mHandle, mOffset, mBuf, mCount, mValidate, mTruncate);
@@ -726,7 +753,7 @@ protected:
   nsCOMPtr<CacheFileIOListener> mCallback;
 };
 
-class DoomFileEvent : public nsRunnable {
+class DoomFileEvent : public Runnable {
 public:
   DoomFileEvent(CacheFileHandle *aHandle,
                 CacheFileIOListener *aCallback)
@@ -766,7 +793,7 @@ protected:
   RefPtr<CacheFileHandle>                    mHandle;
 };
 
-class DoomFileByKeyEvent : public nsRunnable {
+class DoomFileByKeyEvent : public Runnable {
 public:
   DoomFileByKeyEvent(const nsACString &aKey,
                      CacheFileIOListener *aCallback)
@@ -812,7 +839,7 @@ protected:
   RefPtr<CacheFileIOManager>    mIOMan;
 };
 
-class ReleaseNSPRHandleEvent : public nsRunnable {
+class ReleaseNSPRHandleEvent : public Runnable {
 public:
   explicit ReleaseNSPRHandleEvent(CacheFileHandle *aHandle)
     : mHandle(aHandle)
@@ -829,8 +856,8 @@ protected:
 public:
   NS_IMETHOD Run()
   {
-    if (mHandle->mFD && !mHandle->IsClosed()) {
-      CacheFileIOManager::gInstance->ReleaseNSPRHandleInternal(mHandle);
+    if (!mHandle->IsClosed()) {
+      CacheFileIOManager::gInstance->MaybeReleaseNSPRHandleInternal(mHandle);
     }
 
     return NS_OK;
@@ -840,7 +867,7 @@ protected:
   RefPtr<CacheFileHandle>       mHandle;
 };
 
-class TruncateSeekSetEOFEvent : public nsRunnable {
+class TruncateSeekSetEOFEvent : public Runnable {
 public:
   TruncateSeekSetEOFEvent(CacheFileHandle *aHandle, int64_t aTruncatePos,
                           int64_t aEOFPos, CacheFileIOListener *aCallback)
@@ -863,7 +890,7 @@ public:
   {
     nsresult rv;
 
-    if (mHandle->IsClosed()) {
+    if (mHandle->IsClosed() || (mCallback && mCallback->IsKilled())) {
       rv = NS_ERROR_NOT_INITIALIZED;
     } else {
       rv = CacheFileIOManager::gInstance->TruncateSeekSetEOFInternal(
@@ -884,7 +911,7 @@ protected:
   nsCOMPtr<CacheFileIOListener> mCallback;
 };
 
-class RenameFileEvent : public nsRunnable {
+class RenameFileEvent : public Runnable {
 public:
   RenameFileEvent(CacheFileHandle *aHandle, const nsACString &aNewName,
                   CacheFileIOListener *aCallback)
@@ -926,14 +953,14 @@ protected:
   nsCOMPtr<CacheFileIOListener> mCallback;
 };
 
-class InitIndexEntryEvent : public nsRunnable {
+class InitIndexEntryEvent : public Runnable {
 public:
   InitIndexEntryEvent(CacheFileHandle *aHandle, uint32_t aAppId,
-                      bool aAnonymous, bool aInBrowser, bool aPinning)
+                      bool aAnonymous, bool aInIsolatedMozBrowser, bool aPinning)
     : mHandle(aHandle)
     , mAppId(aAppId)
     , mAnonymous(aAnonymous)
-    , mInBrowser(aInBrowser)
+    , mInIsolatedMozBrowser(aInIsolatedMozBrowser)
     , mPinning(aPinning)
   {
     MOZ_COUNT_CTOR(InitIndexEntryEvent);
@@ -952,7 +979,7 @@ public:
       return NS_OK;
     }
 
-    CacheIndex::InitEntry(mHandle->Hash(), mAppId, mAnonymous, mInBrowser, mPinning);
+    CacheIndex::InitEntry(mHandle->Hash(), mAppId, mAnonymous, mInIsolatedMozBrowser, mPinning);
 
     // We cannot set the filesize before we init the entry. If we're opening
     // an existing entry file, frecency and expiration time will be set after
@@ -968,11 +995,11 @@ protected:
   RefPtr<CacheFileHandle> mHandle;
   uint32_t                  mAppId;
   bool                      mAnonymous;
-  bool                      mInBrowser;
+  bool                      mInIsolatedMozBrowser;
   bool                      mPinning;
 };
 
-class UpdateIndexEntryEvent : public nsRunnable {
+class UpdateIndexEntryEvent : public Runnable {
 public:
   UpdateIndexEntryEvent(CacheFileHandle *aHandle, const uint32_t *aFrecency,
                         const uint32_t *aExpirationTime)
@@ -1019,7 +1046,7 @@ protected:
   uint32_t                  mExpirationTime;
 };
 
-class MetadataWriteScheduleEvent : public nsRunnable
+class MetadataWriteScheduleEvent : public Runnable
 {
 public:
   enum EMode {
@@ -1141,17 +1168,8 @@ CacheFileIOManager::Shutdown()
 
   ShutdownMetadataWriteScheduling();
 
-  {
-    mozilla::Mutex lock("CacheFileIOManager::Shutdown() lock");
-    mozilla::CondVar condVar(lock, "CacheFileIOManager::Shutdown() condVar");
-
-    MutexAutoLock autoLock(lock);
-    RefPtr<ShutdownEvent> ev = new ShutdownEvent(&lock, &condVar);
-    DebugOnly<nsresult> rv;
-    rv = gInstance->mIOThread->Dispatch(ev, CacheIOThread::CLOSE);
-    MOZ_ASSERT(NS_SUCCEEDED(rv));
-    condVar.Wait();
-  }
+  RefPtr<ShutdownEvent> ev = new ShutdownEvent();
+  ev->PostAndWait();
 
   MOZ_ASSERT(gInstance->mHandles.HandleCount() == 0);
   MOZ_ASSERT(gInstance->mHandlesByLastUsed.Length() == 0);
@@ -1194,19 +1212,16 @@ CacheFileIOManager::ShutdownInternal()
 
     h->Log();
 
-    // Close file handle
-    if (h->mFD) {
-      ReleaseNSPRHandleInternal(h);
-    }
+    // Close completely written files.
+    MaybeReleaseNSPRHandleInternal(h);
+    // Don't bother removing invalid and/or doomed files to improve
+    // shutdown perfomrance.
+    // Doomed files are already in the doomed directory from which
+    // we never reuse files and delete the dir on next session startup.
+    // Invalid files don't have metadata and thus won't load anyway
+    // (hashes won't match).
 
-    // Remove file if entry is doomed or invalid
-    if (h->mFileExists && (h->mIsDoomed || h->mInvalid)) {
-      LOG(("CacheFileIOManager::ShutdownInternal() - Removing file from disk"));
-      h->mFile->Remove(false);
-    }
-
-    if (!h->IsSpecialFile() && !h->mIsDoomed &&
-        (h->mInvalid || !h->mFileExists)) {
+    if (!h->IsSpecialFile() && !h->mIsDoomed && !h->mFileExists) {
       CacheIndex::RemoveEntry(h->Hash());
     }
 
@@ -1226,8 +1241,8 @@ CacheFileIOManager::ShutdownInternal()
   }
 
   // Assert the table is empty. When we are here, no new handles can be added
-  // and handles will no longer remove them self from this table and we don't 
-  // want to keep invalid handles here. Also, there is no lookup after this 
+  // and handles will no longer remove them self from this table and we don't
+  // want to keep invalid handles here. Also, there is no lookup after this
   // point to happen.
   MOZ_ASSERT(mHandles.HandleCount() == 0);
 
@@ -1756,6 +1771,8 @@ CacheFileIOManager::OpenSpecialFileInternal(const nsACString &aKey,
 nsresult
 CacheFileIOManager::CloseHandleInternal(CacheFileHandle *aHandle)
 {
+  nsresult rv;
+
   LOG(("CacheFileIOManager::CloseHandleInternal() [handle=%p]", aHandle));
 
   MOZ_ASSERT(!aHandle->IsClosed());
@@ -1764,13 +1781,12 @@ CacheFileIOManager::CloseHandleInternal(CacheFileHandle *aHandle)
 
   MOZ_ASSERT(CacheFileIOManager::IsOnIOThreadOrCeased());
 
-  // Close file handle
-  if (aHandle->mFD) {
-    ReleaseNSPRHandleInternal(aHandle);
-  }
+  // Maybe close file handle (can be legally bypassed after shutdown)
+  rv = MaybeReleaseNSPRHandleInternal(aHandle);
 
-  // Delete the file if the entry was doomed or invalid
-  if (aHandle->mIsDoomed || aHandle->mInvalid) {
+  // Delete the file if the entry was doomed or invalid and
+  // filedesc properly closed
+  if ((aHandle->mIsDoomed || aHandle->mInvalid) && NS_SUCCEEDED(rv)) {
     LOG(("CacheFileIOManager::CloseHandleInternal() - Removing file from "
          "disk"));
     aHandle->mFile->Remove(false);
@@ -1802,6 +1818,11 @@ CacheFileIOManager::Read(CacheFileHandle *aHandle, int64_t aOffset,
   LOG(("CacheFileIOManager::Read() [handle=%p, offset=%lld, count=%d, "
        "listener=%p]", aHandle, aOffset, aCount, aCallback));
 
+  if (CacheObserver::ShuttingDown()) {
+    LOG(("  no reads after shutdown"));
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
   nsresult rv;
   RefPtr<CacheFileIOManager> ioMan = gInstance;
 
@@ -1827,6 +1848,11 @@ CacheFileIOManager::ReadInternal(CacheFileHandle *aHandle, int64_t aOffset,
        aHandle, aOffset, aCount));
 
   nsresult rv;
+
+  if (CacheObserver::ShuttingDown()) {
+    LOG(("  no reads after shutdown"));
+    return NS_ERROR_NOT_INITIALIZED;
+  }
 
   if (!aHandle->mFileExists) {
     NS_WARNING("Trying to read from non-existent file");
@@ -1872,7 +1898,7 @@ CacheFileIOManager::Write(CacheFileHandle *aHandle, int64_t aOffset,
   nsresult rv;
   RefPtr<CacheFileIOManager> ioMan = gInstance;
 
-  if (aHandle->IsClosed() || !ioMan) {
+  if (aHandle->IsClosed() || (aCallback && aCallback->IsKilled()) || !ioMan) {
     if (!aCallback) {
       // When no callback is provided, CacheFileIOManager is responsible for
       // releasing the buffer. We must release it even in case of failure.
@@ -1924,6 +1950,13 @@ CacheFileIOManager::WriteInternal(CacheFileHandle *aHandle, int64_t aOffset,
        aTruncate));
 
   nsresult rv;
+
+  if (CacheObserver::IsPastShutdownIOLag()) {
+    LOG(("  past the shutdown I/O lag, nothing written"));
+    // Pretend the write has succeeded, otherwise upper layers will doom
+    // the file and we end up with I/O anyway.
+    return NS_OK;
+  }
 
   if (!aHandle->mFileExists) {
     rv = CreateFile(aHandle);
@@ -2081,9 +2114,8 @@ CacheFileIOManager::DoomFileInternal(CacheFileHandle *aHandle,
 
   if (aHandle->mFileExists) {
     // we need to move the current file to the doomed directory
-    if (aHandle->mFD) {
-      ReleaseNSPRHandleInternal(aHandle);
-    }
+    rv = MaybeReleaseNSPRHandleInternal(aHandle, true);
+    NS_ENSURE_SUCCESS(rv, rv);
 
     // find unused filename
     nsCOMPtr<nsIFile> file;
@@ -2229,19 +2261,51 @@ CacheFileIOManager::ReleaseNSPRHandle(CacheFileHandle *aHandle)
 }
 
 nsresult
-CacheFileIOManager::ReleaseNSPRHandleInternal(CacheFileHandle *aHandle)
+CacheFileIOManager::MaybeReleaseNSPRHandleInternal(CacheFileHandle *aHandle,
+                                                   bool aIgnoreShutdownLag)
 {
-  LOG(("CacheFileIOManager::ReleaseNSPRHandleInternal() [handle=%p]", aHandle));
+  LOG(("CacheFileIOManager::MaybeReleaseNSPRHandleInternal() [handle=%p]", aHandle));
 
   MOZ_ASSERT(CacheFileIOManager::IsOnIOThreadOrCeased());
-  MOZ_ASSERT(aHandle->mFD);
 
-  DebugOnly<bool> found;
-  found = mHandlesByLastUsed.RemoveElement(aHandle);
-  MOZ_ASSERT(found);
+  if (aHandle->mFD) {
+    DebugOnly<bool> found;
+    found = mHandlesByLastUsed.RemoveElement(aHandle);
+    MOZ_ASSERT(found);
+  }
 
-  PR_Close(aHandle->mFD);
+  PRFileDesc *fd = aHandle->mFD;
   aHandle->mFD = nullptr;
+
+  // Leak invalid (w/o metadata) and doomed handles immediately after shutdown.
+  // Leak other handles when past the shutdown time maximum lag.
+  if (
+#ifndef DEBUG
+      ((aHandle->mInvalid || aHandle->mIsDoomed) &&
+      MOZ_UNLIKELY(CacheObserver::ShuttingDown())) ||
+#endif
+      MOZ_UNLIKELY(!aIgnoreShutdownLag &&
+                   CacheObserver::IsPastShutdownIOLag())) {
+    // Don't bother closing this file.  Return a failure code from here will
+    // cause any following IO operation on the file (mainly removal) to be
+    // bypassed, which is what we want.
+    // For mInvalid == true the entry will never be used, since it doesn't
+    // have correct metadata, thus we don't need to worry about removing it.
+    // For mIsDoomed == true the file is already in the doomed sub-dir and
+    // will be removed on next session start.
+    LOG(("  past the shutdown I/O lag, leaking file handle"));
+    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
+  }
+
+  if (!fd) {
+    // The filedesc has already been closed before, just let go.
+    return NS_OK;
+  }
+
+  PRStatus status = PR_Close(fd);
+  if (status != PR_SUCCESS) {
+    return NS_ERROR_FAILURE;
+  }
 
   return NS_OK;
 }
@@ -2258,7 +2322,7 @@ CacheFileIOManager::TruncateSeekSetEOF(CacheFileHandle *aHandle,
   nsresult rv;
   RefPtr<CacheFileIOManager> ioMan = gInstance;
 
-  if (aHandle->IsClosed() || !ioMan) {
+  if (aHandle->IsClosed() || (aCallback && aCallback->IsKilled()) || !ioMan) {
     return NS_ERROR_NOT_INITIALIZED;
   }
 
@@ -2537,9 +2601,8 @@ CacheFileIOManager::RenameFileInternal(CacheFileHandle *aHandle,
     return NS_OK;
   }
 
-  if (aHandle->mFD) {
-    ReleaseNSPRHandleInternal(aHandle);
-  }
+  rv = MaybeReleaseNSPRHandleInternal(aHandle, true);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   rv = aHandle->mFile->MoveToNative(nullptr, aNewName);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2562,8 +2625,8 @@ CacheFileIOManager::EvictIfOverLimit()
   }
 
   nsCOMPtr<nsIRunnable> ev;
-  ev = NS_NewRunnableMethod(ioMan,
-                            &CacheFileIOManager::EvictIfOverLimitInternal);
+  ev = NewRunnableMethod(ioMan,
+			 &CacheFileIOManager::EvictIfOverLimitInternal);
 
   rv = ioMan->mIOThread->Dispatch(ev, CacheIOThread::EVICT);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2623,8 +2686,8 @@ CacheFileIOManager::EvictIfOverLimitInternal()
        cacheUsage, cacheLimit));
 
   nsCOMPtr<nsIRunnable> ev;
-  ev = NS_NewRunnableMethod(this,
-                            &CacheFileIOManager::OverLimitEvictionInternal);
+  ev = NewRunnableMethod(this,
+			 &CacheFileIOManager::OverLimitEvictionInternal);
 
   rv = mIOThread->Dispatch(ev, CacheIOThread::EVICT);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2763,7 +2826,7 @@ CacheFileIOManager::EvictAll()
   }
 
   nsCOMPtr<nsIRunnable> ev;
-  ev = NS_NewRunnableMethod(ioMan, &CacheFileIOManager::EvictAllInternal);
+  ev = NewRunnableMethod(ioMan, &CacheFileIOManager::EvictAllInternal);
 
   rv = ioMan->mIOThread->DispatchAfterPendingOpens(ev);
   if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -2775,7 +2838,7 @@ CacheFileIOManager::EvictAll()
 
 namespace {
 
-class EvictionNotifierRunnable : public nsRunnable
+class EvictionNotifierRunnable : public Runnable
 {
 public:
   NS_DECL_NSIRUNNABLE
@@ -2881,7 +2944,7 @@ CacheFileIOManager::EvictByContext(nsILoadContextInfo *aLoadContextInfo, bool aP
   }
 
   nsCOMPtr<nsIRunnable> ev;
-  ev = NS_NewRunnableMethodWithArgs<nsCOMPtr<nsILoadContextInfo>, bool>
+  ev = NewRunnableMethod<nsCOMPtr<nsILoadContextInfo>, bool>
          (ioMan, &CacheFileIOManager::EvictByContextInternal, aLoadContextInfo, aPinned);
 
   rv = ioMan->mIOThread->DispatchAfterPendingOpens(ev);
@@ -3000,7 +3063,7 @@ CacheFileIOManager::CacheIndexStateChanged()
   // We have to re-distatch even if we are on IO thread to prevent reentering
   // the lock in CacheIndex
   nsCOMPtr<nsIRunnable> ev;
-  ev = NS_NewRunnableMethod(
+  ev = NewRunnableMethod(
     gInstance, &CacheFileIOManager::CacheIndexStateChangedInternal);
 
   nsCOMPtr<nsIEventTarget> ioTarget = IOTarget();
@@ -3076,8 +3139,9 @@ CacheFileIOManager::TrashDirectory(nsIFile *aFile)
   rv = aFile->Clone(getter_AddRefs(trash));
   NS_ENSURE_SUCCESS(rv, rv);
 
+  const int32_t kMaxTries = 16;
   srand(static_cast<unsigned>(PR_Now()));
-  while (true) {
+  for (int32_t triesCount = 0; ; ++triesCount) {
     leaf = TRASH_DIR;
     leaf.AppendInt(rand());
     rv = trash->SetNativeLeafName(leaf);
@@ -3086,6 +3150,15 @@ CacheFileIOManager::TrashDirectory(nsIFile *aFile)
     bool exists;
     if (NS_SUCCEEDED(trash->Exists(&exists)) && !exists) {
       break;
+    }
+
+    LOG(("CacheFileIOManager::TrashDirectory() - Trash directory already "
+         "exists [leaf=%s]", leaf.get()));
+
+    if (triesCount == kMaxTries) {
+      LOG(("CacheFileIOManager::TrashDirectory() - Could not find unused trash "
+           "directory in %d tries.", kMaxTries));
+      return NS_ERROR_FAILURE;
     }
   }
 
@@ -3165,8 +3238,8 @@ CacheFileIOManager::StartRemovingTrash()
   }
 
   nsCOMPtr<nsIRunnable> ev;
-  ev = NS_NewRunnableMethod(this,
-                            &CacheFileIOManager::RemoveTrashInternal);
+  ev = NewRunnableMethod(this,
+			 &CacheFileIOManager::RemoveTrashInternal);
 
   rv = mIOThread->Dispatch(ev, CacheIOThread::EVICT);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -3352,11 +3425,12 @@ nsresult
 CacheFileIOManager::InitIndexEntry(CacheFileHandle *aHandle,
                                    uint32_t         aAppId,
                                    bool             aAnonymous,
-                                   bool             aInBrowser,
+                                   bool             aInIsolatedMozBrowser,
                                    bool             aPinning)
 {
   LOG(("CacheFileIOManager::InitIndexEntry() [handle=%p, appId=%u, anonymous=%d"
-       ", inBrowser=%d, pinned=%d]", aHandle, aAppId, aAnonymous, aInBrowser, aPinning));
+       ", inIsolatedMozBrowser=%d, pinned=%d]", aHandle, aAppId, aAnonymous,
+       aInIsolatedMozBrowser, aPinning));
 
   nsresult rv;
   RefPtr<CacheFileIOManager> ioMan = gInstance;
@@ -3370,7 +3444,7 @@ CacheFileIOManager::InitIndexEntry(CacheFileHandle *aHandle,
   }
 
   RefPtr<InitIndexEntryEvent> ev =
-    new InitIndexEntryEvent(aHandle, aAppId, aAnonymous, aInBrowser, aPinning);
+    new InitIndexEntryEvent(aHandle, aAppId, aAnonymous, aInIsolatedMozBrowser, aPinning);
   rv = ioMan->mIOThread->Dispatch(ev, CacheIOThread::WRITE);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -3610,10 +3684,10 @@ CacheFileIOManager::CheckAndCreateDir(nsIFile *aFile, const char *aDir,
     NS_ENSURE_SUCCESS(rv, rv);
 
     if (!isEmpty) {
-      rv = TrashDirectory(file);
-      NS_ENSURE_SUCCESS(rv, rv);
-
-      exists = false;
+      // Don't check the result, if this fails, it's OK.  We do this
+      // only for the doomed directory that doesn't need to be deleted
+      // for the cost of completely disabling the whole browser.
+      TrashDirectory(file);
     }
   }
 
@@ -3720,6 +3794,8 @@ CacheFileIOManager::CreateCacheTree()
 nsresult
 CacheFileIOManager::OpenNSPRHandle(CacheFileHandle *aHandle, bool aCreate)
 {
+  LOG(("CacheFileIOManager::OpenNSPRHandle BEGIN, handle=%p", aHandle));
+
   MOZ_ASSERT(CacheFileIOManager::IsOnIOThreadOrCeased());
   MOZ_ASSERT(!aHandle->mFD);
   MOZ_ASSERT(mHandlesByLastUsed.IndexOf(aHandle) == mHandlesByLastUsed.NoIndex);
@@ -3731,7 +3807,7 @@ CacheFileIOManager::OpenNSPRHandle(CacheFileHandle *aHandle, bool aCreate)
 
   if (mHandlesByLastUsed.Length() == kOpenHandlesLimit) {
     // close handle that hasn't been used for the longest time
-    rv = ReleaseNSPRHandleInternal(mHandlesByLastUsed[0]);
+    rv = MaybeReleaseNSPRHandleInternal(mHandlesByLastUsed[0], true);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -3789,6 +3865,9 @@ CacheFileIOManager::OpenNSPRHandle(CacheFileHandle *aHandle, bool aCreate)
   }
 
   mHandlesByLastUsed.AppendElement(aHandle);
+
+  LOG(("CacheFileIOManager::OpenNSPRHandle END, handle=%p", aHandle));
+
   return NS_OK;
 }
 
@@ -3989,7 +4068,7 @@ namespace {
 // to safely get handles memory report.
 // We must do this, since the handle list is only accessed and managed w/o
 // locking on the I/O thread.  That is by design.
-class SizeOfHandlesRunnable : public nsRunnable
+class SizeOfHandlesRunnable : public Runnable
 {
 public:
   SizeOfHandlesRunnable(mozilla::MallocSizeOf mallocSizeOf,
@@ -4011,13 +4090,16 @@ public:
     }
 
     mozilla::MonitorAutoLock mon(mMonitor);
+    mMonitorNotified = false;
     nsresult rv = target->Dispatch(this, nsIEventTarget::DISPATCH_NORMAL);
     if (NS_FAILED(rv)) {
       NS_ERROR("Dispatch failed, cannot do memory report of CacheFileHandles");
       return 0;
     }
 
-    mon.Wait();
+    while (!mMonitorNotified) {
+      mon.Wait();
+    }
     return mSize;
   }
 
@@ -4031,12 +4113,14 @@ public:
       mSize += mSpecialHandles[i]->SizeOfIncludingThis(mMallocSizeOf);
     }
 
+    mMonitorNotified = true;
     mon.Notify();
     return NS_OK;
   }
 
 private:
   mozilla::Monitor mMonitor;
+  bool mMonitorNotified;
   mozilla::MallocSizeOf mMallocSizeOf;
   CacheFileHandles const &mHandles;
   nsTArray<CacheFileHandle *> const &mSpecialHandles;

@@ -23,15 +23,18 @@ public:
   CreateVideoDecoder(const VideoInfo& aConfig,
                      layers::LayersBackend aLayersBackend,
                      layers::ImageContainer* aImageContainer,
-                     FlushableTaskQueue* aVideoTaskQueue,
-                     MediaDataDecoderCallback* aCallback) override;
+                     TaskQueue* aTaskQueue,
+                     MediaDataDecoderCallback* aCallback,
+                     DecoderDoctorDiagnostics* aDiagnostics) override;
 
   already_AddRefed<MediaDataDecoder>
   CreateAudioDecoder(const AudioInfo& aConfig,
-                     FlushableTaskQueue* aAudioTaskQueue,
-                     MediaDataDecoderCallback* aCallback) override;
+                     TaskQueue* aTaskQueue,
+                     MediaDataDecoderCallback* aCallback,
+                     DecoderDoctorDiagnostics* aDiagnostics) override;
 
-  bool SupportsMimeType(const nsACString& aMimeType) override;
+  bool SupportsMimeType(const nsACString& aMimeType,
+                        DecoderDoctorDiagnostics* aDiagnostics) const override;
 
   ConversionRequired
   DecoderNeedsConversion(const TrackInfo& aConfig) const override;
@@ -41,7 +44,15 @@ public:
 
   // Called from any thread, must call init first
   static int GetNumDecoderThreads();
-  static bool LowLatencyMFTEnabled();
+
+  // Accessors that report whether we have the required MFTs available
+  // on the system to play various codecs. Windows Vista doesn't have the
+  // H.264/AAC decoders if the "Platform Update Supplement for Windows Vista"
+  // is not installed, and Window N and KN variants also require a "Media
+  // Feature Pack" to be installed. Windows XP doesn't have WMF.
+  static bool HasAAC();
+  static bool HasH264();
+
 private:
   bool mWMFInitialized;
 };

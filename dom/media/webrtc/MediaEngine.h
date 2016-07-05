@@ -58,6 +58,10 @@ public:
 #else
   static const int DEFAULT_SAMPLE_RATE = 16000;
 #endif
+  // This allows using whatever rate the graph is using for the
+  // MediaStreamTrack. This is useful for microphone data, we know it's already
+  // at the correct rate for insertion in the MSG.
+  static const int USE_GRAPH_RATE = -1;
 
   /* Populate an array of video sources in the nsTArray. Also include devices
    * that are currently unavailable. */
@@ -73,6 +77,25 @@ public:
 
 protected:
   virtual ~MediaEngine() {}
+};
+
+/**
+ * Callback interface for TakePhoto(). Either PhotoComplete() or PhotoError()
+ * should be called.
+ */
+class MediaEnginePhotoCallback {
+public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(MediaEnginePhotoCallback)
+
+  // aBlob is the image captured by MediaEngineSource. It is
+  // called on main thread.
+  virtual nsresult PhotoComplete(already_AddRefed<dom::Blob> aBlob) = 0;
+
+  // It is called on main thread. aRv is the error code.
+  virtual nsresult PhotoError(nsresult aRv) = 0;
+
+protected:
+  virtual ~MediaEnginePhotoCallback() {}
 };
 
 /**
@@ -102,7 +125,7 @@ public:
   /* Start the device and add the track to the provided SourceMediaStream, with
    * the provided TrackID. You may start appending data to the track
    * immediately after. */
-  virtual nsresult Start(SourceMediaStream*, TrackID) = 0;
+  virtual nsresult Start(SourceMediaStream*, TrackID, const PrincipalHandle&) = 0;
 
   /* tell the source if there are any direct listeners attached */
   virtual void SetDirectListeners(bool) = 0;
@@ -111,7 +134,8 @@ public:
   virtual void NotifyPull(MediaStreamGraph* aGraph,
                           SourceMediaStream *aSource,
                           TrackID aId,
-                          StreamTime aDesiredTime) = 0;
+                          StreamTime aDesiredTime,
+                          const PrincipalHandle& aPrincipalHandle) = 0;
 
   /* Stop the device and release the corresponding MediaStream */
   virtual nsresult Stop(SourceMediaStream *aSource, TrackID aID) = 0;
@@ -121,42 +145,19 @@ public:
                            const MediaEnginePrefs &aPrefs,
                            const nsString& aDeviceId) = 0;
 
-  /* Change device configuration.  */
-  virtual nsresult Config(bool aEchoOn, uint32_t aEcho,
-                          bool aAgcOn, uint32_t aAGC,
-                          bool aNoiseOn, uint32_t aNoise,
-                          int32_t aPlayoutDelay) = 0;
-
   /* Returns true if a source represents a fake capture device and
    * false otherwise
    */
   virtual bool IsFake() = 0;
 
   /* Returns the type of media source (camera, microphone, screen, window, etc) */
-  virtual const dom::MediaSourceEnum GetMediaSource() = 0;
-
-  // Callback interface for TakePhoto(). Either PhotoComplete() or PhotoError()
-  // should be called.
-  class PhotoCallback {
-  public:
-    NS_INLINE_DECL_THREADSAFE_REFCOUNTING(PhotoCallback)
-
-    // aBlob is the image captured by MediaEngineSource. It is
-    // called on main thread.
-    virtual nsresult PhotoComplete(already_AddRefed<dom::Blob> aBlob) = 0;
-
-    // It is called on main thread. aRv is the error code.
-    virtual nsresult PhotoError(nsresult aRv) = 0;
-
-  protected:
-    virtual ~PhotoCallback() {}
-  };
+  virtual dom::MediaSourceEnum GetMediaSource() const = 0;
 
   /* If implementation of MediaEngineSource supports TakePhoto(), the picture
    * should be return via aCallback object. Otherwise, it returns NS_ERROR_NOT_IMPLEMENTED.
    * Currently, only Gonk MediaEngineSource implementation supports it.
    */
-  virtual nsresult TakePhoto(PhotoCallback* aCallback) = 0;
+  virtual nsresult TakePhoto(MediaEnginePhotoCallback* aCallback) = 0;
 
   /* Return false if device is currently allocated or started */
   bool IsAvailable() {
@@ -177,7 +178,8 @@ public:
   /* This call reserves but does not start the device. */
   virtual nsresult Allocate(const dom::MediaTrackConstraints &aConstraints,
                             const MediaEnginePrefs &aPrefs,
-                            const nsString& aDeviceId) = 0;
+                            const nsString& aDeviceId,
+                            const nsACString& aOrigin) = 0;
 
   virtual uint32_t GetBestFitnessDistance(
       const nsTArray<const dom::MediaTrackConstraintSet*>& aConstraintSets,
@@ -210,11 +212,39 @@ protected:
  */
 class MediaEnginePrefs {
 public:
+  MediaEnginePrefs()
+    : mWidth(0)
+    , mHeight(0)
+    , mFPS(0)
+    , mMinFPS(0)
+    , mFreq(0)
+    , mAecOn(false)
+    , mAgcOn(false)
+    , mNoiseOn(false)
+    , mAec(0)
+    , mAgc(0)
+    , mNoise(0)
+    , mPlayoutDelay(0)
+    , mFullDuplex(false)
+    , mExtendedFilter(false)
+    , mDelayAgnostic(false)
+  {}
+
   int32_t mWidth;
   int32_t mHeight;
   int32_t mFPS;
   int32_t mMinFPS;
   int32_t mFreq; // for test tones (fake:true)
+  bool mAecOn;
+  bool mAgcOn;
+  bool mNoiseOn;
+  int32_t mAec;
+  int32_t mAgc;
+  int32_t mNoise;
+  int32_t mPlayoutDelay;
+  bool mFullDuplex;
+  bool mExtendedFilter;
+  bool mDelayAgnostic;
 
   // mWidth and/or mHeight may be zero (=adaptive default), so use functions.
 
@@ -266,7 +296,8 @@ protected:
 /**
  * Audio source and friends.
  */
-class MediaEngineAudioSource : public MediaEngineSource
+class MediaEngineAudioSource : public MediaEngineSource,
+                               public AudioDataListenerInterface
 {
 public:
   virtual ~MediaEngineAudioSource() {}

@@ -22,6 +22,7 @@
 #include "mozilla/Monitor.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/layers/GrallocTextureClient.h"
+#include "nsAutoPtr.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -51,12 +52,18 @@ enum BufferState
 bool
 OMXCodecReservation::ReserveOMXCodec()
 {
-  if (mClient) {
-    // Already tried reservation.
-    return false;
+  if (!mClient) {
+    mClient = new mozilla::MediaSystemResourceClient(mType);
+  } else {
+    if (mOwned) {
+      //CODEC_ERROR("OMX Reservation: (%d) already owned", (int) mType);
+      return true;
+    }
+    //CODEC_ERROR("OMX Reservation: (%d) already NOT owned", (int) mType);
   }
-  mClient = new mozilla::MediaSystemResourceClient(mType);
-  return mClient->AcquireSyncNoWait(); // don't wait if resrouce is not available
+  mOwned = mClient->AcquireSyncNoWait(); // don't wait if resource is not available
+  //CODEC_ERROR("OMX Reservation: (%d) Acquire was %s", (int) mType, mOwned ? "Successful" : "Failed");
+  return mOwned;
 }
 
 void
@@ -65,7 +72,12 @@ OMXCodecReservation::ReleaseOMXCodec()
   if (!mClient) {
     return;
   }
-  mClient->ReleaseResource();
+  //CODEC_ERROR("OMX Reservation: Releasing resource: (%d) %s", (int) mType, mOwned ? "Owned" : "Not owned");
+  if (mOwned) {
+    mClient->ReleaseResource();
+    mClient = nullptr;
+    mOwned = false;
+  }
 }
 
 OMXAudioEncoder*
@@ -402,6 +414,11 @@ ConvertGrallocImageToNV12(GrallocImage* aSource, uint8_t* aDestination)
 static nsresult
 ConvertSourceSurfaceToNV12(const RefPtr<SourceSurface>& aSurface, uint8_t* aDestination)
 {
+  if (!aSurface) {
+    CODEC_ERROR("Getting surface from image failed");
+    return NS_ERROR_FAILURE;
+  }
+
   uint32_t width = aSurface->GetSize().width;
   uint32_t height = aSurface->GetSize().height;
 
@@ -411,26 +428,19 @@ ConvertSourceSurfaceToNV12(const RefPtr<SourceSurface>& aSurface, uint8_t* aDest
   uint8_t* uv = y + (yStride * height);
   int uvStride = width / 2;
 
-  SurfaceFormat format = aSurface->GetFormat();
-
-  if (!aSurface) {
-    CODEC_ERROR("Getting surface %s from image failed", Stringify(format).c_str());
-    return NS_ERROR_FAILURE;
-  }
-
   RefPtr<DataSourceSurface> data = aSurface->GetDataSurface();
   if (!data) {
-    CODEC_ERROR("Getting data surface from %s image with %s (%s) surface failed",
-                Stringify(format).c_str(), Stringify(aSurface->GetType()).c_str(),
-                Stringify(aSurface->GetFormat()).c_str());
+    CODEC_ERROR("Getting data surface from %s image with %s surface failed",
+                Stringify(aSurface->GetFormat()).c_str(),
+                Stringify(aSurface->GetType()).c_str());
     return NS_ERROR_FAILURE;
   }
 
   DataSourceSurface::ScopedMap map(data, DataSourceSurface::READ);
   if (!map.IsMapped()) {
-    CODEC_ERROR("Reading DataSourceSurface from %s image with %s (%s) surface failed",
-                Stringify(format).c_str(), Stringify(aSurface->GetType()).c_str(),
-                Stringify(aSurface->GetFormat()).c_str());
+    CODEC_ERROR("Reading DataSourceSurface from %s image with %s surface failed",
+                Stringify(aSurface->GetFormat()).c_str(),
+                Stringify(aSurface->GetType()).c_str());
     return NS_ERROR_FAILURE;
   }
 
@@ -478,7 +488,7 @@ OMXVideoEncoder::Encode(const Image* aImage, int aWidth, int aHeight,
     NS_ENSURE_TRUE(aWidth == size.width, NS_ERROR_INVALID_ARG);
     NS_ENSURE_TRUE(aHeight == size.height, NS_ERROR_INVALID_ARG);
     if (format == ImageFormat::PLANAR_YCBCR) {
-      // Test for data, allowing SetDataNoCopy() on an image without an mBuffer
+      // Test for data, allowing AdoptData() on an image without an mBuffer
       // (as used from WebrtcOMXH264VideoCodec, and a few other places) - bug 1067442
       const PlanarYCbCrData* yuv = static_cast<PlanarYCbCrImage*>(img)->GetData();
       NS_ENSURE_TRUE(yuv->mYChannel, NS_ERROR_INVALID_ARG);
@@ -740,7 +750,7 @@ public:
       UpdateAfterSendChunk(chunkSamples, bytesCopied, aSamplesRead);
     } else {
       // Interleave data to a temporary buffer.
-      nsAutoTArray<AudioDataValue, 9600> pcm;
+      AutoTArray<AudioDataValue, 9600> pcm;
       pcm.SetLength(bytesToCopy);
       AudioDataValue* interleavedSource = pcm.Elements();
       AudioTrackEncoder::InterleaveTrackData(aChunk, chunkSamples,
@@ -794,7 +804,7 @@ public:
 private:
   uint8_t* GetPointer() { return mData + mOffset; }
 
-  const size_t AvailableSize() { return mCapicity - mOffset; }
+  size_t AvailableSize() const { return mCapicity - mOffset; }
 
   void IncreaseOffset(size_t aValue)
   {
@@ -803,12 +813,12 @@ private:
     mOffset += aValue;
   }
 
-  bool IsEmpty()
+  bool IsEmpty() const
   {
     return (mOffset == 0);
   }
 
-  const size_t GetCapacity()
+  size_t GetCapacity() const
   {
     return mCapicity;
   }
@@ -842,7 +852,7 @@ private:
                          * mOMXAEncoder.mChannels * sizeof(AudioDataValue);
     uint32_t dstSamplesCopied = aSamplesNum;
     if (mOMXAEncoder.mResampler) {
-      nsAutoTArray<AudioDataValue, 9600> pcm;
+      AutoTArray<AudioDataValue, 9600> pcm;
       pcm.SetLength(bytesToCopy);
       AudioTrackEncoder::InterleaveTrackData(aSource, aSamplesNum,
                                              mOMXAEncoder.mChannels,

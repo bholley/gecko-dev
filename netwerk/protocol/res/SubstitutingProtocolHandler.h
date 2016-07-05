@@ -18,6 +18,7 @@
 class nsIIOService;
 
 namespace mozilla {
+namespace net {
 
 //
 // Base class for resource://-like substitution protocols.
@@ -59,6 +60,13 @@ protected:
     return false;
   }
 
+  // Override this in the subclass to check for special case when opening
+  // channels.
+  virtual nsresult SubstituteChannel(nsIURI* uri, nsILoadInfo* aLoadInfo, nsIChannel** result)
+  {
+    return NS_OK;
+  }
+
   nsIIOService* IOService() { return mIOService; }
 
 private:
@@ -90,6 +98,7 @@ public:
   NS_IMETHOD GetClassIDNoAlloc(nsCID *aCID);
 };
 
+} // namespace net
 } // namespace mozilla
 
 #endif /* SubstitutingProtocolHandler_h___ */

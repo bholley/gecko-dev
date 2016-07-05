@@ -68,13 +68,11 @@ radio[pane=paneAdvanced] {
   -moz-image-region: rect(0px, 224px, 32px, 192px);
 }
 
-%ifdef MOZ_SERVICES_SYNC
 /* ----- SYNC BUTTON ----- */
 
 radio[pane=paneSync] {
   list-style-image: url("chrome://browser/skin/preferences/Options-sync.png");
 }
-%endif
 
 /* These lines should be removed as part of fixing bug 1140495 */
 label.small {
@@ -120,7 +118,7 @@ tabpanels {
 }
 
 caption {
-  -moz-padding-start: 5px;
+  padding-inline-start: 5px;
   padding-top: 4px;
   padding-bottom: 2px;
 }
@@ -207,11 +205,11 @@ html|a.inline-link:-moz-focusring {
  * Update Preferences
  */
 #autoInstallOptions {
-  -moz-margin-start: 20px;
+  margin-inline-start: 20px;
 }
 
 .updateControls {
-  -moz-margin-start: 10px;
+  margin-inline-start: 10px;
 }
 
 /**
@@ -222,7 +220,6 @@ html|a.inline-link:-moz-focusring {
 }
 
 
-%ifdef MOZ_SERVICES_SYNC
 /* ----- SYNC PANE ----- */
 
 #syncDesc {
@@ -246,26 +243,3 @@ html|a.inline-link:-moz-focusring {
 #noFxaAccount > label:first-child {
   margin-bottom: 0.6em;
 }
-
-/**
- * Sync migration
- */
-#sync-migration {
-  border: 1px solid rgba(0, 0, 0, 0.32);
-  background-color: InfoBackground;
-  color: InfoText;
-  text-shadow: none;
-  margin: 5px 0 0 0;
-  animation: fadein 3000ms;
-}
-
-#sync-migration description {
-  margin: 8px;
-}
-
-@keyframes fadein {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-%endif

@@ -85,7 +85,7 @@ nsPrincipal::~nsPrincipal()
 }
 
 nsresult
-nsPrincipal::Init(nsIURI *aCodebase, const OriginAttributes& aOriginAttributes)
+nsPrincipal::Init(nsIURI *aCodebase, const PrincipalOriginAttributes& aOriginAttributes)
 {
   NS_ENSURE_STATE(!mInitialized);
   NS_ENSURE_ARG(aCodebase);
@@ -254,8 +254,8 @@ nsPrincipal::MayLoadInternal(nsIURI* aURI)
   if (uriWithPrin) {
     uriWithPrin->GetPrincipal(getter_AddRefs(uriPrin));
   }
-  if (uriPrin && nsIPrincipal::Subsumes(uriPrin)) {
-    return true;
+  if (uriPrin) {
+    return nsIPrincipal::Subsumes(uriPrin);
   }
 
   // If this principal is associated with an addon, check whether that addon
@@ -391,26 +391,21 @@ nsPrincipal::Read(nsIObjectInputStream* aStream)
   rv = aStream->ReadCString(suffix);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  OriginAttributes attrs;
+  PrincipalOriginAttributes attrs;
   bool ok = attrs.PopulateFromSuffix(suffix);
   NS_ENSURE_TRUE(ok, NS_ERROR_FAILURE);
 
   rv = NS_ReadOptionalObject(aStream, true, getter_AddRefs(supports));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // This may be null.
-  nsCOMPtr<nsIContentSecurityPolicy> csp = do_QueryInterface(supports, &rv);
-
   rv = Init(codebase, attrs);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = SetCsp(csp);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // need to link in the CSP context here (link in the URI of the protected
-  // resource).
-  if (csp) {
-    csp->SetRequestContext(nullptr, this);
+  mCSP = do_QueryInterface(supports, &rv);
+  // make sure setRequestContext is called after Init(),
+  // to make sure  the principals URI been initalized.
+  if (mCSP) {
+    mCSP->SetRequestContext(nullptr, this);
   }
 
   SetDomain(domain);

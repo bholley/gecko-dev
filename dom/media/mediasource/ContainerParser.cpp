@@ -7,7 +7,7 @@
 #include "ContainerParser.h"
 
 #include "WebMBufferedParser.h"
-#include "mozilla/Endian.h"
+#include "mozilla/EndianUtils.h"
 #include "mozilla/ErrorResult.h"
 #include "mp4_demuxer/MoofParser.h"
 #include "mozilla/Logging.h"
@@ -18,6 +18,7 @@
 #include "mp4_demuxer/AtomType.h"
 #include "mp4_demuxer/ByteReader.h"
 #endif
+#include "nsAutoPtr.h"
 #include "SourceBufferResource.h"
 
 extern mozilla::LogModule* GetMediaSourceSamplesLog();
@@ -267,7 +268,7 @@ public:
       return false;
     }
 
-    if (mCompleteMediaHeaderRange.IsNull()) {
+    if (mCompleteMediaHeaderRange.IsEmpty()) {
       mCompleteMediaHeaderRange = MediaByteRange(mapping[0].mSyncOffset,
                                                  mapping[0].mEndOffset);
     }
@@ -334,7 +335,6 @@ class MP4ContainerParser : public ContainerParser {
 public:
   explicit MP4ContainerParser(const nsACString& aType)
     : ContainerParser(aType)
-    , mMonitor("MP4ContainerParser Index Monitor")
   {}
 
   bool IsInitSegmentPresent(MediaByteBuffer* aData) override
@@ -421,8 +421,6 @@ public:
   bool ParseStartAndEndTimestamps(MediaByteBuffer* aData,
                                   int64_t& aStart, int64_t& aEnd) override
   {
-    MonitorAutoLock mon(mMonitor); // We're not actually racing against anything,
-                                   // but mParser requires us to hold a monitor.
     bool initSegment = IsInitSegmentPresent(aData);
     if (initSegment) {
       mResource = new SourceBufferResource(NS_LITERAL_CSTRING("video/mp4"));
@@ -431,17 +429,16 @@ public:
       // consumers of ParseStartAndEndTimestamps to add their timestamp offset
       // manually. This allows the ContainerParser to be shared across different
       // timestampOffsets.
-      mParser = new mp4_demuxer::MoofParser(mStream, 0, /* aIsAudio = */ false, &mMonitor);
+      mParser = new mp4_demuxer::MoofParser(mStream, 0, /* aIsAudio = */ false);
       mInitData = new MediaByteBuffer();
     } else if (!mStream || !mParser) {
       return false;
     }
 
     mResource->AppendData(aData);
-    nsTArray<MediaByteRange> byteRanges;
-    MediaByteRange mbr =
-      MediaByteRange(mParser->mOffset, mResource->GetLength());
-    byteRanges.AppendElement(mbr);
+    MediaByteRangeSet byteRanges;
+    byteRanges +=
+      MediaByteRange(int64_t(mParser->mOffset), mResource->GetLength());
     mParser->RebuildFragmentedIndex(byteRanges);
 
     if (initSegment || !HasCompleteInitData()) {
@@ -496,7 +493,6 @@ public:
 private:
   RefPtr<MP4Stream> mStream;
   nsAutoPtr<mp4_demuxer::MoofParser> mParser;
-  Monitor mMonitor;
 };
 #endif // MOZ_FMP4
 
@@ -610,7 +606,7 @@ public:
       return false;
     }
     mHasInitData = true;
-    mCompleteInitSegmentRange = MediaByteRange(0, header.header_length);
+    mCompleteInitSegmentRange = MediaByteRange(0, int64_t(header.header_length));
 
     // Cache raw header in case the caller wants a copy.
     mInitData = new MediaByteBuffer(header.header_length);

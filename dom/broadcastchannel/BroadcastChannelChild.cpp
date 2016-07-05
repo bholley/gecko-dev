@@ -27,7 +27,8 @@ namespace dom {
 using namespace workers;
 
 BroadcastChannelChild::BroadcastChannelChild(const nsACString& aOrigin)
-  : mActorDestroyed(false)
+  : mBC(nullptr)
+  , mActorDestroyed(false)
 {
   CopyUTF8toUTF16(aOrigin, mOrigin);
 }
@@ -57,9 +58,8 @@ BroadcastChannelChild::RecvNotify(const ClonedMessageData& aData)
   nsCOMPtr<DOMEventTargetHelper> helper = mBC;
   nsCOMPtr<EventTarget> eventTarget = do_QueryInterface(helper);
 
-  // This object has been already closed by content or is going to be deleted
-  // soon. No notify is required.
-  if (!eventTarget || mBC->IsClosed()) {
+  // The object is going to be deleted soon. No notify is required.
+  if (!eventTarget) {
     return true;
   }
 

@@ -28,7 +28,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/WakeLock.h"
 #include "mozilla/dom/power/PowerManagerService.h"
-#include "nsPerformance.h"
+#include "mozilla/dom/Performance.h"
 #include "mozilla/dom/VideoPlaybackQuality.h"
 
 NS_IMPL_NS_NEW_HTML_ELEMENT(Video)
@@ -60,8 +60,21 @@ nsresult HTMLVideoElement::GetVideoSize(nsIntSize* size)
     return NS_ERROR_FAILURE;
   }
 
-  size->height = mMediaInfo.mVideo.mDisplay.height;
-  size->width = mMediaInfo.mVideo.mDisplay.width;
+  switch (mMediaInfo.mVideo.mRotation) {
+    case VideoInfo::Rotation::kDegree_90:
+    case VideoInfo::Rotation::kDegree_270: {
+      size->width = mMediaInfo.mVideo.mDisplay.height;
+      size->height = mMediaInfo.mVideo.mDisplay.width;
+      break;
+    }
+    case VideoInfo::Rotation::kDegree_0:
+    case VideoInfo::Rotation::kDegree_180:
+    default: {
+      size->height = mMediaInfo.mVideo.mDisplay.height;
+      size->width = mMediaInfo.mVideo.mDisplay.width;
+      break;
+    }
+  }
   return NS_OK;
 }
 
@@ -113,9 +126,7 @@ HTMLVideoElement::GetAttributeMappingFunction() const
 nsresult HTMLVideoElement::SetAcceptHeader(nsIHttpChannel* aChannel)
 {
   nsAutoCString value(
-#ifdef MOZ_WEBM
       "video/webm,"
-#endif
       "video/ogg,"
       "video/*;q=0.9,"
       "application/ogg;q=0.7,"
@@ -223,9 +234,8 @@ HTMLVideoElement::GetVideoPlaybackQuality()
   uint64_t corruptedFrames = 0;
 
   if (sVideoStatsEnabled) {
-    nsPIDOMWindow* window = OwnerDoc()->GetInnerWindow();
-    if (window) {
-      nsPerformance* perf = window->GetPerformance();
+    if (nsPIDOMWindowInner* window = OwnerDoc()->GetInnerWindow()) {
+      Performance* perf = window->GetPerformance();
       if (perf) {
         creationTime = perf->Now();
       }
@@ -267,6 +277,7 @@ HTMLVideoElement::UpdateScreenWakeLock()
   if (mScreenWakeLock && (mPaused || hidden || !mUseScreenWakeLock)) {
     ErrorResult rv;
     mScreenWakeLock->Unlock(rv);
+    rv.SuppressException();
     mScreenWakeLock = nullptr;
     return;
   }

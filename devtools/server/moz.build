@@ -33,9 +33,7 @@ DevToolsModules(
     'content-globals.js',
     'content-server.jsm',
     'main.js',
-    'protocol.js',
+    'primitive.js',
+    'service-worker-child.js',
     'worker.js'
 )
-
-if CONFIG['GNU_CXX']:
-    CXXFLAGS += ['-Wshadow']

@@ -130,7 +130,8 @@ class nsView;
 class nsMenuPopupFrame;
 
 // this class is used for dispatching popupshown events asynchronously.
-class nsXULPopupShownEvent : public nsRunnable, public nsIDOMEventListener
+class nsXULPopupShownEvent : public mozilla::Runnable,
+                             public nsIDOMEventListener
 {
 public:
   nsXULPopupShownEvent(nsIContent *aPopup, nsPresContext* aPresContext)
@@ -309,7 +310,7 @@ public:
                                       int32_t aXPos, int32_t aYPos);
 
   // indicate that the popup should be opened
-  void ShowPopup(bool aIsContextMenu, bool aSelectFirstItem);
+  void ShowPopup(bool aIsContextMenu);
   // indicate that the popup should be hidden. The new state should either be
   // ePopupClosed or ePopupInvisible.
   void HidePopup(bool aDeselectMenu, nsPopupState aNewState);
@@ -354,6 +355,10 @@ public:
 
   nsIScrollableFrame* GetScrollFrame(nsIFrame* aStart);
 
+  void SetOverrideConstraintRect(mozilla::LayoutDeviceIntRect aRect) {
+    mOverrideConstraintRect = ToAppUnits(aRect, PresContext()->AppUnitsPerCSSPixel());
+  }
+
   // For a popup that should appear anchored at the given rect, determine
   // the screen area that it is constrained by. This will be the available
   // area of the screen the popup should be displayed on. Content popups,
@@ -362,8 +367,11 @@ public:
   // For non-toplevel popups (which will always be panels), we will also
   // constrain them to the available screen rect, ie they will not fall
   // underneath the taskbar, dock or other fixed OS elements.
-  nsRect GetConstraintRect(const nsRect& aAnchorRect, const nsRect& aRootScreenRect,
-                           nsPopupLevel aPopupLevel);
+  // This operates in device pixels.
+  mozilla::LayoutDeviceIntRect
+  GetConstraintRect(const mozilla::LayoutDeviceIntRect& aAnchorRect,
+                    const mozilla::LayoutDeviceIntRect& aRootScreenRect,
+                    nsPopupLevel aPopupLevel);
 
   // Determines whether the given edges of the popup may be moved, where
   // aHorizontalSide and aVerticalSide are one of the NS_SIDE_* constants, or
@@ -423,7 +431,7 @@ protected:
   nsPopupLevel PopupLevel(bool aIsNoAutoHide) const;
 
   // redefine to tell the box system not to move the views.
-  virtual void GetLayoutFlags(uint32_t& aFlags) override;
+  virtual uint32_t GetXULLayoutFlags() override;
 
   void InitPositionFromAnchorAlign(const nsAString& aAnchor,
                                    const nsAString& aAlign);
@@ -583,6 +591,8 @@ protected:
 
   // How the popup is anchored.
   MenuPopupAnchorType mAnchorType;
+
+  nsRect mOverrideConstraintRect;
 
   static int8_t sDefaultLevelIsTop;
 

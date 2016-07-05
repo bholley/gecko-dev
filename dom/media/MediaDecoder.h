@@ -3,184 +3,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-/*
-Each video element based on MediaDecoder has a state machine to manage
-its play state and keep the current frame up to date. All state machines
-share time in a single shared thread. Each decoder also has a TaskQueue
-running in a SharedThreadPool to decode audio and video data.
-Each decoder also has a thread to push decoded audio
-to the hardware. This thread is not created until playback starts, but
-currently is not destroyed when paused, only when playback ends.
 
-The decoder owns the resources for downloading the media file, and the
-high level state. It holds an owning reference to the state machine that
-owns all the resources related to decoding data, and manages the low level
-decoding operations and A/V sync.
-
-Each state machine runs on the shared state machine thread. Every time some
-action is required for a state machine, it is scheduled to run on the shared
-the state machine thread. The state machine runs one "cycle" on the state
-machine thread, and then returns. If necessary, it will schedule itself to
-run again in future. While running this cycle, it must not block the
-thread, as other state machines' events may need to run. State shared
-between a state machine's threads is synchronised via the monitor owned
-by its MediaDecoder object.
-
-The Main thread controls the decode state machine by setting the value
-of a mPlayState variable and notifying on the monitor based on the
-high level player actions required (Seek, Pause, Play, etc).
-
-The player states are the states requested by the client through the
-DOM API.  They represent the desired state of the player, while the
-decoder's state represents the actual state of the decoder.
-
-The high level state of the player is maintained via a PlayState value.
-It can have the following states:
-
-START
-  The decoder has been initialized but has no resource loaded.
-PAUSED
-  A request via the API has been received to pause playback.
-LOADING
-  A request via the API has been received to load a resource.
-PLAYING
-  A request via the API has been received to start playback.
-SEEKING
-  A request via the API has been received to start seeking.
-COMPLETED
-  Playback has completed.
-SHUTDOWN
-  The decoder is about to be destroyed.
-
-State transition occurs when the Media Element calls the Play, Seek,
-etc methods on the MediaDecoder object. When the transition
-occurs MediaDecoder then calls the methods on the decoder state
-machine object to cause it to behave as required by the play state.
-State transitions will likely schedule the state machine to run to
-affect the change.
-
-An implementation of the MediaDecoderStateMachine class is the event
-that gets dispatched to the state machine thread. Each time the event is run,
-the state machine must cycle the state machine once, and then return.
-
-The state machine has the following states:
-
-DECODING_METADATA
-  The media headers are being loaded, and things like framerate, etc are
-  being determined.
-DECODING_FIRSTFRAME
-  The first frame of audio/video data is being decoded.
-DECODING
-  The decode has started. If the PlayState is PLAYING, the decode thread
-  should be alive and decoding video and audio frame, the audio thread
-  should be playing audio, and the state machine should run periodically
-  to update the video frames being displayed.
-SEEKING
-  A seek operation is in progress. The decode thread should be seeking.
-BUFFERING
-  Decoding is paused while data is buffered for smooth playback. If playback
-  is paused (PlayState transitions to PAUSED) we'll destory the decode thread.
-COMPLETED
-  The resource has completed decoding, but possibly not finished playback.
-  The decode thread will be destroyed. Once playback finished, the audio
-  thread will also be destroyed.
-SHUTDOWN
-  The decoder object and its state machine are about to be destroyed.
-  Once the last state machine has been destroyed, the shared state machine
-  thread will also be destroyed. It will be recreated later if needed.
-
-The following result in state transitions.
-
-Shutdown()
-  Clean up any resources the MediaDecoderStateMachine owns.
-Play()
-  Start decoding and playback of media data.
-Buffer
-  This is not user initiated. It occurs when the
-  available data in the stream drops below a certain point.
-Complete
-  This is not user initiated. It occurs when the
-  stream is completely decoded.
-Seek(double)
-  Seek to the time position given in the resource.
-
-A state transition diagram:
-
-   |---<-- DECODING_METADATA ----->--------|
-   |        |                              |
- Seek(t)    v                          Shutdown()
-   |        |                              |
-   -->--- DECODING_FIRSTFRAME              |------->-----------------|
-            |        |                                               |
-            |    Shutdown()                                          |
-            |        |                                               |
-            v        |-->----------------->--------------------------|
-            |---------------->----->------------------------|        v
-          DECODING             |          |  |              |        |
-            ^                  v Seek(t)  |  |              |        |
-            |         Play()   |          v  |              |        |
-            ^-----------<----SEEKING      |  v Complete     v        v
-            |                  |          |  |              |        |
-            |                  |          |  COMPLETED    SHUTDOWN-<-|
-            ^                  ^          |  |Shutdown()    |
-            |                  |          |  >-------->-----^
-            |          Play()  |Seek(t)   |Buffer()         |
-            -----------<--------<-------BUFFERING           |
-                                          |                 ^
-                                          v Shutdown()      |
-                                          |                 |
-                                          ------------>-----|
-
-The following represents the states that the MediaDecoder object
-can be in, and the valid states the MediaDecoderStateMachine can be in at that
-time:
-
-player LOADING   decoder DECODING_METADATA, DECODING_FIRSTFRAME
-player PLAYING   decoder DECODING, BUFFERING, SEEKING, COMPLETED
-player PAUSED    decoder DECODING, BUFFERING, SEEKING, COMPLETED
-player SEEKING   decoder SEEKING
-player COMPLETED decoder SHUTDOWN
-player SHUTDOWN  decoder SHUTDOWN
-
-The general sequence of events is:
-
-1) The video element calls Load on MediaDecoder. This creates the
-   state machine and starts the channel for downloading the
-   file. It instantiates and schedules the MediaDecoderStateMachine. The
-   high level LOADING state is entered, which results in the decode
-   thread being created and starting to decode metadata. These are
-   the headers that give the video size, framerate, etc. Load() returns
-   immediately to the calling video element.
-
-2) When the metadata has been loaded by the decode thread, the state machine
-   will call a method on the video element object to inform it that this
-   step is done, so it can do the things required by the video specification
-   at this stage. The decode thread then continues to decode the first frame
-   of data.
-
-3) When the first frame of data has been successfully decoded the state
-   machine calls a method on the video element object to inform it that
-   this step has been done, once again so it can do the required things
-   by the video specification at this stage.
-
-   This results in the high level state changing to PLAYING or PAUSED
-   depending on any user action that may have occurred.
-
-   While the play state is PLAYING, the decode thread will decode
-   data, and the audio thread will push audio data to the hardware to
-   be played. The state machine will run periodically on the shared
-   state machine thread to ensure video frames are played at the
-   correct time; i.e. the state machine manages A/V sync.
-
-The Shutdown method on MediaDecoder closes the download channel, and
-signals to the state machine that it should shutdown. The state machine
-shuts down asynchronously, and will release the owning reference to the
-state machine once its threads are shutdown.
-
-The owning object of a MediaDecoder object *MUST* call Shutdown when
-destroying the MediaDecoder object.
-
-*/
 #if !defined(MediaDecoder_h_)
 #define MediaDecoder_h_
 
@@ -213,65 +36,27 @@ destroying the MediaDecoder object.
 #include "MediaStatistics.h"
 #include "MediaStreamGraph.h"
 #include "TimeUnits.h"
+#include "SeekTarget.h"
 
 class nsIStreamListener;
 class nsIPrincipal;
 
 namespace mozilla {
 
+namespace dom {
+class Promise;
+}
+
 class VideoFrameContainer;
 class MediaDecoderStateMachine;
+
+enum class MediaEventType : int8_t;
 
 // GetCurrentTime is defined in winbase.h as zero argument macro forwarding to
 // GetTickCount() and conflicts with MediaDecoder::GetCurrentTime implementation.
 #ifdef GetCurrentTime
 #undef GetCurrentTime
 #endif
-
-// Stores the seek target; the time to seek to, and whether an Accurate,
-// or "Fast" (nearest keyframe) seek was requested.
-struct SeekTarget {
-  enum Type {
-    Invalid,
-    PrevSyncPoint,
-    Accurate
-  };
-  SeekTarget()
-    : mTime(-1.0)
-    , mType(SeekTarget::Invalid)
-    , mEventVisibility(MediaDecoderEventVisibility::Observable)
-  {
-  }
-  SeekTarget(int64_t aTimeUsecs,
-             Type aType,
-             MediaDecoderEventVisibility aEventVisibility =
-               MediaDecoderEventVisibility::Observable)
-    : mTime(aTimeUsecs)
-    , mType(aType)
-    , mEventVisibility(aEventVisibility)
-  {
-  }
-  SeekTarget(const SeekTarget& aOther)
-    : mTime(aOther.mTime)
-    , mType(aOther.mType)
-    , mEventVisibility(aOther.mEventVisibility)
-  {
-  }
-  bool IsValid() const {
-    return mType != SeekTarget::Invalid;
-  }
-  void Reset() {
-    mTime = -1;
-    mType = SeekTarget::Invalid;
-  }
-  // Seek target time in microseconds.
-  int64_t mTime;
-  // Whether we should seek "Fast", or "Accurate".
-  // "Fast" seeks to the seek point preceeding mTime, whereas
-  // "Accurate" seeks as close as possible to mTime.
-  Type mType;
-  MediaDecoderEventVisibility mEventVisibility;
-};
 
 class MediaDecoder : public AbstractMediaDecoder
 {
@@ -385,7 +170,8 @@ public:
   // Seek to the time position in (seconds) from the start of the video.
   // If aDoFastSeek is true, we'll seek to the sync point/keyframe preceeding
   // the seek target.
-  virtual nsresult Seek(double aTime, SeekTarget::Type aSeekType);
+  virtual nsresult Seek(double aTime, SeekTarget::Type aSeekType,
+                        dom::Promise* aPromise = nullptr);
 
   // Initialize state machine and schedule it.
   nsresult InitializeStateMachine();
@@ -399,7 +185,7 @@ public:
   // Dormant state is a state to free all scarce media resources
   //  (like hw video codec), did not decoding and stay dormant.
   // It is used to share scarece media resources in system.
-  virtual void NotifyOwnerActivityChanged();
+  virtual void NotifyOwnerActivityChanged(bool aIsVisible);
 
   void UpdateDormantState(bool aDormantTimeout, bool aActivity);
 
@@ -442,7 +228,7 @@ public:
 
   // Called as data arrives on the stream and is read into the cache.  Called
   // on the main thread only.
-  virtual void NotifyDataArrived() override;
+  void NotifyDataArrived();
 
   // Return true if we are currently seeking in the media resource.
   // Call on the main thread only.
@@ -452,6 +238,10 @@ public:
   // has shutdown.
   // Call on the main thread only.
   virtual bool IsEndedOrShutdown() const;
+
+  // Return true if the MediaDecoderOwner's error attribute is not null.
+  // If the MediaDecoder is shutting down, OwnerHasError will return true.
+  bool OwnerHasError() const;
 
 protected:
   // Updates the media duration. This is called while the media is being
@@ -463,17 +253,22 @@ protected:
   // changed, this causes a durationchanged event to fire to the media
   // element.
   void UpdateEstimatedMediaDuration(int64_t aDuration) override;
+
 public:
+  // Set a flag indicating whether random seeking is supported
+  void SetMediaSeekable(bool aMediaSeekable);
+  // Set a flag indicating whether seeking is supported only in buffered ranges
+  void SetMediaSeekableOnlyInBufferedRanges(bool aMediaSeekableOnlyInBufferedRanges);
 
-  // Set a flag indicating whether seeking is supported
-  virtual void SetMediaSeekable(bool aMediaSeekable) override;
-
-  // Returns true if this media supports seeking. False for example for WebM
-  // files without an index and chained ogg files.
-  virtual bool IsMediaSeekable() final override;
+  // Returns true if this media supports random seeking. False for example with
+  // chained ogg files.
+  bool IsMediaSeekable();
+  // Returns true if this media supports seeking only in buffered ranges. True
+  // for example in WebMs with no cues
+  bool IsMediaSeekableOnlyInBufferedRanges();
   // Returns true if seeking is supported on a transport level (e.g. the server
   // supports range requests, we are playing a file, etc.).
-  virtual bool IsTransportSeekable() override;
+  bool IsTransportSeekable();
 
   // Return the time ranges that can be seeked into.
   virtual media::TimeIntervals GetSeekable();
@@ -496,10 +291,8 @@ public:
   // media element when it is restored from the bfcache, or when we need
   // to stop throttling the download. Call on the main thread only.
   // The download will only actually resume once as many Resume calls
-  // have been made as Suspend calls. When aForceBuffering is true,
-  // we force the decoder to go into buffering state before resuming
-  // playback.
-  virtual void Resume(bool aForceBuffering);
+  // have been made as Suspend calls.
+  virtual void Resume();
 
   // Moves any existing channel loads into or out of background. Background
   // loads don't block the load event. This is called when we stop or restart
@@ -567,35 +360,18 @@ private:
   // so recompute it. The monitor must be held.
   virtual void UpdatePlaybackRate();
 
-  // Used to estimate rates of data passing through the decoder's channel.
-  // Records activity stopping on the channel.
-  void DispatchPlaybackStarted() {
-    RefPtr<MediaDecoder> self = this;
-    nsCOMPtr<nsIRunnable> r =
-      NS_NewRunnableFunction([self] () { self->mPlaybackStatistics->Start(); });
-    AbstractThread::MainThread()->Dispatch(r.forget());
-  }
-
-  // Used to estimate rates of data passing through the decoder's channel.
-  // Records activity stopping on the channel.
-  void DispatchPlaybackStopped() {
-    RefPtr<MediaDecoder> self = this;
-    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction([self] () {
-      self->mPlaybackStatistics->Stop();
-      self->ComputePlaybackRate();
-    });
-    AbstractThread::MainThread()->Dispatch(r.forget());
-  }
-
   // The actual playback rate computation. The monitor must be held.
   void ComputePlaybackRate();
 
   // Returns true if we can play the entire media through without stopping
   // to buffer, given the current download and playback rates.
-  bool CanPlayThrough();
+  virtual bool CanPlayThrough();
 
   void SetAudioChannel(dom::AudioChannel aChannel) { mAudioChannel = aChannel; }
   dom::AudioChannel GetAudioChannel() { return mAudioChannel; }
+
+  // Called from HTMLMediaElement when owner document activity changes
+  virtual void SetElementVisibility(bool aIsVisible);
 
   /******
    * The following methods must only be called on the main
@@ -606,21 +382,6 @@ private:
   // notifies any thread blocking on this object's monitor of the
   // change. Call on the main thread only.
   virtual void ChangeState(PlayState aState);
-
-  // May be called by the reader to notify this decoder that the metadata from
-  // the media file has been read. Call on the decode thread only.
-  void OnReadMetadataCompleted() override { }
-
-  // Called when the metadata from the media file has been loaded by the
-  // state machine. Call on the main thread only.
-  virtual void MetadataLoaded(nsAutoPtr<MediaInfo> aInfo,
-                              nsAutoPtr<MetadataTags> aTags,
-                              MediaDecoderEventVisibility aEventVisibility) override;
-
-  // Called when the first audio and/or video from the media file has been loaded
-  // by the state machine. Call on the main thread only.
-  virtual void FirstFrameLoaded(nsAutoPtr<MediaInfo> aInfo,
-                                MediaDecoderEventVisibility aEventVisibility) override;
 
   // Called from MetadataLoaded(). Creates audio tracks and adds them to its
   // owner's audio track list, and implies to video tracks respectively.
@@ -635,12 +396,7 @@ private:
   // Call on the main thread only.
   void PlaybackEnded();
 
-  void OnSeekRejected()
-  {
-    MOZ_ASSERT(NS_IsMainThread());
-    mSeekRequest.Complete();
-    mLogicallySeeking = false;
-  }
+  void OnSeekRejected();
   void OnSeekResolved(SeekResolveValue aVal);
 
   void SeekingChanged()
@@ -655,19 +411,20 @@ private:
   // thread.
   void SeekingStarted(MediaDecoderEventVisibility aEventVisibility = MediaDecoderEventVisibility::Observable);
 
-  void UpdateLogicalPosition(MediaDecoderEventVisibility aEventVisibility);
+  void UpdateLogicalPositionInternal(MediaDecoderEventVisibility aEventVisibility);
   void UpdateLogicalPosition()
   {
     MOZ_ASSERT(NS_IsMainThread());
-    UpdateLogicalPosition(MediaDecoderEventVisibility::Observable);
+    // Per spec, offical position remains stable during pause and seek.
+    if (mPlayState == PLAY_STATE_PAUSED || IsSeeking()) {
+      return;
+    }
+    UpdateLogicalPositionInternal(MediaDecoderEventVisibility::Observable);
   }
 
   // Find the end of the cached data starting at the current decoder
   // position.
   int64_t GetDownloadPosition();
-
-  // Drop reference to state machine.  Only called during shutdown dance.
-  virtual void BreakCycles();
 
   // Notifies the element that decoding has failed.
   void DecodeError();
@@ -687,43 +444,31 @@ private:
   void SetCDMProxy(CDMProxy* aProxy);
 #endif
 
+  void EnsureTelemetryReported();
+
 #ifdef MOZ_RAW
   static bool IsRawEnabled();
 #endif
 
   static bool IsOggEnabled();
   static bool IsOpusEnabled();
-
-#ifdef MOZ_WAVE
   static bool IsWaveEnabled();
-#endif
-
-#ifdef MOZ_WEBM
   static bool IsWebMEnabled();
-#endif
+
 #ifdef NECKO_PROTOCOL_rtsp
   static bool IsRtspEnabled();
 #endif
 
-#ifdef MOZ_GSTREAMER
-  static bool IsGStreamerEnabled();
-#endif
-
 #ifdef MOZ_OMX_DECODER
   static bool IsOmxEnabled();
-  static bool IsOmxAsyncEnabled();
 #endif
 
 #ifdef MOZ_ANDROID_OMX
-  static bool IsAndroidMediaEnabled();
+  static bool IsAndroidMediaPluginEnabled();
 #endif
 
 #ifdef MOZ_WMF
   static bool IsWMFEnabled();
-#endif
-
-#ifdef MOZ_APPLEMEDIA
-  static bool IsAppleMP3Enabled();
 #endif
 
   // Return statistics. This is used for progress events and other things.
@@ -733,7 +478,7 @@ private:
   MediaStatistics GetStatistics();
 
   // Return the frame decode/paint related statistics.
-  FrameStatistics& GetFrameStatistics() { return mFrameStats; }
+  FrameStatistics& GetFrameStatistics() { return *mFrameStats; }
 
   // Increments the parsed and decoded frame counters by the passed in counts.
   // Can be called on any thread.
@@ -752,9 +497,22 @@ private:
   }
 
   virtual MediaDecoderOwner::NextFrameStatus NextFrameStatus() { return mNextFrameStatus; }
+  virtual MediaDecoderOwner::NextFrameStatus NextFrameBufferedStatus();
+
+  // Returns a string describing the state of the media player internal
+  // data. Used for debugging purposes.
+  virtual void GetMozDebugReaderData(nsAString& aString) {}
+
+  virtual void DumpDebugInfo();
 
 protected:
   virtual ~MediaDecoder();
+
+  // Called when the first audio and/or video from the media file has been loaded
+  // by the state machine. Call on the main thread only.
+  virtual void FirstFrameLoaded(nsAutoPtr<MediaInfo> aInfo,
+                                MediaDecoderEventVisibility aEventVisibility);
+
   void SetStateMachineParameters();
 
   static void DormantTimerExpired(nsITimer *aTimer, void *aClosure);
@@ -819,7 +577,32 @@ protected:
   // Media data resource.
   RefPtr<MediaResource> mResource;
 
+  // Amount of buffered data ahead of current time required to consider that
+  // the next frame is available.
+  // An arbitrary value of 250ms is used.
+  static const int DEFAULT_NEXT_FRAME_AVAILABLE_BUFFERED = 250000;
+
 private:
+  // Called when the metadata from the media file has been loaded by the
+  // state machine. Call on the main thread only.
+  void MetadataLoaded(nsAutoPtr<MediaInfo> aInfo,
+                      nsAutoPtr<MetadataTags> aTags,
+                      MediaDecoderEventVisibility aEventVisibility);
+
+  MediaEventSource<void>*
+  DataArrivedEvent() override { return &mDataArrivedEvent; }
+
+  void OnPlaybackEvent(MediaEventType aEvent);
+
+  void OnMediaNotSeekable()
+  {
+    SetMediaSeekable(false);
+  }
+
+  void FinishShutdown();
+
+  MediaEventProducer<void> mDataArrivedEvent;
+
   // The state machine object for handling the decoding. It is safe to
   // call methods of this object from other threads. Its internal data
   // is synchronised on a monitor. The lifetime of this object is
@@ -837,12 +620,24 @@ private:
 #endif
 
 protected:
-  virtual void CallSeek(const SeekTarget& aTarget);
+  // The promise resolving/rejection is queued as a "micro-task" which will be
+  // handled immediately after the current JS task and before any pending JS
+  // tasks.
+  // At the time we are going to resolve/reject a promise, the "seeking" event
+  // task should already be queued but might yet be processed, so we queue one
+  // more task to file the promise resolving/rejection micro-tasks
+  // asynchronously to make sure that the micro-tasks are processed after the
+  // "seeking" event task.
+  void AsyncResolveSeekDOMPromiseIfExists();
+  void AsyncRejectSeekDOMPromiseIfExists();
+  void DiscardOngoingSeekIfExists();
+  virtual void CallSeek(const SeekTarget& aTarget, dom::Promise* aPromise);
 
   // Returns true if heuristic dormant is supported.
   bool IsHeuristicDormantSupported() const;
 
   MozPromiseRequestHolder<SeekPromise> mSeekRequest;
+  RefPtr<dom::Promise> mSeekDOMPromise;
 
   // True when seeking or otherwise moving the play position around in
   // such a manner that progress event data is inaccurate. This is set
@@ -869,7 +664,7 @@ protected:
   MediaDecoderOwner* const mOwner;
 
   // Counters related to decode and presentation of frames.
-  FrameStatistics mFrameStats;
+  const RefPtr<FrameStatistics> mFrameStats;
 
   const RefPtr<VideoFrameContainer> mVideoFrameContainer;
 
@@ -936,6 +731,13 @@ protected:
   // A listener to receive metadata updates from MDSM.
   MediaEventListener mTimedMetadataListener;
 
+  MediaEventListener mMetadataLoadedListener;
+  MediaEventListener mFirstFrameLoadedListener;
+
+  MediaEventListener mOnPlaybackEvent;
+  MediaEventListener mOnSeekingStart;
+  MediaEventListener mOnMediaNotSeekable;
+
 protected:
   // Whether the state machine is shut down.
   Mirror<bool> mStateMachineIsShutdown;
@@ -957,6 +759,9 @@ protected:
   // during decoder seek operations, but it's updated at the end when we
   // start playing back again.
   Mirror<int64_t> mPlaybackPosition;
+
+  // Used to distinguish whether the audio is producing sound.
+  Mirror<bool> mIsAudioDataAudible;
 
   // Volume of playback.  0.0 = muted. 1.0 = full volume.
   Canonical<double> mVolume;
@@ -995,6 +800,10 @@ protected:
   // passed to MediaStreams when this is true.
   Canonical<bool> mSameOriginMedia;
 
+  // An identifier for the principal of the media. Used to track when
+  // main-thread induced principal changes get reflected on MSG thread.
+  Canonical<PrincipalHandle> mMediaPrincipalHandle;
+
   // Estimate of the current playback rate (bytes/second).
   Canonical<double> mPlaybackBytesPerSecond;
 
@@ -1009,6 +818,12 @@ protected:
 
   // True if the media is seekable (i.e. supports random access).
   Canonical<bool> mMediaSeekable;
+
+  // True if the media is only seekable within its buffered ranges.
+  Canonical<bool> mMediaSeekableOnlyInBufferedRanges;
+
+  // True if the decoder is visible.
+  Canonical<bool> mIsVisible;
 
 public:
   AbstractCanonical<media::NullableTimeUnit>* CanonicalDurationOrNull() override;
@@ -1039,6 +854,9 @@ public:
   AbstractCanonical<bool>* CanonicalSameOriginMedia() {
     return &mSameOriginMedia;
   }
+  AbstractCanonical<PrincipalHandle>* CanonicalMediaPrincipalHandle() {
+    return &mMediaPrincipalHandle;
+  }
   AbstractCanonical<double>* CanonicalPlaybackBytesPerSecond() {
     return &mPlaybackBytesPerSecond;
   }
@@ -1051,8 +869,17 @@ public:
   AbstractCanonical<bool>* CanonicalMediaSeekable() {
     return &mMediaSeekable;
   }
+  AbstractCanonical<bool>* CanonicalMediaSeekableOnlyInBufferedRanges() {
+    return &mMediaSeekableOnlyInBufferedRanges;
+  }
+  AbstractCanonical<bool>* CanonicalIsVisible() {
+    return &mIsVisible;
+  }
 
 private:
+  // Notify owner when the audible state changed
+  void NotifyAudibleStateChanged();
+
   /* Functions called by ResourceCallback */
 
   // A media stream is assumed to be infinite if the metadata doesn't
@@ -1084,12 +911,14 @@ private:
   // Called by the MediaResource to keep track of the number of bytes read
   // from the resource. Called on the main by an event runner dispatched
   // by the MediaResource read functions.
-  void NotifyBytesConsumed(int64_t aBytes, int64_t aOffset) final override;
+  void NotifyBytesConsumed(int64_t aBytes, int64_t aOffset);
 
   // Called by nsChannelToPipeListener or MediaResource when the
   // download has ended. Called on the main thread only. aStatus is
   // the result from OnStopRequest.
   void NotifyDownloadEnded(nsresult aStatus);
+
+  bool mTelemetryReported;
 };
 
 } // namespace mozilla

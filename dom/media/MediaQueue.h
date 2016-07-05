@@ -36,7 +36,7 @@ public:
     Reset();
   }
 
-  inline size_t GetSize() {
+  inline size_t GetSize() const {
     ReentrantMonitorAutoEnter mon(mReentrantMonitor);
     return nsDeque::GetSize();
   }
@@ -46,7 +46,7 @@ public:
     MOZ_ASSERT(aItem);
     NS_ADDREF(aItem);
     nsDeque::Push(aItem);
-    mPushEvent.Notify();
+    mPushEvent.Notify(RefPtr<T>(aItem));
   }
 
   inline void PushFront(T* aItem) {
@@ -54,7 +54,6 @@ public:
     MOZ_ASSERT(aItem);
     NS_ADDREF(aItem);
     nsDeque::PushFront(aItem);
-    mPushEvent.Notify();
   }
 
   inline already_AddRefed<T> PopFront() {
@@ -66,12 +65,12 @@ public:
     return rv.forget();
   }
 
-  inline T* Peek() {
+  inline RefPtr<T> Peek() const {
     ReentrantMonitorAutoEnter mon(mReentrantMonitor);
     return static_cast<T*>(nsDeque::Peek());
   }
 
-  inline T* PeekFront() {
+  inline RefPtr<T> PeekFront() const {
     ReentrantMonitorAutoEnter mon(mReentrantMonitor);
     return static_cast<T*>(nsDeque::PeekFront());
   }
@@ -79,12 +78,12 @@ public:
   void Reset() {
     ReentrantMonitorAutoEnter mon(mReentrantMonitor);
     while (GetSize() > 0) {
-      RefPtr<T> x = PopFront();
+      RefPtr<T> x = dont_AddRef(static_cast<T*>(nsDeque::PopFront()));
     }
     mEndOfStream = false;
   }
 
-  bool AtEndOfStream() {
+  bool AtEndOfStream() const {
     ReentrantMonitorAutoEnter mon(mReentrantMonitor);
     return GetSize() == 0 && mEndOfStream;
   }
@@ -92,7 +91,7 @@ public:
   // Returns true if the media queue has had its last item added to it.
   // This happens when the media stream has been completely decoded. Note this
   // does not mean that the corresponding stream has finished playback.
-  bool IsFinished() {
+  bool IsFinished() const {
     ReentrantMonitorAutoEnter mon(mReentrantMonitor);
     return mEndOfStream;
   }
@@ -110,8 +109,8 @@ public:
     if (GetSize() == 0) {
       return 0;
     }
-    T* last = Peek();
-    T* first = PeekFront();
+    T* last = static_cast<T*>(nsDeque::Peek());
+    T* first = static_cast<T*>(nsDeque::PeekFront());
     return last->GetEndTime() - first->mTime;
   }
 
@@ -161,7 +160,7 @@ public:
     return mPopEvent;
   }
 
-  MediaEventSource<void>& PushEvent() {
+  MediaEventSource<RefPtr<T>>& PushEvent() {
     return mPushEvent;
   }
 
@@ -172,7 +171,7 @@ public:
 private:
   mutable ReentrantMonitor mReentrantMonitor;
   MediaEventProducer<RefPtr<T>> mPopEvent;
-  MediaEventProducer<void> mPushEvent;
+  MediaEventProducer<RefPtr<T>> mPushEvent;
   MediaEventProducer<void> mFinishEvent;
   // True when we've decoded the last frame of data in the
   // bitstream for which we're queueing frame data.

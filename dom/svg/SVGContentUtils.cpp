@@ -79,7 +79,7 @@ GetStrokeDashData(SVGContentUtils::AutoStrokeOptions* aStrokeOptions,
   Float totalLengthOfDashes = 0.0, totalLengthOfGaps = 0.0;
   Float pathScale = 1.0;
 
-  if (aContextPaint && aStyleSVG->mStrokeDasharrayFromObject) {
+  if (aContextPaint && aStyleSVG->StrokeDasharrayFromObject()) {
     const FallibleTArray<gfxFloat>& dashSrc = aContextPaint->GetStrokeDashArray();
     dashArrayLength = dashSrc.Length();
     if (dashArrayLength <= 0) {
@@ -97,8 +97,8 @@ GetStrokeDashData(SVGContentUtils::AutoStrokeOptions* aStrokeOptions,
       (i % 2 ? totalLengthOfGaps : totalLengthOfDashes) += dashSrc[i];
     }
   } else {
-    const nsStyleCoord *dasharray = aStyleSVG->mStrokeDasharray;
-    dashArrayLength = aStyleSVG->mStrokeDasharrayLength;
+    const nsTArray<nsStyleCoord>& dasharray = aStyleSVG->mStrokeDasharray;
+    dashArrayLength = aStyleSVG->mStrokeDasharray.Length();
     if (dashArrayLength <= 0) {
       return eContinuousStroke;
     }
@@ -155,7 +155,7 @@ GetStrokeDashData(SVGContentUtils::AutoStrokeOptions* aStrokeOptions,
     return eNoStroke;
   }
 
-  if (aContextPaint && aStyleSVG->mStrokeDashoffsetFromObject) {
+  if (aContextPaint && aStyleSVG->StrokeDashoffsetFromObject()) {
     aStrokeOptions->mDashOffset = Float(aContextPaint->GetStrokeDashOffset());
   } else {
     aStrokeOptions->mDashOffset =
@@ -188,6 +188,7 @@ SVGContentUtils::GetStrokeOptions(AutoStrokeOptions* aStrokeOptions,
 
   const nsStyleSVG* styleSVG = styleContext->StyleSVG();
 
+  bool checkedDashAndStrokeIsDashed = false;
   if (aFlags != eIgnoreStrokeDashing) {
     DashState dashState =
       GetStrokeDashData(aStrokeOptions, aElement, styleSVG, aContextPaint);
@@ -201,6 +202,7 @@ SVGContentUtils::GetStrokeOptions(AutoStrokeOptions* aStrokeOptions,
       // Prevent our caller from wasting time looking at a pattern without gaps:
       aStrokeOptions->DiscardDashPattern();
     }
+    checkedDashAndStrokeIsDashed = (dashState == eDashedStroke);
   }
 
   aStrokeOptions->mLineWidth =
@@ -220,10 +222,12 @@ SVGContentUtils::GetStrokeOptions(AutoStrokeOptions* aStrokeOptions,
     break;
   }
 
-  if (ShapeTypeHasNoCorners(aElement)) {
+  if (ShapeTypeHasNoCorners(aElement) && !checkedDashAndStrokeIsDashed) {
+    // Note: if aFlags == eIgnoreStrokeDashing then we may be returning the
+    // wrong linecap value here, since the actual linecap used on render in this
+    // case depends on whether the stroke is dashed or not.
     aStrokeOptions->mLineCap = CapStyle::BUTT;
-  }
-  else {
+  } else {
     switch (styleSVG->mStrokeLinecap) {
       case NS_STYLE_STROKE_LINECAP_BUTT:
         aStrokeOptions->mLineCap = CapStyle::BUTT;
@@ -258,7 +262,7 @@ SVGContentUtils::GetStrokeWidth(nsSVGElement* aElement,
 
   const nsStyleSVG* styleSVG = styleContext->StyleSVG();
 
-  if (aContextPaint && styleSVG->mStrokeWidthFromObject) {
+  if (aContextPaint && styleSVG->StrokeWidthFromObject()) {
     return aContextPaint->GetStrokeWidth();
   }
 
@@ -336,9 +340,8 @@ SVGContentUtils::GetFontXHeight(nsStyleContext *aStyleContext)
   nsPresContext *presContext = aStyleContext->PresContext();
   MOZ_ASSERT(presContext, "NULL pres context in GetFontXHeight");
 
-  RefPtr<nsFontMetrics> fontMetrics;
-  nsLayoutUtils::GetFontMetricsForStyleContext(aStyleContext,
-                                               getter_AddRefs(fontMetrics));
+  RefPtr<nsFontMetrics> fontMetrics =
+    nsLayoutUtils::GetFontMetricsForStyleContext(aStyleContext);
 
   if (!fontMetrics) {
     // ReportToConsole
@@ -395,7 +398,7 @@ static gfx::Matrix
 GetCTMInternal(nsSVGElement *aElement, bool aScreenCTM, bool aHaveRecursed)
 {
   gfxMatrix matrix = aElement->PrependLocalTransformsTo(gfxMatrix(),
-    aHaveRecursed ? nsSVGElement::eAllTransforms : nsSVGElement::eUserSpaceToParent);
+    aHaveRecursed ? eAllTransforms : eUserSpaceToParent);
   nsSVGElement *element = aElement;
   nsIContent *ancestor = aElement->GetFlattenedTreeParent();
 
@@ -857,4 +860,39 @@ bool
 SVGContentUtils::ShapeTypeHasNoCorners(const nsIContent* aContent) {
   return aContent && aContent->IsAnyOfSVGElements(nsGkAtoms::circle,
                                                   nsGkAtoms::ellipse);
+}
+
+gfxMatrix
+SVGContentUtils::PrependLocalTransformsTo(
+  const gfxMatrix &aMatrix,
+  SVGTransformTypes aWhich,
+  const gfx::Matrix* aAnimateMotionTransform,
+  const nsSVGAnimatedTransformList* aTransforms)
+{
+  gfxMatrix result(aMatrix);
+
+  if (aWhich == eChildToUserSpace) {
+    // We don't have anything to prepend.
+    // eChildToUserSpace is not the common case, which is why we return
+    // 'result' to benefit from NRVO rather than returning aMatrix before
+    // creating 'result'.
+    return result;
+  }
+
+  MOZ_ASSERT(aWhich == eAllTransforms || aWhich == eUserSpaceToParent,
+             "Unknown TransformTypes");
+
+  // animateMotion's resulting transform is supposed to apply *on top of*
+  // any transformations from the |transform| attribute. So since we're
+  // PRE-multiplying, we need to apply the animateMotion transform *first*.
+  if (aAnimateMotionTransform) {
+    result.PreMultiply(ThebesMatrix(*aAnimateMotionTransform));
+  }
+
+  if (aTransforms) {
+    result.PreMultiply(
+      aTransforms->GetAnimValue().GetConsolidationMatrix());
+  }
+
+  return result;
 }

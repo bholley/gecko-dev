@@ -10,7 +10,7 @@
 
 const { Cc, Ci, Cu, Cr } = require("chrome");
 const { L10N } = require("devtools/client/performance/modules/global");
-const { Heritage } = require("resource://devtools/client/shared/widgets/ViewHelpers.jsm");
+const { Heritage } = require("devtools/client/shared/widgets/view-helpers");
 const { AbstractTreeItem } = require("resource://devtools/client/shared/widgets/AbstractTreeItem.jsm");
 
 const URL_LABEL_TOOLTIP = L10N.getStr("table.url.tooltiptext");
@@ -55,12 +55,12 @@ const DEFAULT_SORTING_PREDICATE = (frameA, frameB) => {
 
   if (isAllocations) {
     return this.inverted && dataA.selfSize !== dataB.selfSize ?
-           (dataA.selfSize < dataB.selfSize ? 1 : - 1) :
+           (dataA.selfSize < dataB.selfSize ? 1 : -1) :
            (dataA.totalSize < dataB.totalSize ? 1 : -1);
   }
 
   return this.inverted && dataA.selfPercentage !== dataB.selfPercentage ?
-         (dataA.selfPercentage < dataB.selfPercentage ? 1 : - 1) :
+         (dataA.selfPercentage < dataB.selfPercentage ? 1 : -1) :
          (dataA.totalPercentage < dataB.totalPercentage ? 1 : -1);
 };
 
@@ -137,13 +137,13 @@ function CallView({
 }) {
   AbstractTreeItem.call(this, {
     parent: caller,
-    level: level|0 - (hidden ? 1 : 0)
+    level: level | 0 - (hidden ? 1 : 0)
   });
 
   this.sortingPredicate = sortingPredicate != null
     ? sortingPredicate
     : caller ? caller.sortingPredicate
-             : DEFAULT_SORTING_PREDICATE
+             : DEFAULT_SORTING_PREDICATE;
 
   this.autoExpandDepth = autoExpandDepth != null
     ? autoExpandDepth
@@ -162,7 +162,7 @@ function CallView({
   this.showOptimizationHint = showOptimizationHint;
 
   this._onUrlClick = this._onUrlClick.bind(this);
-};
+}
 
 CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
   /**
@@ -171,7 +171,7 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
    * @param nsIDOMNode arrowNode
    * @return nsIDOMNode
    */
-  _displaySelf: function(document, arrowNode) {
+  _displaySelf: function (document, arrowNode) {
     let frameInfo = this.getDisplayedData();
     let cells = [];
 
@@ -209,7 +209,7 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
    * These are defined in the `frame` data source for this call view.
    * @param array:AbstractTreeItem children
    */
-  _populateSelf: function(children) {
+  _populateSelf: function (children) {
     let newLevel = this.level + 1;
 
     for (let newFrame of this.frame.calls) {
@@ -235,14 +235,15 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
     cell.className = "plain call-tree-cell";
     cell.setAttribute("type", type);
     cell.setAttribute("crop", "end");
-    cell.setAttribute("value", value);
+    // Add a tabulation to the cell text in case it's is selected and copied.
+    cell.textContent = value + "\t";
     return cell;
   },
 
-  _createFunctionCell: function(doc, arrowNode, frameName, frameInfo, frameLevel) {
+  _createFunctionCell: function (doc, arrowNode, frameName, frameInfo, frameLevel) {
     let cell = doc.createElement("hbox");
     cell.className = "call-tree-cell";
-    cell.style.MozMarginStart = (frameLevel * CALL_TREE_INDENTATION) + "px";
+    cell.style.marginInlineStart = (frameLevel * CALL_TREE_INDENTATION) + "px";
     cell.setAttribute("type", "function");
     cell.appendChild(arrowNode);
 
@@ -259,9 +260,7 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
     if (frameName) {
       let nameNode = doc.createElement("description");
       nameNode.className = "plain call-tree-name";
-      nameNode.setAttribute("flex", "1");
-      nameNode.setAttribute("crop", "end");
-      nameNode.setAttribute("value", frameName);
+      nameNode.textContent = frameName;
       cell.appendChild(nameNode);
     }
 
@@ -276,16 +275,25 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
       arrowNode.setAttribute("invisible", "");
     }
 
+    // Add a line break to the last description of the row in case it's selected
+    // and copied.
+    let lastDescription = cell.querySelector("description:last-of-type");
+    lastDescription.textContent = lastDescription.textContent + "\n";
+
+    // Add spaces as frameLevel indicators in case the row is selected and
+    // copied. These spaces won't be displayed in the cell content.
+    let firstDescription = cell.querySelector("description:first-of-type");
+    let levelIndicator = frameLevel > 0 ? " ".repeat(frameLevel) : "";
+    firstDescription.textContent = levelIndicator + firstDescription.textContent;
+
     return cell;
   },
 
-  _appendFunctionDetailsCells: function(doc, cell, frameInfo) {
+  _appendFunctionDetailsCells: function (doc, cell, frameInfo) {
     if (frameInfo.fileName) {
       let urlNode = doc.createElement("description");
       urlNode.className = "plain call-tree-url";
-      urlNode.setAttribute("flex", "1");
-      urlNode.setAttribute("crop", "end");
-      urlNode.setAttribute("value", frameInfo.fileName);
+      urlNode.textContent = frameInfo.fileName;
       urlNode.setAttribute("tooltiptext", URL_LABEL_TOOLTIP + " → " + frameInfo.url);
       urlNode.addEventListener("mousedown", this._onUrlClick);
       cell.appendChild(urlNode);
@@ -294,33 +302,29 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
     if (frameInfo.line) {
       let lineNode = doc.createElement("description");
       lineNode.className = "plain call-tree-line";
-      lineNode.setAttribute("value", ":" + frameInfo.line);
+      lineNode.textContent = ":" + frameInfo.line;
       cell.appendChild(lineNode);
     }
 
     if (frameInfo.column) {
       let columnNode = doc.createElement("description");
       columnNode.className = "plain call-tree-column";
-      columnNode.setAttribute("value", ":" + frameInfo.column);
+      columnNode.textContent = ":" + frameInfo.column;
       cell.appendChild(columnNode);
     }
 
     if (frameInfo.host) {
       let hostNode = doc.createElement("description");
       hostNode.className = "plain call-tree-host";
-      hostNode.setAttribute("value", frameInfo.host);
+      hostNode.textContent = frameInfo.host;
       cell.appendChild(hostNode);
     }
-
-    let spacerNode = doc.createElement("spacer");
-    spacerNode.setAttribute("flex", "10000");
-    cell.appendChild(spacerNode);
 
     if (frameInfo.categoryData.label) {
       let categoryNode = doc.createElement("description");
       categoryNode.className = "plain call-tree-category";
       categoryNode.style.color = frameInfo.categoryData.color;
-      categoryNode.setAttribute("value", frameInfo.categoryData.label);
+      categoryNode.textContent = frameInfo.categoryData.label;
       cell.appendChild(categoryNode);
     }
   },
@@ -331,7 +335,7 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
    *
    * @return object
    */
-  getDisplayedData: function() {
+  getDisplayedData: function () {
     if (this._cachedDisplayedData) {
       return this._cachedDisplayedData;
     }
@@ -362,7 +366,7 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
    * Toggles the category information hidden or visible.
    * @param boolean visible
    */
-  toggleCategories: function(visible) {
+  toggleCategories: function (visible) {
     if (!visible) {
       this.container.setAttribute("categories-hidden", "");
     } else {
@@ -373,7 +377,7 @@ CallView.prototype = Heritage.extend(AbstractTreeItem.prototype, {
   /**
    * Handler for the "click" event on the url node of this call view.
    */
-  _onUrlClick: function(e) {
+  _onUrlClick: function (e) {
     e.preventDefault();
     e.stopPropagation();
     // Only emit for left click events

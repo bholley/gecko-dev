@@ -17,29 +17,29 @@
 #include "mozilla/RefPtr.h"             // for already_AddRefed, RefPtr
 #include "mozilla/gfx/2D.h"             // for DrawTarget
 #include "mozilla/gfx/BaseSize.h"       // for BaseSize
+#include "mozilla/gfx/MatrixFwd.h"      // for Matrix4x4
 #include "mozilla/gfx/Point.h"          // for IntSize, Point
 #include "mozilla/gfx/Rect.h"           // for Rect, IntRect
 #include "mozilla/gfx/Types.h"          // for Float, SurfaceFormat, etc
 #include "mozilla/layers/Compositor.h"  // for SurfaceInitMode, Compositor, etc
 #include "mozilla/layers/CompositorTypes.h"  // for MaskType::MaskType::NumMaskTypes, etc
 #include "mozilla/layers/LayersTypes.h"
-#include "nsAutoPtr.h"                  // for nsRefPtr, nsAutoPtr
 #include "nsCOMPtr.h"                   // for already_AddRefed
 #include "nsDebug.h"                    // for NS_ASSERTION, NS_WARNING
 #include "nsISupportsImpl.h"            // for MOZ_COUNT_CTOR, etc
-#include "nsTArray.h"                   // for nsAutoTArray, nsTArray, etc
+#include "nsTArray.h"                   // for AutoTArray, nsTArray, etc
 #include "nsThreadUtils.h"              // for nsRunnable
 #include "nsXULAppAPI.h"                // for XRE_GetProcessType
 #include "nscore.h"                     // for NS_IMETHOD
 #include "gfxVR.h"
 
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 21
+#include "nsTHashtable.h"               // for nsTHashtable
+#endif
+
 class nsIWidget;
 
 namespace mozilla {
-
-namespace gfx {
-class Matrix4x4;
-} // namespace gfx
 
 namespace layers {
 
@@ -51,6 +51,11 @@ class TextureSource;
 struct Effect;
 struct EffectChain;
 class GLBlitTextureImageHelper;
+
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 21
+class ImageHostOverlay;
+#endif
+
 /**
  * Interface for pools of temporary gl textures for the compositor.
  * The textures are fully owned by the pool, so the latter is responsible
@@ -187,13 +192,17 @@ class CompositorOGL final : public Compositor
 
   std::map<ShaderConfigOGL, ShaderProgramOGL*> mPrograms;
 public:
-  explicit CompositorOGL(nsIWidget *aWidget, int aSurfaceWidth = -1, int aSurfaceHeight = -1,
+  explicit CompositorOGL(CompositorBridgeParent* aParent,
+                         widget::CompositorWidgetProxy* aWidget,
+                         int aSurfaceWidth = -1, int aSurfaceHeight = -1,
                          bool aUseExternalSurfaceSize = false);
 
 protected:
   virtual ~CompositorOGL();
 
 public:
+  virtual CompositorOGL* AsCompositorOGL() override { return this; }
+
   virtual already_AddRefed<DataTextureSource>
   CreateDataTextureSource(TextureFlags aFlags = TextureFlags::NO_FLAGS) override;
 
@@ -209,7 +218,6 @@ public:
                                GetMaxTextureSize(),
                                mFBOTextureTarget == LOCAL_GL_TEXTURE_2D,
                                SupportsPartialTextureUpdate());
-    result.mSupportedBlendModes += gfx::CompositionOp::OP_SOURCE;
     return result;
   }
 
@@ -225,7 +233,7 @@ public:
   virtual CompositingRenderTarget* GetCurrentRenderTarget() const override;
 
   virtual void DrawQuad(const gfx::Rect& aRect,
-                        const gfx::Rect& aClipRect,
+                        const gfx::IntRect& aClipRect,
                         const EffectChain &aEffectChain,
                         gfx::Float aOpacity,
                         const gfx::Matrix4x4& aTransform,
@@ -269,7 +277,28 @@ public:
   virtual void Pause() override;
   virtual bool Resume() override;
 
-  virtual nsIWidget* GetWidget() const override { return mWidget; }
+  virtual bool HasImageHostOverlays() override
+  {
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 21
+    return mImageHostOverlays.Count() > 0;
+#else
+    return false;
+#endif
+  }
+
+  virtual void AddImageHostOverlay(ImageHostOverlay* aOverlay) override
+  {
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 21
+    mImageHostOverlays.PutEntry(aOverlay);
+#endif
+  }
+
+  virtual void RemoveImageHostOverlay(ImageHostOverlay* aOverlay) override
+  {
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 21
+    mImageHostOverlays.RemoveEntry(aOverlay);
+#endif
+  }
 
   GLContext* gl() const { return mGLContext; }
   /**
@@ -308,16 +337,11 @@ public:
   }
 
 private:
-  virtual gfx::IntSize GetWidgetSize() const override
-  {
-    return mWidgetSize;
-  }
-
   bool InitializeVR();
   void DestroyVR(GLContext *gl);
 
   void DrawVRDistortion(const gfx::Rect& aRect,
-                        const gfx::Rect& aClipRect,
+                        const gfx::IntRect& aClipRect,
                         const EffectChain& aEffectChain,
                         gfx::Float aOpacity,
                         const gfx::Matrix4x4& aTransform);
@@ -325,8 +349,7 @@ private:
   void PrepareViewport(CompositingRenderTargetOGL *aRenderTarget);
 
   /** Widget associated with this compositor */
-  nsIWidget *mWidget;
-  gfx::IntSize mWidgetSize;
+  LayoutDeviceIntSize mWidgetSize;
   RefPtr<GLContext> mGLContext;
   UniquePtr<GLBlitTextureImageHelper> mBlitTextureImageHelper;
   gfx::Matrix4x4 mProjMatrix;
@@ -376,10 +399,11 @@ private:
    * sets *aClipRectOut to the screen dimensions.
    */
   virtual void BeginFrame(const nsIntRegion& aInvalidRegion,
-                          const gfx::Rect *aClipRectIn,
-                          const gfx::Rect& aRenderBounds,
-                          gfx::Rect *aClipRectOut = nullptr,
-                          gfx::Rect *aRenderBoundsOut = nullptr) override;
+                          const gfx::IntRect *aClipRectIn,
+                          const gfx::IntRect& aRenderBounds,
+                          const nsIntRegion& aOpaqueRegion,
+                          gfx::IntRect *aClipRectOut = nullptr,
+                          gfx::IntRect *aRenderBoundsOut = nullptr) override;
 
   ShaderConfigOGL GetShaderConfigFor(Effect *aEffect,
                                      MaskType aMask = MaskType::MaskNone,
@@ -398,6 +422,7 @@ private:
   void CreateFBOWithTexture(const gfx::IntRect& aRect, bool aCopyFromSource,
                             GLuint aSourceFrameBuffer,
                             GLuint *aFBO, GLuint *aTexture);
+  GLuint CreateTexture(const gfx::IntRect& aRect, bool aCopyFromSource, GLuint aSourceFrameBuffer);
 
   void BindAndDrawQuads(ShaderProgramOGL *aProg,
                         int aQuads,
@@ -420,6 +445,12 @@ private:
                                    const gfx::Point& aPoint2);
   void ActivateProgram(ShaderProgramOGL *aProg);
   void CleanupResources();
+
+  /**
+   * Bind the texture behind the current render target as the backdrop for a
+   * mix-blend shader.
+   */
+  void BindBackdrop(ShaderProgramOGL* aProgram, GLuint aBackdrop, GLenum aTexUnit);
 
   /**
    * Copies the content of our backbuffer to the set transaction target.
@@ -452,9 +483,12 @@ private:
 
   ShaderProgramOGL *mCurrentProgram;
 
-  gfx::Rect mRenderBound;
-
   CompositorOGLVRObjects mVR;
+
+#if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 21
+  nsTHashtable<nsPtrHashKey<ImageHostOverlay> > mImageHostOverlays;
+#endif
+
 };
 
 } // namespace layers

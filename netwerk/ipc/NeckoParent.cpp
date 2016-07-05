@@ -22,6 +22,7 @@
 #include "mozilla/net/DNSRequestParent.h"
 #include "mozilla/net/RemoteOpenFileParent.h"
 #include "mozilla/net/ChannelDiverterParent.h"
+#include "mozilla/net/IPCTransportProvider.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/TabContext.h"
 #include "mozilla/dom/TabParent.h"
@@ -42,10 +43,12 @@
 #include "nsPrincipal.h"
 #include "nsIOService.h"
 #include "nsINetworkPredictor.h"
+#include "nsINetworkPredictorVerifier.h"
 #include "mozilla/net/OfflineObserver.h"
 #include "nsISpeculativeConnect.h"
 
-using mozilla::OriginAttributes;
+using mozilla::DocShellOriginAttributes;
+using mozilla::NeckoOriginAttributes;
 using mozilla::dom::ContentParent;
 using mozilla::dom::TabContext;
 using mozilla::dom::TabParent;
@@ -92,6 +95,7 @@ NeckoParent::NeckoParent()
 
 NeckoParent::~NeckoParent()
 {
+  gNeckoParent = nullptr;
   if (mObserver) {
     mObserver->RemoveObserver();
   }
@@ -111,7 +115,7 @@ PBOverrideStatusFromLoadContext(const SerializedLoadContext& aSerialized)
 const char*
 NeckoParent::GetValidatedAppInfo(const SerializedLoadContext& aSerialized,
                                  PContentParent* aContent,
-                                 OriginAttributes& aAttrs)
+                                 DocShellOriginAttributes& aAttrs)
 {
   if (UsingNeckoIPCSecurity()) {
     if (!aSerialized.IsNotNull()) {
@@ -125,31 +129,32 @@ NeckoParent::GetValidatedAppInfo(const SerializedLoadContext& aSerialized,
     TabContext tabContext = contextArray[i];
     uint32_t appId = tabContext.OwnOrContainingAppId();
     bool inBrowserElement = aSerialized.IsNotNull() ?
-                              aSerialized.mOriginAttributes.mInBrowser :
-                              tabContext.IsBrowserElement();
+                              aSerialized.mOriginAttributes.mInIsolatedMozBrowser :
+                              tabContext.IsIsolatedMozBrowserElement();
 
     if (appId == NECKO_UNKNOWN_APP_ID) {
       continue;
     }
     // We may get appID=NO_APP if child frame is neither a browser nor an app
-    if (appId == NECKO_NO_APP_ID) {
-      if (tabContext.HasOwnApp()) {
-        continue;
-      }
-      if (UsingNeckoIPCSecurity() && tabContext.IsBrowserElement()) {
-        // <iframe mozbrowser> which doesn't have an <iframe mozapp> above it.
-        // This is not supported now, and we'll need to do a code audit to make
-        // sure we can handle it (i.e don't short-circuit using separate
-        // namespace if just appID==0)
-        continue;
-      }
+    if (appId == NECKO_NO_APP_ID && tabContext.HasOwnApp()) {
+      // NECKO_NO_APP_ID but also is an app?  Weird, skip.
+      continue;
     }
+
     if (!aSerialized.mOriginAttributes.mSignedPkg.IsEmpty() &&
         aSerialized.mOriginAttributes.mSignedPkg != tabContext.OriginAttributesRef().mSignedPkg) {
       continue;
     }
-    aAttrs = OriginAttributes(appId, inBrowserElement);
-    aAttrs.mSignedPkg = tabContext.OriginAttributesRef().mSignedPkg;
+    if (aSerialized.mOriginAttributes.mUserContextId != tabContext.OriginAttributesRef().mUserContextId) {
+      continue;
+    }
+    aAttrs = DocShellOriginAttributes();
+    aAttrs.mAppId = appId;
+    aAttrs.mInIsolatedMozBrowser = inBrowserElement;
+    aAttrs.mSignedPkg = aSerialized.mOriginAttributes.mSignedPkg;
+    aAttrs.mUserContextId = aSerialized.mOriginAttributes.mUserContextId;
+    aAttrs.mPrivateBrowsingId = aSerialized.mOriginAttributes.mPrivateBrowsingId;
+
     return nullptr;
   }
 
@@ -162,7 +167,7 @@ NeckoParent::GetValidatedAppInfo(const SerializedLoadContext& aSerialized,
     if (aSerialized.IsNotNull()) {
       aAttrs = aSerialized.mOriginAttributes;
     } else {
-      aAttrs = OriginAttributes(NECKO_NO_APP_ID, false);
+      aAttrs = DocShellOriginAttributes(NECKO_NO_APP_ID, false);
     }
     return nullptr;
   }
@@ -176,7 +181,7 @@ NeckoParent::CreateChannelLoadContext(const PBrowserOrId& aBrowser,
                                       const SerializedLoadContext& aSerialized,
                                       nsCOMPtr<nsILoadContext> &aResult)
 {
-  OriginAttributes attrs;
+  DocShellOriginAttributes attrs;
   const char* error = GetValidatedAppInfo(aSerialized, aContent, attrs);
   if (error) {
     return error;
@@ -185,6 +190,7 @@ NeckoParent::CreateChannelLoadContext(const PBrowserOrId& aBrowser,
   // if !UsingNeckoIPCSecurity(), we may not have a LoadContext to set. This is
   // the common case for most xpcshell tests.
   if (aSerialized.IsNotNull()) {
+    attrs.SyncAttributesWithPrivateBrowsing(aSerialized.mUsePrivateBrowsing);
     switch (aBrowser.type()) {
       case PBrowserOrId::TPBrowserParent:
       {
@@ -781,6 +787,21 @@ NeckoParent::DeallocPChannelDiverterParent(PChannelDiverterParent* parent)
   return true;
 }
 
+PTransportProviderParent*
+NeckoParent::AllocPTransportProviderParent()
+{
+  RefPtr<TransportProviderParent> res = new TransportProviderParent();
+  return res.forget().take();
+}
+
+bool
+NeckoParent::DeallocPTransportProviderParent(PTransportProviderParent* aActor)
+{
+  RefPtr<TransportProviderParent> provider =
+    dont_AddRef(static_cast<TransportProviderParent*>(aActor));
+  return true;
+}
+
 void
 NeckoParent::CloneManagees(ProtocolBase* aSource,
                          mozilla::ipc::ProtocolCloneContext* aCtx)
@@ -898,9 +919,10 @@ NeckoParent::RecvPredPredict(const ipc::OptionalURIParams& aTargetURI,
   // We only actually care about the loadContext.mPrivateBrowsing, so we'll just
   // pass dummy params for nestFrameId, and originAttributes.
   uint64_t nestedFrameId = 0;
-  OriginAttributes attrs(NECKO_UNKNOWN_APP_ID, false);
+  DocShellOriginAttributes attrs(NECKO_UNKNOWN_APP_ID, false);
   nsCOMPtr<nsILoadContext> loadContext;
   if (aLoadContext.IsNotNull()) {
+    attrs.SyncAttributesWithPrivateBrowsing(aLoadContext.mUsePrivateBrowsing);
     loadContext = new LoadContext(aLoadContext, nestedFrameId, attrs);
   }
 
@@ -930,9 +952,10 @@ NeckoParent::RecvPredLearn(const ipc::URIParams& aTargetURI,
   // We only actually care about the loadContext.mPrivateBrowsing, so we'll just
   // pass dummy params for nestFrameId, and originAttributes;
   uint64_t nestedFrameId = 0;
-  OriginAttributes attrs(NECKO_UNKNOWN_APP_ID, false);
+  DocShellOriginAttributes attrs(NECKO_UNKNOWN_APP_ID, false);
   nsCOMPtr<nsILoadContext> loadContext;
   if (aLoadContext.IsNotNull()) {
+    attrs.SyncAttributesWithPrivateBrowsing(aLoadContext.mUsePrivateBrowsing);
     loadContext = new LoadContext(aLoadContext, nestedFrameId, attrs);
   }
 
@@ -996,21 +1019,32 @@ NeckoParent::OfflineNotification(nsISupports *aSubject)
 
   }
 
+  // XPCShells don't have any TabParents
+  // Just send the ipdl message to the child process.
+  if (!UsingNeckoIPCSecurity()) {
+    bool offline = false;
+    gIOService->IsAppOffline(targetAppId, &offline);
+    if (!SendAppOfflineStatus(targetAppId, offline)) {
+      printf_stderr("NeckoParent: "
+                    "SendAppOfflineStatus failed for targetAppId: %u\n", targetAppId);
+    }
+  }
+
   return NS_OK;
 }
 
 bool
-NeckoParent::RecvRemoveSchedulingContext(const nsCString& scid)
+NeckoParent::RecvRemoveRequestContext(const nsCString& rcid)
 {
-  nsCOMPtr<nsISchedulingContextService> scsvc =
-    do_GetService("@mozilla.org/network/scheduling-context-service;1");
-  if (!scsvc) {
+  nsCOMPtr<nsIRequestContextService> rcsvc =
+    do_GetService("@mozilla.org/network/request-context-service;1");
+  if (!rcsvc) {
     return true;
   }
 
   nsID id;
-  id.Parse(scid.BeginReading());
-  scsvc->RemoveSchedulingContext(id);
+  id.Parse(rcid.BeginReading());
+  rcsvc->RemoveRequestContext(id);
 
   return true;
 }

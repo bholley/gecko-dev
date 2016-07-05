@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const CURRENT_SCHEMA_VERSION = 30;
+const CURRENT_SCHEMA_VERSION = 32;
 const FIRST_UPGRADABLE_SCHEMA_VERSION = 11;
 
 const NS_APP_USER_PROFILE_50_DIR = "ProfD";
@@ -18,6 +18,7 @@ const TRANSITION_FRAMED_LINK = Ci.nsINavHistoryService.TRANSITION_FRAMED_LINK;
 const TRANSITION_REDIRECT_PERMANENT = Ci.nsINavHistoryService.TRANSITION_REDIRECT_PERMANENT;
 const TRANSITION_REDIRECT_TEMPORARY = Ci.nsINavHistoryService.TRANSITION_REDIRECT_TEMPORARY;
 const TRANSITION_DOWNLOAD = Ci.nsINavHistoryService.TRANSITION_DOWNLOAD;
+const TRANSITION_RELOAD = Ci.nsINavHistoryService.TRANSITION_RELOAD;
 
 const TITLE_LENGTH_MAX = 4096;
 
@@ -118,7 +119,7 @@ function DBConn(aForceNewConnection) {
   }
 
   return gDBConn.connectionReady ? gDBConn : null;
-};
+}
 
 /**
  * Reads data from the provided inputstream.
@@ -385,10 +386,10 @@ var shutdownPlaces = function() {
     Services.obs.addObserver(resolve, "places-connection-closed", false);
   });
   let hs = PlacesUtils.history.QueryInterface(Ci.nsIObserver);
-  hs.observe(null, "test-simulate-places-shutdown-phase-1", null);
-  do_print("shutdownPlaces: sent test-simulate-places-shutdown-phase-1");
-  hs.observe(null, "test-simulate-places-shutdown-phase-2", null);
-  do_print("shutdownPlaces: sent test-simulate-places-shutdown-phase-2");
+  hs.observe(null, "profile-change-teardown", null);
+  do_print("shutdownPlaces: sent profile-change-teardown");
+  hs.observe(null, "test-simulate-places-shutdown", null);
+  do_print("shutdownPlaces: sent test-simulate-places-shutdown");
   return promise.then(() => {
     do_print("shutdownPlaces: complete");
   });
@@ -534,9 +535,12 @@ function check_JSON_backup(aIsAutomaticBackup) {
  */
 function frecencyForUrl(aURI)
 {
-  let url = aURI instanceof Ci.nsIURI ? aURI.spec
-                                      : aURI instanceof URL ? aURI.href
-                                                            : aURI;
+  let url = aURI;
+  if (aURI instanceof Ci.nsIURI) {
+    url = aURI.spec;
+  } else if (aURI instanceof URL) {
+    url = aURI.href;
+  }
   let stmt = DBConn().createStatement(
     "SELECT frecency FROM moz_places WHERE url = ?1"
   );
@@ -838,7 +842,8 @@ function promiseSetIconForPage(aPageURI, aIconURI) {
   PlacesUtils.favicons.setAndFetchFaviconForPage(
     aPageURI, aIconURI, true,
     PlacesUtils.favicons.FAVICON_LOAD_NON_PRIVATE,
-    () => { deferred.resolve(); });
+    () => { deferred.resolve(); },
+    Services.scriptSecurityManager.getSystemPrincipal());
   return deferred.promise;
 }
 

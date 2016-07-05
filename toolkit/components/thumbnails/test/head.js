@@ -55,17 +55,18 @@ var TestRunner = {
    *               iterator.
    */
   next: function (aValue) {
-    try {
-      let value = TestRunner._iter.send(aValue);
-      if (value && typeof value.then == "function") {
-        value.then(result => {
-          next(result);
-        }, error => {
-          ok(false, error + "\n" + error.stack);
-        });
-      }
-    } catch (e if e instanceof StopIteration) {
+    let { done, value } = TestRunner._iter.next(aValue);
+    if (done) {
       finish();
+      return;
+    }
+
+    if (value && typeof value.then == "function") {
+      value.then(result => {
+        next(result);
+      }, error => {
+        ok(false, error + "\n" + error.stack);
+      });
     }
   }
 };
@@ -274,6 +275,27 @@ function bgCaptureWithMethod(aMethodName, aURL, aOptions = {}) {
 function bgTestPageURL(aOpts = {}) {
   let TEST_PAGE_URL = "http://mochi.test:8888/browser/toolkit/components/thumbnails/test/thumbnails_background.sjs";
   return TEST_PAGE_URL + "?" + encodeURIComponent(JSON.stringify(aOpts));
+}
+
+function bgAddPageThumbObserver(url) {
+  return new Promise((resolve, reject) => {
+    function observe(subject, topic, data) { // jshint ignore:line
+      if (data === url) {
+        switch(topic) {
+          case "page-thumbnail:create":
+            resolve();
+            break;
+          case "page-thumbnail:error":
+            reject(new Error("page-thumbnail:error"));
+            break;
+        }
+        Services.obs.removeObserver(observe, "page-thumbnail:create");
+        Services.obs.removeObserver(observe, "page-thumbnail:error");
+      }
+    }
+    Services.obs.addObserver(observe, "page-thumbnail:create", false);
+    Services.obs.addObserver(observe, "page-thumbnail:error", false);
+  });
 }
 
 function bgAddCrashObserver() {

@@ -70,7 +70,7 @@ GetDirectWriteFontName(IDWriteFont *aFont, nsAString& aFontName)
     }
 
     BOOL exists;
-    nsAutoTArray<wchar_t,32> faceName;
+    AutoTArray<wchar_t,32> faceName;
     UINT32 englishIdx = 0;
     hr = names->FindLocaleName(L"en-us", &englishIdx, &exists);
     if (FAILED(hr)) {
@@ -114,7 +114,7 @@ GetDirectWriteFaceName(IDWriteFont *aFont,
         return E_FAIL;
     }
 
-    nsAutoTArray<wchar_t,32> faceName;
+    AutoTArray<wchar_t,32> faceName;
     UINT32 englishIdx = 0;
     hr = infostrings->FindLocaleName(L"en-us", &englishIdx, &exists);
     if (FAILED(hr)) {
@@ -304,7 +304,7 @@ gfxDWriteFontFamily::LocalizedName(nsAString &aLocalizedName)
             idx = 0;
         }
     }
-    AutoFallibleTArray<WCHAR, 32> famName;
+    AutoTArray<WCHAR, 32> famName;
     UINT32 length;
     
     hr = names->GetStringLength(idx, &length);
@@ -340,6 +340,24 @@ gfxDWriteFontFamily::AddSizeOfIncludingThis(MallocSizeOf aMallocSizeOf,
 {
     aSizes->mFontListSize += aMallocSizeOf(this);
     AddSizeOfExcludingThis(aMallocSizeOf, aSizes);
+}
+
+already_AddRefed<IDWriteFont>
+gfxDWriteFontFamily::GetDefaultFont()
+{
+  RefPtr<IDWriteFont> font;
+  for (UINT32 i = 0; i < mDWFamily->GetFontCount(); i++) {
+    HRESULT hr = mDWFamily->GetFont(i, getter_AddRefs(font));
+    if (FAILED(hr)) {
+      NS_WARNING("Failed to get default font from existing family");
+      continue;
+    }
+
+    return font.forget();
+  }
+
+  NS_WARNING("No available DWrite fonts. Returning null");
+  return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -380,9 +398,10 @@ UsingArabicOrHebrewScriptSystemLocale()
 
 nsresult
 gfxDWriteFontEntry::CopyFontTable(uint32_t aTableTag,
-                                  FallibleTArray<uint8_t> &aBuffer)
+                                  nsTArray<uint8_t> &aBuffer)
 {
     gfxDWriteFontList *pFontList = gfxDWriteFontList::PlatformFontList();
+    const uint32_t tagBE = NativeEndian::swapToBigEndian(aTableTag);
 
     // Don't use GDI table loading for symbol fonts or for
     // italic fonts in Arabic-script system locales because of
@@ -393,27 +412,22 @@ gfxDWriteFontEntry::CopyFontTable(uint32_t aTableTag,
         !mFont->IsSymbolFont())
     {
         LOGFONTW logfont = { 0 };
-        if (!InitLogFont(mFont, &logfont))
-            return NS_ERROR_FAILURE;
-
-        AutoDC dc;
-        AutoSelectFont font(dc.GetDC(), &logfont);
-        if (font.IsValid()) {
-            uint32_t tableSize =
-                ::GetFontData(dc.GetDC(),
-                              NativeEndian::swapToBigEndian(aTableTag), 0,
-                              nullptr, 0);
-            if (tableSize != GDI_ERROR) {
-                if (aBuffer.SetLength(tableSize, fallible)) {
-                    ::GetFontData(dc.GetDC(),
-                                  NativeEndian::swapToBigEndian(aTableTag), 0,
-                                  aBuffer.Elements(), aBuffer.Length());
-                    return NS_OK;
+        if (InitLogFont(mFont, &logfont)) {
+            AutoDC dc;
+            AutoSelectFont font(dc.GetDC(), &logfont);
+            if (font.IsValid()) {
+                uint32_t tableSize =
+                    ::GetFontData(dc.GetDC(), tagBE, 0, nullptr, 0);
+                if (tableSize != GDI_ERROR) {
+                    if (aBuffer.SetLength(tableSize, fallible)) {
+                        ::GetFontData(dc.GetDC(), tagBE, 0,
+                                      aBuffer.Elements(), aBuffer.Length());
+                        return NS_OK;
+                    }
+                    return NS_ERROR_OUT_OF_MEMORY;
                 }
-                return NS_ERROR_OUT_OF_MEMORY;
             }
         }
-        return NS_ERROR_FAILURE;
     }
 
     RefPtr<IDWriteFontFace> fontFace;
@@ -427,8 +441,7 @@ gfxDWriteFontEntry::CopyFontTable(uint32_t aTableTag,
     void *tableContext = nullptr;
     BOOL exists;
     HRESULT hr =
-        fontFace->TryGetFontTable(NativeEndian::swapToBigEndian(aTableTag),
-                                  (const void**)&tableData, &len,
+        fontFace->TryGetFontTable(tagBE, (const void**)&tableData, &len,
                                   &tableContext, &exists);
     if (FAILED(hr) || !exists) {
         return NS_ERROR_FAILURE;
@@ -506,6 +519,8 @@ gfxDWriteFontEntry::GetFontTable(uint32_t aTag)
 nsresult
 gfxDWriteFontEntry::ReadCMAP(FontInfoData *aFontInfoData)
 {
+    PROFILER_LABEL_FUNC(js::ProfileEntry::Category::GRAPHICS);
+
     // attempt this once, if errors occur leave a blank cmap
     if (mCharacterMap) {
         return NS_OK;
@@ -613,7 +628,7 @@ gfxDWriteFontEntry::CreateFontFace(IDWriteFontFace **aFontFace,
         if (FAILED(mFontFace->GetFiles(&numberOfFiles, nullptr))) {
             return NS_ERROR_FAILURE;
         }
-        nsAutoTArray<IDWriteFontFile*,1> files;
+        AutoTArray<IDWriteFontFile*,1> files;
         files.AppendElements(numberOfFiles);
         if (FAILED(mFontFace->GetFiles(&numberOfFiles, files.Elements()))) {
             return NS_ERROR_FAILURE;
@@ -646,7 +661,10 @@ gfxDWriteFontEntry::InitLogFont(IDWriteFont *aFont, LOGFONTW *aLogFont)
     IDWriteGdiInterop *gdi = 
         gfxDWriteFontList::PlatformFontList()->GetGDIInterop();
     hr = gdi->ConvertFontToLOGFONT(aFont, aLogFont, &isInSystemCollection);
-    return (FAILED(hr) ? false : true);
+    // If the font is not in the system collection, GDI will be unable to
+    // select it and load its tables, so we return false here to indicate
+    // failure, and let CopyFontTable fall back to DWrite native methods.
+    return (SUCCEEDED(hr) && isInSystemCollection);
 }
 
 bool
@@ -659,7 +677,7 @@ gfxDWriteFontEntry::IsCJKFont()
     mIsCJK = false;
 
     const uint32_t kOS2Tag = TRUETYPE_TAG('O','S','/','2');
-    AutoFallibleTArray<uint8_t,128> buffer;
+    AutoTArray<uint8_t, 128> buffer;
     if (CopyFontTable(kOS2Tag, buffer) != NS_OK) {
         return mIsCJK;
     }
@@ -789,35 +807,12 @@ gfxDWriteFontList::MakePlatformFont(const nsAString& aFontName,
         return nullptr;
     }
     
+    RefPtr<IDWriteFontFileStream> fontFileStream;
     RefPtr<IDWriteFontFile> fontFile;
-    HRESULT hr;
-
-    /**
-     * We pass in a pointer to a structure containing a pointer to the array
-     * containing the font data and a unique identifier. DWrite will
-     * internally copy what is at that pointer, and pass that to
-     * CreateStreamFromKey. The array will be empty when the function 
-     * succesfully returns since it swaps out the data.
-     */
-    ffReferenceKey key;
-    key.mArray = &newFontData;
-    nsCOMPtr<nsIUUIDGenerator> uuidgen =
-      do_GetService("@mozilla.org/uuid-generator;1");
-    if (!uuidgen) {
-        return nullptr;
-    }
-
-    rv = uuidgen->GenerateUUIDInPlace(&key.mGUID);
-
-    if (NS_FAILED(rv)) {
-        return nullptr;
-    }
-
-    hr = gfxWindowsPlatform::GetPlatform()->GetDWriteFactory()->
-        CreateCustomFontFileReference(&key,
-                                      sizeof(key),
-                                      gfxDWriteFontFileLoader::Instance(),
-                                      getter_AddRefs(fontFile));
+    HRESULT hr =
+      gfxDWriteFontFileLoader::CreateCustomFontFile(newFontData,
+                                                    getter_AddRefs(fontFile),
+                                                    getter_AddRefs(fontFileStream));
 
     if (FAILED(hr)) {
         NS_WARNING("Failed to create custom font file reference.");
@@ -831,6 +826,7 @@ gfxDWriteFontList::MakePlatformFont(const nsAString& aFontName,
     gfxDWriteFontEntry *entry = 
         new gfxDWriteFontEntry(uniqueName, 
                                fontFile,
+                               fontFileStream,
                                aWeight,
                                aStretch,
                                aStyle);
@@ -860,9 +856,9 @@ gfxDWriteFontList::InitFontList()
     char nowTime[256], nowDate[256];
 
     if (LOG_FONTINIT_ENABLED()) {
-        GetTimeFormat(LOCALE_INVARIANT, TIME_FORCE24HOURFORMAT,
+        GetTimeFormatA(LOCALE_INVARIANT, TIME_FORCE24HOURFORMAT,
                       nullptr, nullptr, nowTime, 256);
-        GetDateFormat(LOCALE_INVARIANT, 0, nullptr, nullptr, nowDate, 256);
+        GetDateFormatA(LOCALE_INVARIANT, 0, nullptr, nullptr, nowDate, 256);
         upTime = (double) GetTickCount();
     }
     QueryPerformanceFrequency(&frequency);
@@ -1067,7 +1063,7 @@ gfxDWriteFontList::GetFontsFromCollection(IDWriteFontCollection* aCollection)
             englishIdx = 0;
         }
 
-        AutoFallibleTArray<WCHAR, 32> enName;
+        AutoTArray<WCHAR, 32> enName;
         UINT32 length;
 
         hr = names->GetStringLength(englishIdx, &length);
@@ -1112,7 +1108,7 @@ gfxDWriteFontList::GetFontsFromCollection(IDWriteFontCollection* aCollection)
 
         for (nameIndex = 0; nameIndex < nameCount; nameIndex++) {
             UINT32 nameLen;
-            AutoFallibleTArray<WCHAR, 32> localizedName;
+            AutoTArray<WCHAR, 32> localizedName;
 
             // only add other names
             if (nameIndex == englishIdx) {
@@ -1256,22 +1252,27 @@ gfxDWriteFontList::GetStandardFamilyName(const nsAString& aFontName,
     return false;
 }
 
-gfxFontFamily*
-gfxDWriteFontList::FindFamily(const nsAString& aFamily, gfxFontStyle* aStyle)
+bool
+gfxDWriteFontList::FindAndAddFamilies(const nsAString& aFamily,
+                                      nsTArray<gfxFontFamily*>* aOutput,
+                                      gfxFontStyle* aStyle,
+                                      gfxFloat aDevToCssSize)
 {
     nsAutoString keyName(aFamily);
     BuildKeyNameFromFontName(keyName);
 
     gfxFontFamily *ff = mFontSubstitutes.GetWeak(keyName);
     if (ff) {
-        return ff;
+        aOutput->AppendElement(ff);
+        return true;
     }
 
     if (mNonExistingFonts.Contains(keyName)) {
-        return nullptr;
+        return false;
     }
 
-    return gfxPlatformFontList::FindFamily(aFamily);
+    return gfxPlatformFontList::FindAndAddFamilies(aFamily, aOutput, aStyle,
+                                                   aDevToCssSize);
 }
 
 void
@@ -1332,7 +1333,7 @@ static HRESULT GetFamilyName(IDWriteFont *aFont, nsString& aFamilyName)
         index = 0;
     }
 
-    AutoFallibleTArray<WCHAR, 32> name;
+    AutoTArray<WCHAR, 32> name;
     UINT32 length;
 
     hr = familyNames->GetStringLength(index, &length);
@@ -1356,7 +1357,7 @@ static HRESULT GetFamilyName(IDWriteFont *aFont, nsString& aFamilyName)
 // used to invoke the DirectWrite layout engine to determine the fallback font
 // for a given character.
 
-IFACEMETHODIMP FontFallbackRenderer::DrawGlyphRun(
+IFACEMETHODIMP DWriteFontFallbackRenderer::DrawGlyphRun(
     void* clientDrawingContext,
     FLOAT baselineOriginX,
     FLOAT baselineOriginY,
@@ -1396,7 +1397,7 @@ IFACEMETHODIMP FontFallbackRenderer::DrawGlyphRun(
 
 gfxFontEntry*
 gfxDWriteFontList::GlobalFontFallback(const uint32_t aCh,
-                                      int32_t aRunScript,
+                                      Script aRunScript,
                                       const gfxFontStyle* aMatchStyle,
                                       uint32_t& aCmapCount,
                                       gfxFontFamily** aMatchedFamily)
@@ -1421,7 +1422,7 @@ gfxDWriteFontList::GlobalFontFallback(const uint32_t aCh,
 
     // initialize fallback renderer
     if (!mFallbackRenderer) {
-        mFallbackRenderer = new FontFallbackRenderer(dwFactory);
+        mFallbackRenderer = new DWriteFontFallbackRenderer(dwFactory);
     }
 
     // initialize text format
@@ -1518,7 +1519,7 @@ void
 DirectWriteFontInfo::LoadFontFamilyData(const nsAString& aFamilyName)
 {
     // lookup the family
-    nsAutoTArray<wchar_t, 32> famName;
+    AutoTArray<wchar_t, 32> famName;
 
     uint32_t len = aFamilyName.Length();
     if(!famName.SetLength(len + 1, fallible)) {
@@ -1818,6 +1819,7 @@ BundledFontLoader::CreateEnumeratorFromKey(
 {
     nsIFile *fontDir = *(nsIFile**)aCollectionKey;
     *aFontFileEnumerator = new BundledFontFileEnumerator(aFactory, fontDir);
+    NS_ADDREF(*aFontFileEnumerator);
     return S_OK;
 }
 

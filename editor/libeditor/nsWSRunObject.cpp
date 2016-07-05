@@ -11,7 +11,6 @@
 #include "mozilla/mozalloc.h"
 
 #include "nsAString.h"
-#include "nsAutoPtr.h"
 #include "nsCRT.h"
 #include "nsContentUtils.h"
 #include "nsDebug.h"
@@ -193,7 +192,7 @@ nsWSRunObject::PrepareToSplitAcrossBlocks(nsHTMLEditor* aHTMLEd,
 //   public instance methods
 //--------------------------------------------------------------------------------------------
 
-already_AddRefed<Element>
+Element*
 nsWSRunObject::InsertBreak(nsCOMPtr<nsINode>* aInOutParent,
                            int32_t* aInOutOffset,
                            nsIEditor::EDirection aSelect)
@@ -602,7 +601,7 @@ nsWSRunObject::AdjustWhitespace()
 //   protected methods
 //--------------------------------------------------------------------------------------------
 
-already_AddRefed<nsINode>
+nsINode*
 nsWSRunObject::GetWSBoundingParent()
 {
   NS_ENSURE_TRUE(mNode, nullptr);
@@ -614,7 +613,7 @@ nsWSRunObject::GetWSBoundingParent()
     }
     wsBoundingParent = parent;
   }
-  return wsBoundingParent.forget();
+  return wsBoundingParent;
 }
 
 nsresult
@@ -1763,7 +1762,7 @@ nsWSRunObject::CheckTrailingNBSPOfRun(WSFragment *aRun)
         rightCheck = true;
       }
       if ((aRun->mRightType & WSType::block) &&
-          IsBlockNode(nsCOMPtr<nsINode>(GetWSBoundingParent()))) {
+          IsBlockNode(GetWSBoundingParent())) {
         // We are at a block boundary.  Insert a <br>.  Why?  Well, first note
         // that the br will have no visible effect since it is up against a
         // block boundary.  |foo<br><p>bar| renders like |foo<p>bar| and

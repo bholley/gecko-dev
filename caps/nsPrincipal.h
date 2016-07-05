@@ -6,11 +6,9 @@
 #ifndef nsPrincipal_h__
 #define nsPrincipal_h__
 
-#include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
 #include "nsJSPrincipals.h"
 #include "nsTArray.h"
-#include "nsAutoPtr.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsIProtocolHandler.h"
 #include "nsNetUtil.h"
@@ -34,7 +32,7 @@ public:
   nsPrincipal();
 
   // Init() must be called before the principal is in a usable state.
-  nsresult Init(nsIURI* aCodebase, const mozilla::OriginAttributes& aOriginAttributes);
+  nsresult Init(nsIURI* aCodebase, const mozilla::PrincipalOriginAttributes& aOriginAttributes);
 
   virtual void GetScriptLocation(nsACString& aStr) override;
   void SetURI(nsIURI* aURI);

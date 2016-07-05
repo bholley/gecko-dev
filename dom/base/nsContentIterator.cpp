@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/DebugOnly.h"
 #include "nsISupports.h"
 #include "nsIDOMNodeList.h"
 #include "nsIContentIterator.h"
@@ -155,7 +156,7 @@ protected:
   nsCOMPtr<nsINode> mCommonParent;
 
   // used by nsContentIterator to cache indices
-  nsAutoTArray<int32_t, 8> mIndexes;
+  AutoTArray<int32_t, 8> mIndexes;
 
   // used by nsSubtreeIterator to cache indices.  Why put them in the base
   // class?  Because otherwise I have to duplicate the routines GetNextSibling
@@ -405,8 +406,8 @@ nsContentIterator::Init(nsIDOMRange* aDOMRange)
       // 'degenerate', i.e., not collapsed but still contain no content.
 
       if (mFirst &&
-          NS_WARN_IF(!NodeIsInTraversalRange(mFirst, mPre, startNode, startIndx,
-                                             endNode, endIndx))) {
+          !NodeIsInTraversalRange(mFirst, mPre, startNode, startIndx,
+                                  endNode, endIndx)) {
         mFirst = nullptr;
       }
     }
@@ -448,9 +449,9 @@ nsContentIterator::Init(nsIDOMRange* aDOMRange)
         mLast = GetPrevSibling(endNode);
         NS_WARN_IF(!mLast);
 
-        if (NS_WARN_IF(!NodeIsInTraversalRange(mLast, mPre,
-                                               startNode, startIndx,
-                                               endNode, endIndx))) {
+        if (!NodeIsInTraversalRange(mLast, mPre,
+                                    startNode, startIndx,
+                                    endNode, endIndx)) {
           mLast = nullptr;
         }
       } else {
@@ -485,7 +486,7 @@ nsContentIterator::Init(nsIDOMRange* aDOMRange)
 
   // If either first or last is null, they both have to be null!
 
-  if (NS_WARN_IF(!mFirst) || NS_WARN_IF(!mLast)) {
+  if (!mFirst || !mLast) {
     mFirst = nullptr;
     mLast  = nullptr;
   }
@@ -774,7 +775,11 @@ nsContentIterator::NextNode(nsINode* aNode, nsTArray<int32_t>* aIndexes)
 
   // post-order
   nsINode* parent = node->GetParentNode();
-  NS_WARN_IF(!parent);
+  if (NS_WARN_IF(!parent)) {
+    MOZ_ASSERT(parent, "The node is the root node but not the last node");
+    mIsDone = true;
+    return node;
+  }
   nsIContent* sibling = nullptr;
   int32_t indx = 0;
 
@@ -839,7 +844,11 @@ nsContentIterator::PrevNode(nsINode* aNode, nsTArray<int32_t>* aIndexes)
   // if we are a Pre-order iterator, use pre-order
   if (mPre) {
     nsINode* parent = node->GetParentNode();
-    NS_WARN_IF(!parent);
+    if (NS_WARN_IF(!parent)) {
+      MOZ_ASSERT(parent, "The node is the root node but not the first node");
+      mIsDone = true;
+      return aNode;
+    }
     nsIContent* sibling = nullptr;
     int32_t indx = 0;
 
@@ -925,7 +934,7 @@ void
 nsContentIterator::First()
 {
   if (mFirst) {
-    DebugOnly<nsresult> rv = PositionAt(mFirst);
+    mozilla::DebugOnly<nsresult> rv = PositionAt(mFirst);
     NS_ASSERTION(NS_SUCCEEDED(rv), "Failed to position iterator!");
   }
 
@@ -939,7 +948,7 @@ nsContentIterator::Last()
   NS_ASSERTION(mLast, "No last node!");
 
   if (mLast) {
-    DebugOnly<nsresult> rv = PositionAt(mLast);
+    mozilla::DebugOnly<nsresult> rv = PositionAt(mLast);
     NS_ASSERTION(NS_SUCCEEDED(rv), "Failed to position iterator!");
   }
 
@@ -1058,8 +1067,8 @@ nsContentIterator::PositionAt(nsINode* aCurNode)
 
   // We can be at ANY node in the sequence.  Need to regenerate the array of
   // indexes back to the root or common parent!
-  nsAutoTArray<nsINode*, 8>     oldParentStack;
-  nsAutoTArray<int32_t, 8>      newIndexes;
+  AutoTArray<nsINode*, 8>     oldParentStack;
+  AutoTArray<int32_t, 8>      newIndexes;
 
   // Get a list of the parents up to the root, then compare the new node with
   // entries in that array until we find a match (lowest common ancestor).  If
@@ -1213,8 +1222,8 @@ protected:
   RefPtr<nsRange> mRange;
 
   // these arrays all typically are used and have elements
-  nsAutoTArray<nsIContent*, 8> mEndNodes;
-  nsAutoTArray<int32_t, 8>     mEndOffsets;
+  AutoTArray<nsIContent*, 8> mEndNodes;
+  AutoTArray<int32_t, 8>     mEndOffsets;
 };
 
 NS_IMPL_ADDREF_INHERITED(nsContentSubtreeIterator, nsContentIterator)
@@ -1329,8 +1338,8 @@ nsContentSubtreeIterator::Init(nsIDOMRange* aRange)
   // we have a range that does not fully contain any node.
 
   bool nodeBefore, nodeAfter;
-  MOZ_ALWAYS_TRUE(NS_SUCCEEDED(
-    nsRange::CompareNodeToRange(firstCandidate, mRange, &nodeBefore, &nodeAfter)));
+  MOZ_ALWAYS_SUCCEEDS(
+    nsRange::CompareNodeToRange(firstCandidate, mRange, &nodeBefore, &nodeAfter));
 
   if (nodeBefore || nodeAfter) {
     MakeEmpty();
@@ -1373,8 +1382,8 @@ nsContentSubtreeIterator::Init(nsIDOMRange* aRange)
   // confirm that this last possible contained node is indeed contained.  Else
   // we have a range that does not fully contain any node.
 
-  MOZ_ALWAYS_TRUE(NS_SUCCEEDED(
-    nsRange::CompareNodeToRange(lastCandidate, mRange, &nodeBefore, &nodeAfter)));
+  MOZ_ALWAYS_SUCCEEDS(
+    nsRange::CompareNodeToRange(lastCandidate, mRange, &nodeBefore, &nodeAfter));
 
   if (nodeBefore || nodeAfter) {
     MakeEmpty();
@@ -1526,8 +1535,8 @@ nsContentSubtreeIterator::GetTopAncestorInRange(nsINode* aNode)
     if (!parent || !parent->GetParentNode()) {
       return content;
     }
-    MOZ_ALWAYS_TRUE(NS_SUCCEEDED(
-      nsRange::CompareNodeToRange(parent, mRange, &nodeBefore, &nodeAfter)));
+    MOZ_ALWAYS_SUCCEEDS(
+      nsRange::CompareNodeToRange(parent, mRange, &nodeBefore, &nodeAfter));
 
     if (nodeBefore || nodeAfter) {
       return content;

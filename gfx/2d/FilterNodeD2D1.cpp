@@ -8,9 +8,6 @@
 #include "Logging.h"
 
 #include "SourceSurfaceD2D1.h"
-#include "SourceSurfaceD2D.h"
-#include "SourceSurfaceD2DTarget.h"
-#include "DrawTargetD2D.h"
 #include "DrawTargetD2D1.h"
 #include "ExtendInputEffectD2D1.h"
 
@@ -25,23 +22,23 @@ D2D1_COLORMATRIX_ALPHA_MODE D2DAlphaMode(uint32_t aMode)
   case ALPHA_MODE_STRAIGHT:
     return D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT;
   default:
-    MOZ_CRASH("Unknown enum value!");
+    MOZ_CRASH("GFX: Unknown enum value D2DAlphaMode!");
   }
 
   return D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED;
 }
 
-D2D1_2DAFFINETRANSFORM_INTERPOLATION_MODE D2DAffineTransformInterpolationMode(Filter aFilter)
+D2D1_2DAFFINETRANSFORM_INTERPOLATION_MODE D2DAffineTransformInterpolationMode(SamplingFilter aSamplingFilter)
 {
-  switch (aFilter) {
-  case Filter::GOOD:
+  switch (aSamplingFilter) {
+  case SamplingFilter::GOOD:
     return D2D1_2DAFFINETRANSFORM_INTERPOLATION_MODE_LINEAR;
-  case Filter::LINEAR:
+  case SamplingFilter::LINEAR:
     return D2D1_2DAFFINETRANSFORM_INTERPOLATION_MODE_LINEAR;
-  case Filter::POINT:
+  case SamplingFilter::POINT:
     return D2D1_2DAFFINETRANSFORM_INTERPOLATION_MODE_NEAREST_NEIGHBOR;
   default:
-    MOZ_CRASH("Unknown enum value!");
+    MOZ_CRASH("GFX: Unknown enum value D2DAffineTIM!");
   }
 
   return D2D1_2DAFFINETRANSFORM_INTERPOLATION_MODE_LINEAR;
@@ -82,7 +79,7 @@ D2D1_BLEND_MODE D2DBlendMode(uint32_t aMode)
     return D2D1_BLEND_MODE_LUMINOSITY;
 
   default:
-    MOZ_CRASH("Unknown enum value!");
+    MOZ_CRASH("GFX: Unknown enum value D2DBlendMode!");
   }
 
   return D2D1_BLEND_MODE_DARKEN;
@@ -97,7 +94,7 @@ D2D1_MORPHOLOGY_MODE D2DMorphologyMode(uint32_t aMode)
     return D2D1_MORPHOLOGY_MODE_ERODE;
   }
 
-  MOZ_CRASH("Unknown enum value!");
+  MOZ_CRASH("GFX: Unknown enum value D2DMorphologyMode!");
   return D2D1_MORPHOLOGY_MODE_DILATE;
 }
 
@@ -110,7 +107,7 @@ D2D1_TURBULENCE_NOISE D2DTurbulenceNoise(uint32_t aMode)
     return D2D1_TURBULENCE_NOISE_TURBULENCE;
   }
 
-  MOZ_CRASH("Unknown enum value!");
+  MOZ_CRASH("GFX: Unknown enum value D2DTurbulenceNoise!");
   return D2D1_TURBULENCE_NOISE_TURBULENCE;
 }
 
@@ -129,7 +126,7 @@ D2D1_COMPOSITE_MODE D2DFilterCompositionMode(uint32_t aMode)
     return D2D1_COMPOSITE_MODE_XOR;
   }
 
-  MOZ_CRASH("Unknown enum value!");
+  MOZ_CRASH("GFX: Unknown enum value D2DFilterCompositionMode!");
   return D2D1_COMPOSITE_MODE_SOURCE_OVER;
 }
 
@@ -146,23 +143,21 @@ D2D1_CHANNEL_SELECTOR D2DChannelSelector(uint32_t aMode)
     return D2D1_CHANNEL_SELECTOR_A;
   }
 
-  MOZ_CRASH("Unknown enum value!");
+  MOZ_CRASH("GFX: Unknown enum value D2DChannelSelector!");
   return D2D1_CHANNEL_SELECTOR_R;
 }
 
 already_AddRefed<ID2D1Image> GetImageForSourceSurface(DrawTarget *aDT, SourceSurface *aSurface)
 {
   if (aDT->IsTiledDrawTarget() || aDT->IsDualDrawTarget()) {
-      MOZ_CRASH("Incompatible draw target type!");
-      return nullptr;
+    gfxDevCrash(LogReason::FilterNodeD2D1Target) << "Incompatible draw target type! " << (int)aDT->IsTiledDrawTarget() << " " << (int)aDT->IsDualDrawTarget();
+    return nullptr;
   }
   switch (aDT->GetBackendType()) {
     case BackendType::DIRECT2D1_1:
       return static_cast<DrawTargetD2D1*>(aDT)->GetImageForSurface(aSurface, ExtendMode::CLAMP);
-    case BackendType::DIRECT2D:
-      return static_cast<DrawTargetD2D*>(aDT)->GetImageForSurface(aSurface);
     default:
-      MOZ_CRASH("Unknown draw target type!");
+      gfxDevCrash(LogReason::FilterNodeD2D1Backend) << "Unknown draw target type! " << (int)aDT->GetBackendType();
       return nullptr;
   }
 }
@@ -177,7 +172,7 @@ uint32_t ConvertValue(FilterType aType, uint32_t aAttribute, uint32_t aValue)
     break;
   case FilterType::TRANSFORM:
     if (aAttribute == ATT_TRANSFORM_FILTER) {
-      aValue = D2DAffineTransformInterpolationMode(Filter(aValue));
+      aValue = D2DAffineTransformInterpolationMode(SamplingFilter(aValue));
     }
     break;
   case FilterType::BLEND:
@@ -573,6 +568,10 @@ FilterNodeD2D1::Create(ID2D1DeviceContext *aDC, FilterType aType)
   if (FAILED(hr) || !effect) {
     gfxCriticalErrorOnce() << "Failed to create effect for FilterType: " << hexa(hr);
     return nullptr;
+  }
+
+  if (aType == FilterType::ARITHMETIC_COMBINE) {
+    effect->SetValue(D2D1_ARITHMETICCOMPOSITE_PROP_CLAMP_OUTPUT, TRUE);
   }
 
   RefPtr<FilterNodeD2D1> filter = new FilterNodeD2D1(effect, aType);

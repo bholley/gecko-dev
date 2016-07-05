@@ -1,6 +1,7 @@
 # Default configuration as used by Mozmill CI (Jenkins)
 
 import os
+import sys
 
 import mozharness
 
@@ -11,14 +12,25 @@ external_tools_path = os.path.join(
 )
 
 config = {
+    # Tests run in mozmill-ci do not use RelEng infra
+    'developer_mode': True,
+
     'env': {
         'PIP_TRUSTED_HOST': 'pypi.pub.build.mozilla.org',
     },
 
     # General local variable overwrite
     'exes': {
-        'gittool.py': os.path.join(external_tools_path, 'gittool.py'),
-        'hgtool.py': os.path.join(external_tools_path, 'hgtool.py'),
+        'gittool.py': [
+            # Bug 1227079 - Python executable eeded to get it executed on Windows
+            sys.executable,
+            os.path.join(external_tools_path, 'gittool.py')
+        ],
+        'hgtool.py': [
+            # Bug 1227079 - Python executable eeded to get it executed on Windows
+            sys.executable,
+            os.path.join(external_tools_path, 'hgtool.py')
+        ],
     },
 
     # PIP

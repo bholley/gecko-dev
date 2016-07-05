@@ -207,14 +207,20 @@ TextureImageEGL::DirectUpdate(gfx::DataSourceSurface* aSurf, const nsIntRegion& 
         region = aRegion;
     }
 
+    bool needInit = mTextureState == Created;
+    size_t uploadSize = 0;
     mTextureFormat =
       UploadSurfaceToTexture(mGLContext,
                              aSurf,
                              region,
                              mTexture,
-                             mTextureState == Created,
+                             &uploadSize,
+                             needInit,
                              bounds.TopLeft() + gfx::IntPoint(aFrom.x, aFrom.y),
                              false);
+    if (uploadSize > 0) {
+        UpdateUploadSize(uploadSize);
+    }
 
     mTextureState = Valid;
     return true;
@@ -304,7 +310,7 @@ TextureImageEGL::DestroyEGLSurface(void)
 }
 
 already_AddRefed<TextureImage>
-CreateTextureImageEGL(GLContext *gl,
+CreateTextureImageEGL(GLContext* gl,
                       const gfx::IntSize& aSize,
                       TextureImage::ContentType aContentType,
                       GLenum aWrapMode,
@@ -316,7 +322,7 @@ CreateTextureImageEGL(GLContext *gl,
 }
 
 already_AddRefed<TextureImage>
-TileGenFuncEGL(GLContext *gl,
+TileGenFuncEGL(GLContext* gl,
                const gfx::IntSize& aSize,
                TextureImage::ContentType aContentType,
                TextureImage::Flags aFlags,

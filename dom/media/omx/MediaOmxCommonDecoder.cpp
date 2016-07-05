@@ -80,10 +80,6 @@ MediaOmxCommonDecoder::FirstFrameLoaded(nsAutoPtr<MediaInfo> aInfo,
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  if (mShuttingDown) {
-    return;
-  }
-
   MediaDecoder::FirstFrameLoaded(aInfo, aEventVisibility);
 
   if (!CheckDecoderCanOffloadAudio()) {
@@ -131,13 +127,7 @@ MediaOmxCommonDecoder::PauseStateMachine()
   MOZ_ASSERT(NS_IsMainThread());
   DECODER_LOG(LogLevel::Debug, ("%s", __PRETTY_FUNCTION__));
 
-  if (mShuttingDown) {
-    return;
-  }
-
-  if (!GetStateMachine()) {
-    return;
-  }
+  MOZ_ASSERT(GetStateMachine());
   // enter dormant state
   GetStateMachine()->DispatchSetDormant(true);
 }
@@ -235,13 +225,14 @@ MediaOmxCommonDecoder::ChangeState(PlayState aState)
 }
 
 void
-MediaOmxCommonDecoder::CallSeek(const SeekTarget& aTarget)
+MediaOmxCommonDecoder::CallSeek(const SeekTarget& aTarget, dom::Promise* aPromise)
 {
   if (!mAudioOffloadPlayer) {
-    MediaDecoder::CallSeek(aTarget);
+    MediaDecoder::CallSeek(aTarget, aPromise);
     return;
   }
 
+  mSeekDOMPromise = aPromise;
   mSeekRequest.DisconnectIfExists();
   mSeekRequest.Begin(mAudioOffloadPlayer->Seek(aTarget)
     ->Then(AbstractThread::MainThread(), __func__, static_cast<MediaDecoder*>(this),
@@ -262,6 +253,7 @@ void
 MediaOmxCommonDecoder::SetElementVisibility(bool aIsVisible)
 {
   MOZ_ASSERT(NS_IsMainThread());
+  MediaDecoder::SetElementVisibility(aIsVisible);
   if (mAudioOffloadPlayer) {
     mAudioOffloadPlayer->SetElementVisibility(aIsVisible);
   }

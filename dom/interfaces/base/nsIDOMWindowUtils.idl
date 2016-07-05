@@ -49,7 +49,7 @@ interface nsIJSRAIIHelper;
 interface nsIContentPermissionRequest;
 interface nsIObserver;
 
-[scriptable, uuid(3f3f2bf4-d411-44b2-b2f7-dee5948c4763)]
+[scriptable, uuid(46b44e33-13c2-4eb3-bf80-76a4e0857ccc)]
 interface nsIDOMWindowUtils : nsISupports {
 
   /**
@@ -105,6 +105,11 @@ interface nsIDOMWindowUtils : nsISupports {
    * Force a synchronous layer transaction for this window if necessary.
    */
   void updateLayerTree();
+
+  /**
+   * Get the last used layer transaction id for this window's refresh driver.
+   */
+  readonly attribute unsigned long long lastTransactionId;
 
   /**
    * Information retrieved from the <meta name="viewport"> tag.
@@ -216,6 +221,13 @@ interface nsIDOMWindowUtils : nsISupports {
    * The caller of this method must have chrome privileges.
    */
   void setResolutionAndScaleTo(in float aResolution);
+
+  /**
+   * Set a resolution on the presShell which is the "restored" from history.
+   * This resolution should be used when painting for the first time. Calling
+   * this too late may have no effect.
+   */
+  void setRestoreResolution(in float aResolution);
 
   /**
    * Whether the resolution has been set by the user.
@@ -590,6 +602,13 @@ interface nsIDOMWindowUtils : nsISupports {
                             in long aModifierFlags,
                             in nsIDOMElement aElement,
                             [optional] in nsIObserver aObserver);
+  /**
+   * See nsIWidget::SynthesizeNativeMouseMove and sendNativeMouseEvent
+   */
+  void sendNativeMouseMove(in long aScreenX,
+                           in long aScreenY,
+                           in nsIDOMElement aElement,
+                           [optional] in nsIObserver aObserver);
 
   /**
    * The values for sendNativeMouseScrollEvent's aAdditionalFlags.
@@ -1067,6 +1086,32 @@ interface nsIDOMWindowUtils : nsISupports {
   const unsigned long QUERY_CONTENT_FLAG_USE_XP_LINE_BREAK     = 0x0001;
 
   /**
+   * sendQueryContentEvent()'s aAdditionalFlags may have one of following
+   * flags when aType is QUERY_SELECTED_TEXT.  If one of them is set,
+   * the result is the first range of the selection type.  See also
+   * nsISelectionController::SELECTION_*.
+   */
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_SPELLCHECK          = 0x0002;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_IME_RAWINPUT        = 0x0004;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_IME_SELECTEDRAWTEXT = 0x0008;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_IME_CONVERTEDTEXT   = 0x0010;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_IME_SELECTEDCONVERTEDTEXT =
+                                                                         0x0020;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_ACCESSIBILITY       = 0x0040;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_FIND                = 0x0080;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_URLSECONDARY        = 0x0100;
+  const unsigned long QUERY_CONTENT_FLAG_SELECTION_URLSTRIKEOUT        = 0x0200;
+
+  /**
+   * One of sendQueryContentEvent()'s aAdditionalFlags.  If this is specified,
+   * aOffset is relative to start of selection or composition.
+   * Note that this is supported only when QUERY_CONTENT_FLAG_USE_XP_LINE_BREAK
+   * is not specified for now.
+   */
+  const unsigned long QUERY_CONTENT_FLAG_OFFSET_RELATIVE_TO_INSERTION_POINT =
+                                                                         0x0400;
+
+  /**
    * Synthesize a query content event. Note that the result value returned here
    * is in LayoutDevice pixels rather than CSS pixels.
    *
@@ -1076,7 +1121,7 @@ interface nsIDOMWindowUtils : nsISupports {
    */
   nsIQueryContentEventResult sendQueryContentEvent(
                                in unsigned long aType,
-                               in unsigned long aOffset,
+                               in long long aOffset,
                                in unsigned long aLength,
                                in long aX,
                                in long aY,
@@ -1327,11 +1372,12 @@ interface nsIDOMWindowUtils : nsISupports {
   readonly attribute boolean layerManagerRemote;
 
   /**
-   * True if we can initialize a hardware-backed h264 decoder for a simple
-   * test video, does not mean that all h264 video decoding will be done
+   * Returns a Promise that will be resolved with a string once the capabilities
+   * of the h264 decoder have been determined.
+   * Success does not mean that all h264 video decoding will be done
    * in hardware.
    */
-  readonly attribute AString supportsHardwareH264Decoding;
+  readonly attribute jsval supportsHardwareH264Decoding;
 
   /**
    * Record (and return) frame-intervals for frames which were presented
@@ -1452,6 +1498,11 @@ interface nsIDOMWindowUtils : nsISupports {
   bool flushApzRepaints();
 
   /**
+   * Ask APZ to pan and zoom to the focused input element.
+   */
+  void zoomToFocusedInput();
+
+  /**
    * Method for testing StyleAnimationValue::ComputeDistance.
    *
    * Returns the distance between the two values as reported by
@@ -1473,13 +1524,6 @@ interface nsIDOMWindowUtils : nsISupports {
    * Get the type of the currently focused html input, if any.
    */
   readonly attribute string focusedInputType;
-
-  /**
-   * Given a view ID from the compositor process, retrieve the element
-   * associated with a view. For scrollpanes for documents, the root
-   * element of the document is returned.
-   */
-  nsIDOMElement findElementWithViewId(in nsViewID aId);
 
   /**
    * Find the view ID for a given element. This is the reverse of
@@ -1740,6 +1784,12 @@ interface nsIDOMWindowUtils : nsISupports {
   void postRestyleSelfEvent(in nsIDOMElement aElement);
 
   /**
+   * Used to pause or resume all media in this window. Use-cases are audio
+   * competing, remote media control and to prevent auto-playing media.
+   */
+  attribute uint32_t mediaSuspend;
+
+  /**
    * With this it's possible to mute all the MediaElements in this window.
    * We have audioMuted and audioVolume to preserve the volume across
    * mute/umute.
@@ -1763,6 +1813,17 @@ interface nsIDOMWindowUtils : nsISupports {
    * e10s support properly.
    */
   void askPermission(in nsIContentPermissionRequest aRequest);
+
+  /**
+   * Number of elements restyled for the curent document.
+   *
+   * Note that during a restyle operation we may restyle an element more
+   * than once (e.g., for an inline that contains blocks).  This also
+   * counts restyling of pseudo-elements and anonymous boxes.
+   *
+   * May throw NS_ERROR_NOT_AVAILABLE.
+   */
+  readonly attribute unsigned long long elementsRestyled;
 
   /**
    * Number of frames constructed (excluding breaking) for the curent
@@ -1836,6 +1897,14 @@ interface nsIDOMWindowUtils : nsISupports {
   void forceUseCounterFlush(in nsIDOMNode aNode);
 
   void setNextPaintSyncId(in long aSyncId);
+
+  /**
+   * Enable or disable displayport suppression. This is intended to be used by
+   * testing code, to provide more deterministic behaviour over the displayport
+   * suppression during tests. Note that this updates a flag, so whatever value
+   * was last provided is what will be used.
+   */
+  void respectDisplayPortSuppression(in boolean aEnabled);
 };
 
 [scriptable, uuid(c694e359-7227-4392-a138-33c0cc1f15a6)]

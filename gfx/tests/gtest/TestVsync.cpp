@@ -22,7 +22,8 @@ using namespace mozilla::layers;
 using ::testing::_;
 
 // Timeout for vsync events to occur in milliseconds
-const int kVsyncTimeoutMS = 50;
+// Windows 8.1 has intermittents at 50 ms. Raise limit to 5 vsync intervals.
+const int kVsyncTimeoutMS = 80;
 
 class TestVsyncObserver : public VsyncObserver {
 public:
@@ -79,7 +80,7 @@ protected:
     gfxPlatform::GetPlatform();
     gfxPrefs::GetSingleton();
     mVsyncSource = gfxPlatform::GetPlatform()->GetHardwareVsync();
-    MOZ_RELEASE_ASSERT(mVsyncSource);
+    MOZ_RELEASE_ASSERT(mVsyncSource, "GFX: Vsync source not found.");
   }
 
   virtual ~VsyncTester()

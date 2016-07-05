@@ -9,6 +9,7 @@
 #include <map>
 #include <stack>
 #include "mozilla/gfx/Types.h"
+#include "mozilla/layers/TextureForwarder.h"
 #include "mozilla/RefPtr.h"
 #include "TextureClient.h"
 #include "mozilla/Mutex.h"
@@ -16,9 +17,45 @@
 namespace mozilla {
 namespace layers {
 
-class ISurfaceAllocator;
 class TextureClientHolder;
 
+class ITextureClientRecycleAllocator
+{
+protected:
+  virtual ~ITextureClientRecycleAllocator() {}
+
+public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ITextureClientRecycleAllocator)
+
+protected:
+  friend class TextureClient;
+  virtual void RecycleTextureClient(TextureClient* aClient) = 0;
+};
+
+class ITextureClientAllocationHelper
+{
+public:
+  ITextureClientAllocationHelper(gfx::SurfaceFormat aFormat,
+                                 gfx::IntSize aSize,
+                                 BackendSelector aSelector,
+                                 TextureFlags aTextureFlags,
+                                 TextureAllocationFlags aAllocationFlags)
+    : mFormat(aFormat)
+    , mSize(aSize)
+    , mSelector(aSelector)
+    , mTextureFlags(aTextureFlags | TextureFlags::RECYCLE) // Set recycle flag
+    , mAllocationFlags(aAllocationFlags)
+  {}
+
+  virtual already_AddRefed<TextureClient> Allocate(TextureForwarder* aAllocator) = 0;
+  virtual bool IsCompatible(TextureClient* aTextureClient) = 0;
+
+  const gfx::SurfaceFormat mFormat;
+  const gfx::IntSize mSize;
+  const BackendSelector mSelector;
+  const TextureFlags mTextureFlags;
+  const TextureAllocationFlags mAllocationFlags;
+};
 
 /**
  * TextureClientRecycleAllocator provides TextureClients allocation and
@@ -29,15 +66,13 @@ class TextureClientHolder;
  * By default this uses TextureClient::CreateForDrawing to allocate new texture
  * clients.
  */
-class TextureClientRecycleAllocator
+class TextureClientRecycleAllocator : public ITextureClientRecycleAllocator
 {
 protected:
   virtual ~TextureClientRecycleAllocator();
 
 public:
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(TextureClientRecycleAllocator)
-
-  explicit TextureClientRecycleAllocator(CompositableForwarder* aAllocator);
+  explicit TextureClientRecycleAllocator(TextureForwarder* aAllocator);
 
   void SetMaxPoolSize(uint32_t aMax);
 
@@ -49,6 +84,11 @@ public:
                   TextureFlags aTextureFlags,
                   TextureAllocationFlags flags = ALLOC_DEFAULT);
 
+  already_AddRefed<TextureClient>
+  CreateOrRecycle(ITextureClientAllocationHelper& aHelper);
+
+  void ShrinkToMinimumSize();
+
 protected:
   virtual already_AddRefed<TextureClient>
   Allocate(gfx::SurfaceFormat aFormat,
@@ -57,11 +97,10 @@ protected:
            TextureFlags aTextureFlags,
            TextureAllocationFlags aAllocFlags);
 
-  RefPtr<CompositableForwarder> mSurfaceAllocator;
+  RefPtr<TextureForwarder> mSurfaceAllocator;
 
-private:
-  friend class TextureClient;
-  void RecycleTextureClient(TextureClient* aClient);
+  friend class DefaultTextureClientAllocationHelper;
+  void RecycleTextureClient(TextureClient* aClient) override;
 
   static const uint32_t kMaxPooledSized = 2;
   uint32_t mMaxPooledSize;

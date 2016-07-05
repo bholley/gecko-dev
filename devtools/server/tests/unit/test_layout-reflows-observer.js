@@ -14,7 +14,7 @@ var {
 // will be the timeout callback instead of the timeout itself, so test cases
 // will need to execute it to fake a timeout
 LayoutChangesObserver.prototype._setTimeout = cb => cb;
-LayoutChangesObserver.prototype._clearTimeout = function() {};
+LayoutChangesObserver.prototype._clearTimeout = function () {};
 
 // Mock the tabActor since we only really want to test the LayoutChangesObserver
 // and don't want to depend on a window object, nor want to test protocol.js
@@ -26,12 +26,12 @@ function MockTabActor() {
 
 function MockWindow() {}
 MockWindow.prototype = {
-  QueryInterface: function() {
+  QueryInterface: function () {
     let self = this;
     return {
-      getInterface: function() {
+      getInterface: function () {
         return {
-          QueryInterface: function() {
+          QueryInterface: function () {
             if (!self.docShell) {
               self.docShell = new MockDocShell();
             }
@@ -41,22 +41,41 @@ MockWindow.prototype = {
       }
     };
   },
-  setTimeout: function(cb) {
+  setTimeout: function (cb) {
     // Simply return the cb itself so that we can execute it in the test instead
     // of depending on a real timeout
     return cb;
   },
-  clearTimeout: function() {}
+  clearTimeout: function () {}
 };
 
 function MockDocShell() {
   this.observer = null;
 }
 MockDocShell.prototype = {
-  addWeakReflowObserver: function(observer) {
+  addWeakReflowObserver: function (observer) {
     this.observer = observer;
   },
-  removeWeakReflowObserver: function(observer) {}
+  removeWeakReflowObserver: function () {},
+  get chromeEventHandler() {
+    return {
+      addEventListener: (type, cb) => {
+        if (type === "resize") {
+          this.resizeCb = cb;
+        }
+      },
+      removeEventListener: (type, cb) => {
+        if (type === "resize" && cb === this.resizeCb) {
+          this.resizeCb = null;
+        }
+      }
+    };
+  },
+  mockResize: function () {
+    if (this.resizeCb) {
+      this.resizeCb();
+    }
+  }
 };
 
 function run_test() {
@@ -110,6 +129,10 @@ function eventsAreBatched() {
   let onReflows = (event, reflows) => reflowsEvents.push(reflows);
   observer.on("reflows", onReflows);
 
+  let resizeEvents = [];
+  let onResize = () => resizeEvents.push("resize");
+  observer.on("resize", onResize);
+
   do_print("Fake one reflow event");
   tabActor.window.docShell.observer.reflow();
   do_print("Checking that no batched reflow event has been emitted");
@@ -120,17 +143,26 @@ function eventsAreBatched() {
   do_print("Checking that still no batched reflow event has been emitted");
   do_check_eq(reflowsEvents.length, 0);
 
-  do_print("Faking timeout expiration and checking that reflow events are sent");
+  do_print("Fake a few of resize events too");
+  tabActor.window.docShell.mockResize();
+  tabActor.window.docShell.mockResize();
+  tabActor.window.docShell.mockResize();
+  do_print("Checking that still no batched resize event has been emitted");
+  do_check_eq(resizeEvents.length, 0);
+
+  do_print("Faking timeout expiration and checking that events are sent");
   observer.eventLoopTimer();
   do_check_eq(reflowsEvents.length, 1);
   do_check_eq(reflowsEvents[0].length, 2);
+  do_check_eq(resizeEvents.length, 1);
 
   observer.off("reflows", onReflows);
+  observer.off("resize", onResize);
   releaseLayoutChangesObserver(tabActor);
 }
 
 function noEventsAreSentWhenThereAreNoReflowsAndLoopTimeouts() {
- do_print("Checking that if no reflows were detected and the event batching " +
+  do_print("Checking that if no reflows were detected and the event batching " +
   "loop expires, then no reflows event is sent");
 
   let tabActor = new MockTabActor();
@@ -153,13 +185,13 @@ function observerIsAlreadyStarted() {
 
   let tabActor = new MockTabActor();
   let observer = getLayoutChangesObserver(tabActor);
-  do_check_true(observer.observing);
+  do_check_true(observer.isObserving);
 
   observer.stop();
-  do_check_false(observer.observing);
+  do_check_false(observer.isObserving);
 
   observer.start();
-  do_check_true(observer.observing);
+  do_check_true(observer.isObserving);
 
   releaseLayoutChangesObserver(tabActor);
 }
@@ -169,10 +201,10 @@ function destroyStopsObserving() {
 
   let tabActor = new MockTabActor();
   let observer = getLayoutChangesObserver(tabActor);
-  do_check_true(observer.observing);
+  do_check_true(observer.isObserving);
 
   observer.destroy();
-  do_check_false(observer.observing);
+  do_check_false(observer.isObserving);
 
   releaseLayoutChangesObserver(tabActor);
 }
@@ -184,18 +216,18 @@ function stoppingAndStartingSeveralTimesWorksCorrectly() {
   let tabActor = new MockTabActor();
   let observer = getLayoutChangesObserver(tabActor);
 
-  do_check_true(observer.observing);
+  do_check_true(observer.isObserving);
   observer.start();
   observer.start();
   observer.start();
-  do_check_true(observer.observing);
+  do_check_true(observer.isObserving);
 
   observer.stop();
-  do_check_false(observer.observing);
+  do_check_false(observer.isObserving);
 
   observer.stop();
   observer.stop();
-  do_check_false(observer.observing);
+  do_check_false(observer.isObserving);
 
   releaseLayoutChangesObserver(tabActor);
 }

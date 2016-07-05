@@ -38,8 +38,11 @@ class SdpHelper {
                                  const SdpMediaSection& source,
                                  SdpMediaSection* dest);
     bool AreOldTransportParamsValid(const Sdp& oldAnswer,
+                                    const Sdp& offerersPreviousSdp,
                                     const Sdp& newOffer,
                                     size_t level);
+    bool IceCredentialsDiffer(const SdpMediaSection& msection1,
+                              const SdpMediaSection& msection2);
 
     bool MsectionIsDisabled(const SdpMediaSection& msection) const;
     static void DisableMsection(Sdp* sdp, SdpMediaSection* msection);
@@ -104,7 +107,7 @@ class SdpHelper {
     nsresult CopyStickyParams(const SdpMediaSection& source,
                               SdpMediaSection* dest);
     bool HasRtcp(SdpMediaSection::Protocol proto) const;
-    SdpMediaSection::Protocol GetProtocolForMediaType(
+    static SdpMediaSection::Protocol GetProtocolForMediaType(
         SdpMediaSection::MediaType type);
     void appendSdpParseErrors(
           const std::vector<std::pair<size_t, std::string> >& aErrors,

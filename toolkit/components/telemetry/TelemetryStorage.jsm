@@ -20,6 +20,7 @@ Cu.import("resource://gre/modules/osfile.jsm", this);
 Cu.import("resource://gre/modules/Task.jsm", this);
 Cu.import("resource://gre/modules/TelemetryUtils.jsm", this);
 Cu.import("resource://gre/modules/Promise.jsm", this);
+Cu.import("resource://gre/modules/Preferences.jsm", this);
 
 const LOGGER_NAME = "Toolkit.Telemetry";
 const LOGGER_PREFIX = "TelemetryStorage::";
@@ -116,7 +117,7 @@ var Policy = {
  */
 function waitForAll(it) {
   let dummy = () => {};
-  let promises = [for (p of it) p.catch(dummy)];
+  let promises = Array.from(it, p => p.catch(dummy));
   return Promise.all(promises);
 }
 
@@ -414,6 +415,15 @@ this.TelemetryStorage = {
   }),
 
   /**
+   * Remove FHR database files. This is temporary and will be dropped in
+   * the future.
+   * @return {Promise} Resolved when the database files are deleted.
+   */
+  removeFHRDatabase: function() {
+    return TelemetryStorageImpl.removeFHRDatabase();
+  },
+
+  /**
    * Only used in tests, builds an archived ping path from the ping metadata.
    * @param {String} aPingId The ping id.
    * @param {Object} aDate The ping creation date.
@@ -437,6 +447,13 @@ this.TelemetryStorage = {
   _testGetArchivedPingDataFromFileName: function(aFileName) {
     return TelemetryStorageImpl._getArchivedPingDataFromFileName(aFileName);
   },
+
+  /**
+   * Only used in tests, this helper allows cleaning up the pending ping storage.
+   */
+  testClearPendingPings: function() {
+    return TelemetryStorageImpl.runRemovePendingPingsTask();
+  }
 };
 
 /**
@@ -655,6 +672,7 @@ var TelemetryStorageImpl = {
     });
 
     Telemetry.getHistogramById("TELEMETRY_ARCHIVE_SESSION_PING_COUNT").add();
+    return undefined;
   }),
 
   /**
@@ -692,7 +710,10 @@ var TelemetryStorageImpl = {
       this._log.trace("loadArchivedPing - loading ping from: " + pathCompressed);
       yield* checkSize(pathCompressed);
       return yield this.loadPingFile(pathCompressed, /*compressed*/ true);
-    } catch (ex if ex.becauseNoSuchFile) {
+    } catch (ex) {
+      if (!ex.becauseNoSuchFile) {
+        throw ex;
+      }
       // If that fails, look for the uncompressed version.
       this._log.trace("loadArchivedPing - compressed ping not found, loading: " + path);
       yield* checkSize(path);
@@ -881,11 +902,11 @@ var TelemetryStorageImpl = {
     let startTimeStamp = Policy.now().getTime();
 
     // Build an ordered list, from newer to older, of archived pings.
-    let pingList = [for (p of this._archivedPings) {
+    let pingList = Array.from(this._archivedPings, p => ({
       id: p[0],
       timestampCreated: p[1].timestampCreated,
       type: p[1].type,
-    }];
+    }));
 
     pingList.sort((a, b) => b.timestampCreated - a.timestampCreated);
 
@@ -1013,6 +1034,7 @@ var TelemetryStorageImpl = {
     } finally {
       this._enforcePendingPingsQuotaTask = null;
     }
+    return undefined;
   }),
 
   /**
@@ -1024,10 +1046,10 @@ var TelemetryStorageImpl = {
     let startTimeStamp = Policy.now().getTime();
 
     // Build an ordered list, from newer to older, of pending pings.
-    let pingList = [for (p of this._pendingPings) {
+    let pingList = Array.from(this._pendingPings, p => ({
       id: p[0],
       lastModificationDate: p[1].lastModificationDate,
-    }];
+    }));
 
     pingList.sort((a, b) => b.lastModificationDate - a.lastModificationDate);
 
@@ -1230,7 +1252,10 @@ var TelemetryStorageImpl = {
         options.compression = "lz4";
       }
       yield OS.File.writeAtomic(filePath, pingString, options);
-    } catch(e if e.becauseExists) {
+    } catch(e) {
+      if (!e.becauseExists) {
+        throw e;
+      }
     }
   }),
 
@@ -1295,7 +1320,10 @@ var TelemetryStorageImpl = {
     let fileSize = 0;
     try {
       fileSize = (yield OS.File.stat(info.path)).size;
-    } catch (e if e instanceof OS.File.Error && e.becauseNoSuchFile) {
+    } catch (e) {
+      if (!(e instanceof OS.File.Error) || !e.becauseNoSuchFile) {
+        throw e;
+      }
       // Fall through and let |loadPingFile| report the error.
     }
 
@@ -1323,7 +1351,7 @@ var TelemetryStorageImpl = {
       this._pendingPings.delete(id);
       // Then propagate the rejection.
       throw e;
-    };
+    }
 
     return ping;
   }),
@@ -1383,6 +1411,7 @@ var TelemetryStorageImpl = {
     } finally {
       this._removePendingPingsTask = null;
     }
+    return undefined;
   }),
 
   removePendingPings: Task.async(function*() {
@@ -1516,10 +1545,10 @@ var TelemetryStorageImpl = {
   }),
 
   _buildPingList: function() {
-    const list = [for (p of this._pendingPings) {
+    const list = Array.from(this._pendingPings, p => ({
       id: p[0],
       lastModificationDate: p[1].lastModificationDate,
-    }];
+    }));
 
     list.sort((a, b) => b.lastModificationDate - a.lastModificationDate);
     return list;
@@ -1557,10 +1586,6 @@ var TelemetryStorageImpl = {
     let ping;
     try {
       ping = JSON.parse(string);
-      // The ping's payload used to be stringified JSON.  Deal with that.
-      if (typeof(ping.payload) == "string") {
-        ping.payload = JSON.parse(ping.payload);
-      }
     } catch (e) {
       this._log.trace("loadPingfile - unparseable ping " + aFilePath, e);
       yield OS.File.remove(aFilePath).catch((ex) => {
@@ -1637,10 +1662,12 @@ var TelemetryStorageImpl = {
     let ping = null;
     try {
       ping = yield this.loadPingFile(gAbortedSessionFilePath);
-    } catch (ex if ex.becauseNoSuchFile) {
-      this._log.trace("loadAbortedSessionPing - no such file");
     } catch (ex) {
-      this._log.error("loadAbortedSessionPing - error loading ping", ex)
+      if (ex.becauseNoSuchFile) {
+        this._log.trace("loadAbortedSessionPing - no such file");
+      } else {
+        this._log.error("loadAbortedSessionPing - error loading ping", ex)
+      }
     }
     return ping;
   }),
@@ -1650,10 +1677,12 @@ var TelemetryStorageImpl = {
       try {
         yield OS.File.remove(gAbortedSessionFilePath, { ignoreAbsent: false });
         this._log.trace("removeAbortedSessionPing - success");
-      } catch (ex if ex.becauseNoSuchFile) {
-        this._log.trace("removeAbortedSessionPing - no such file");
       } catch (ex) {
-        this._log.error("removeAbortedSessionPing - error removing ping", ex)
+        if (ex.becauseNoSuchFile) {
+          this._log.trace("removeAbortedSessionPing - no such file");
+        } else {
+          this._log.error("removeAbortedSessionPing - error removing ping", ex)
+        }
       }
     }.bind(this)));
   },
@@ -1682,10 +1711,12 @@ var TelemetryStorageImpl = {
       try {
         yield OS.File.remove(gDeletionPingFilePath, { ignoreAbsent: false });
         this._log.trace("removeDeletionPing - success");
-      } catch (ex if ex.becauseNoSuchFile) {
-        this._log.trace("removeDeletionPing - no such file");
       } catch (ex) {
-        this._log.error("removeDeletionPing - error removing ping", ex)
+        if (ex.becauseNoSuchFile) {
+          this._log.trace("removeDeletionPing - no such file");
+        } else {
+          this._log.error("removeDeletionPing - error removing ping", ex)
+        }
       }
     }.bind(this)));
   }),
@@ -1703,6 +1734,42 @@ var TelemetryStorageImpl = {
 
     return true;
   },
+
+  /**
+   * Remove FHR database files. This is temporary and will be dropped in
+   * the future.
+   * @return {Promise} Resolved when the database files are deleted.
+   */
+  removeFHRDatabase: Task.async(function*() {
+    this._log.trace("removeFHRDatabase");
+
+    // Let's try to remove the FHR DB with the default filename first.
+    const FHR_DB_DEFAULT_FILENAME = "healthreport.sqlite";
+
+    // Even if it's uncommon, there may be 2 additional files: - a "write ahead log"
+    // (-wal) file and a "shared memory file" (-shm). We need to remove them as well.
+    let FILES_TO_REMOVE = [
+      OS.Path.join(OS.Constants.Path.profileDir, FHR_DB_DEFAULT_FILENAME),
+      OS.Path.join(OS.Constants.Path.profileDir, FHR_DB_DEFAULT_FILENAME + "-wal"),
+      OS.Path.join(OS.Constants.Path.profileDir, FHR_DB_DEFAULT_FILENAME + "-shm"),
+    ];
+
+    // FHR could have used either the default DB file name or a custom one
+    // through this preference.
+    const FHR_DB_CUSTOM_FILENAME =
+      Preferences.get("datareporting.healthreport.dbName", undefined);
+    if (FHR_DB_CUSTOM_FILENAME) {
+      FILES_TO_REMOVE.push(
+        OS.Path.join(OS.Constants.Path.profileDir, FHR_DB_CUSTOM_FILENAME),
+        OS.Path.join(OS.Constants.Path.profileDir, FHR_DB_CUSTOM_FILENAME + "-wal"),
+        OS.Path.join(OS.Constants.Path.profileDir, FHR_DB_CUSTOM_FILENAME + "-shm"));
+    }
+
+    for (let f of FILES_TO_REMOVE) {
+      yield OS.File.remove(f, {ignoreAbsent: true})
+                   .catch(e => this._log.error("removeFHRDatabase - failed to remove " + f, e));
+    }
+  }),
 };
 
 ///// Utility functions

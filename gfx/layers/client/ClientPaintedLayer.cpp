@@ -18,7 +18,6 @@
 #include "mozilla/gfx/Types.h"          // for Float, etc
 #include "mozilla/layers/LayersTypes.h"
 #include "mozilla/Preferences.h"
-#include "nsAutoPtr.h"                  // for nsRefPtr
 #include "nsCOMPtr.h"                   // for already_AddRefed
 #include "nsISupportsImpl.h"            // for Layer::AddRef, etc
 #include "nsRect.h"                     // for mozilla::gfx::IntRect
@@ -75,14 +74,22 @@ ClientPaintedLayer::PaintThebes()
   // from RGB to RGBA, because we might need to repaint with
   // subpixel AA)
   state.mRegionToInvalidate.And(state.mRegionToInvalidate,
-                                GetEffectiveVisibleRegion());
+                                GetLocalVisibleRegion().ToUnknownRegion());
 
   bool didUpdate = false;
   RotatedContentBuffer::DrawIterator iter;
   while (DrawTarget* target = mContentClient->BorrowDrawTargetForPainting(state, &iter)) {
+    if (!target || !target->IsValid()) {
+      if (target) {
+        mContentClient->ReturnDrawTargetToBuffer(target);
+      }
+      continue;
+    }
+    
     SetAntialiasingFlags(this, target);
 
-    RefPtr<gfxContext> ctx = gfxContext::ContextForDrawTarget(target);
+    RefPtr<gfxContext> ctx = gfxContext::CreatePreservingTransformOrNull(target);
+    MOZ_ASSERT(ctx); // already checked the target above
 
     ClientManager()->GetPaintedLayerCallback()(this,
                                               ctx,
@@ -110,7 +117,7 @@ ClientPaintedLayer::PaintThebes()
     // so deleting this Hold for whatever reason will break things.
     ClientManager()->Hold(this);
     contentClientRemote->Updated(state.mRegionToDraw,
-                                 mVisibleRegion,
+                                 mVisibleRegion.ToUnknownRegion(),
                                  state.mDidSelfCopy);
   }
 }
@@ -152,13 +159,7 @@ already_AddRefed<PaintedLayer>
 ClientLayerManager::CreatePaintedLayerWithHint(PaintedLayerCreationHint aHint)
 {
   NS_ASSERTION(InConstruction(), "Only allowed in construction phase");
-  if (gfxPrefs::LayersTilesEnabled()
-#ifndef MOZ_X11
-      && (AsShadowForwarder()->GetCompositorBackendType() == LayersBackend::LAYERS_OPENGL ||
-          AsShadowForwarder()->GetCompositorBackendType() == LayersBackend::LAYERS_D3D9 ||
-          AsShadowForwarder()->GetCompositorBackendType() == LayersBackend::LAYERS_D3D11)
-#endif
-  ) {
+  if (gfxPrefs::LayersTilesEnabled()) {
     RefPtr<ClientTiledPaintedLayer> layer = new ClientTiledPaintedLayer(this, aHint);
     CREATE_SHADOW(Painted);
     return layer.forget();

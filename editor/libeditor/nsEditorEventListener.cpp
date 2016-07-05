@@ -70,7 +70,7 @@ static void
 DoCommandCallback(Command aCommand, void* aData)
 {
   nsIDocument* doc = static_cast<nsIDocument*>(aData);
-  nsPIDOMWindow* win = doc->GetWindow();
+  nsPIDOMWindowOuter* win = doc->GetWindow();
   if (!win) {
     return;
   }
@@ -324,7 +324,11 @@ nsEditorEventListener::GetFocusedRootContent()
   nsIDocument* composedDoc = focusedContent->GetComposedDoc();
   NS_ENSURE_TRUE(composedDoc, nullptr);
 
-  return composedDoc->HasFlag(NODE_IS_EDITABLE) ? nullptr : focusedContent;
+  if (composedDoc->HasFlag(NODE_IS_EDITABLE)) {
+    return nullptr;
+  }
+
+  return focusedContent;
 }
 
 bool
@@ -357,7 +361,7 @@ nsEditorEventListener::HandleEvent(nsIDOMEvent* aEvent)
 
   nsCOMPtr<nsIEditor> kungFuDeathGrip = mEditor;
 
-  WidgetEvent* internalEvent = aEvent->GetInternalNSEvent();
+  WidgetEvent* internalEvent = aEvent->WidgetEventPtr();
 
   // Let's handle each event with the message of the internal event of the
   // coming event.  If the DOM event was created with improper interface,
@@ -448,7 +452,7 @@ nsEditorEventListener::HandleEvent(nsIDOMEvent* aEvent)
       // editor shouldn't handle this click event.
       if (mMouseDownOrUpConsumedByIME) {
         mMouseDownOrUpConsumedByIME = false;
-        mouseEvent->PreventDefault();
+        mouseEvent->AsEvent()->PreventDefault();
         return NS_OK;
       }
       return MouseClick(mouseEvent);
@@ -494,25 +498,11 @@ nsEditorEventListener::HandleEvent(nsIDOMEvent* aEvent)
 }
 
 #ifdef HANDLE_NATIVE_TEXT_DIRECTION_SWITCH
-#include <windows.h>
-// Undo the windows.h damage
-#undef GetMessage
-#undef CreateEvent
-#undef GetClassName
-#undef GetBinaryType
-#undef RemoveDirectory
-#undef SetProp
-
 namespace {
 
 // This function is borrowed from Chromium's ImeInput::IsCtrlShiftPressed
-bool IsCtrlShiftPressed(bool& isRTL)
+bool IsCtrlShiftPressed(nsIDOMKeyEvent* aEvent, bool& isRTL)
 {
-  BYTE keystate[256];
-  if (!::GetKeyboardState(keystate)) {
-    return false;
-  }
-
   // To check if a user is pressing only a control key and a right-shift key
   // (or a left-shift key), we use the steps below:
   // 1. Check if a user is pressing a control key and a right-shift key (or
@@ -521,16 +511,19 @@ bool IsCtrlShiftPressed(bool& isRTL)
   //    keys pressed at the same time.
   //    To ignore the keys checked in 1, we set their status to 0 before
   //    checking the key status.
-  const int kKeyDownMask = 0x80;
-  if ((keystate[VK_CONTROL] & kKeyDownMask) == 0) {
+  WidgetKeyboardEvent* keyboardEvent =
+    aEvent->AsEvent()->WidgetEventPtr()->AsKeyboardEvent();
+  MOZ_ASSERT(keyboardEvent,
+             "DOM key event's internal event must be WidgetKeyboardEvent");
+
+  if (!keyboardEvent->IsControl()) {
     return false;
   }
 
-  if (keystate[VK_RSHIFT] & kKeyDownMask) {
-    keystate[VK_RSHIFT] = 0;
+  uint32_t location = keyboardEvent->mLocation;
+  if (location == nsIDOMKeyEvent::DOM_KEY_LOCATION_RIGHT) {
     isRTL = true;
-  } else if (keystate[VK_LSHIFT] & kKeyDownMask) {
-    keystate[VK_LSHIFT] = 0;
+  } else if (location == nsIDOMKeyEvent::DOM_KEY_LOCATION_LEFT) {
     isRTL = false;
   } else {
     return false;
@@ -538,19 +531,10 @@ bool IsCtrlShiftPressed(bool& isRTL)
 
   // Scan the key status to find pressed keys. We should abandon changing the
   // text direction when there are other pressed keys.
-  // This code is executed only when a user is pressing a control key and a
-  // right-shift key (or a left-shift key), i.e. we should ignore the status of
-  // the keys: VK_SHIFT, VK_CONTROL, VK_RCONTROL, and VK_LCONTROL.
-  // So, we reset their status to 0 and ignore them.
-  keystate[VK_SHIFT] = 0;
-  keystate[VK_CONTROL] = 0;
-  keystate[VK_RCONTROL] = 0;
-  keystate[VK_LCONTROL] = 0;
-  for (int i = 0; i <= VK_PACKET; ++i) {
-    if (keystate[i] & kKeyDownMask) {
-      return false;
-    }
+  if (keyboardEvent->IsAlt() || keyboardEvent->IsOS()) {
+    return false;
   }
+
   return true;
 }
 
@@ -594,7 +578,7 @@ nsEditorEventListener::KeyDown(nsIDOMKeyEvent* aKeyEvent)
   aKeyEvent->GetKeyCode(&keyCode);
   if (keyCode == nsIDOMKeyEvent::DOM_VK_SHIFT) {
     bool switchToRTL;
-    if (IsCtrlShiftPressed(switchToRTL)) {
+    if (IsCtrlShiftPressed(aKeyEvent, switchToRTL)) {
       mShouldSwitchTextDirection = true;
       mSwitchToRTL = switchToRTL;
     }
@@ -611,7 +595,7 @@ nsEditorEventListener::KeyPress(nsIDOMKeyEvent* aKeyEvent)
 {
   NS_ENSURE_TRUE(aKeyEvent, NS_OK);
 
-  if (!mEditor->IsAcceptableInputEvent(aKeyEvent)) {
+  if (!mEditor->IsAcceptableInputEvent(aKeyEvent->AsEvent())) {
     return NS_OK;
   }
 
@@ -622,7 +606,7 @@ nsEditorEventListener::KeyPress(nsIDOMKeyEvent* aKeyEvent)
   // below.
 
   bool defaultPrevented;
-  aKeyEvent->GetDefaultPrevented(&defaultPrevented);
+  aKeyEvent->AsEvent()->GetDefaultPrevented(&defaultPrevented);
   if (defaultPrevented) {
     return NS_OK;
   }
@@ -630,7 +614,7 @@ nsEditorEventListener::KeyPress(nsIDOMKeyEvent* aKeyEvent)
   nsresult rv = mEditor->HandleKeyPressEvent(aKeyEvent);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  aKeyEvent->GetDefaultPrevented(&defaultPrevented);
+  aKeyEvent->AsEvent()->GetDefaultPrevented(&defaultPrevented);
   if (defaultPrevented) {
     return NS_OK;
   }
@@ -641,10 +625,10 @@ nsEditorEventListener::KeyPress(nsIDOMKeyEvent* aKeyEvent)
 
   // Now, ask the native key bindings to handle the event.
   WidgetKeyboardEvent* keyEvent =
-    aKeyEvent->GetInternalNSEvent()->AsKeyboardEvent();
+    aKeyEvent->AsEvent()->WidgetEventPtr()->AsKeyboardEvent();
   MOZ_ASSERT(keyEvent,
              "DOM key event's internal event must be WidgetKeyboardEvent");
-  nsIWidget* widget = keyEvent->widget;
+  nsIWidget* widget = keyEvent->mWidget;
   // If the event is created by chrome script, the widget is always nullptr.
   if (!widget) {
     nsCOMPtr<nsIPresShell> ps = GetPresShell();
@@ -658,7 +642,7 @@ nsEditorEventListener::KeyPress(nsIDOMKeyEvent* aKeyEvent)
                            nsIWidget::NativeKeyBindingsForRichTextEditor,
                            *keyEvent, DoCommandCallback, doc);
   if (handled) {
-    aKeyEvent->PreventDefault();
+    aKeyEvent->AsEvent()->PreventDefault();
   }
   return NS_OK;
 }
@@ -668,7 +652,7 @@ nsEditorEventListener::MouseClick(nsIDOMMouseEvent* aMouseEvent)
 {
   // nothing to do if editor isn't editable or clicked on out of the editor.
   if (mEditor->IsReadonly() || mEditor->IsDisabled() ||
-      !mEditor->IsAcceptableInputEvent(aMouseEvent)) {
+      !mEditor->IsAcceptableInputEvent(aMouseEvent->AsEvent())) {
     return NS_OK;
   }
 
@@ -683,7 +667,7 @@ nsEditorEventListener::MouseClick(nsIDOMMouseEvent* aMouseEvent)
   }
 
   bool preventDefault;
-  nsresult rv = aMouseEvent->GetDefaultPrevented(&preventDefault);
+  nsresult rv = aMouseEvent->AsEvent()->GetDefaultPrevented(&preventDefault);
   if (NS_FAILED(rv) || preventDefault) {
     // We're done if 'preventdefault' is true (see for example bug 70698).
     return rv;
@@ -754,8 +738,8 @@ nsEditorEventListener::HandleMiddleClickPaste(nsIDOMMouseEvent* aMouseEvent)
 
   // Prevent the event from propagating up to be possibly handled
   // again by the containing window:
-  aMouseEvent->StopPropagation();
-  aMouseEvent->PreventDefault();
+  aMouseEvent->AsEvent()->StopPropagation();
+  aMouseEvent->AsEvent()->PreventDefault();
 
   // We processed the event, whether drop/paste succeeded or not
   return NS_OK;
@@ -770,7 +754,7 @@ nsEditorEventListener::NotifyIMEOfMouseButtonEvent(
   }
 
   bool defaultPrevented;
-  nsresult rv = aMouseEvent->GetDefaultPrevented(&defaultPrevented);
+  nsresult rv = aMouseEvent->AsEvent()->GetDefaultPrevented(&defaultPrevented);
   NS_ENSURE_SUCCESS(rv, false);
   if (defaultPrevented) {
     return false;
@@ -840,7 +824,7 @@ nsEditorEventListener::DragOver(nsIDOMDragEvent* aDragEvent)
 
   nsCOMPtr<nsIDOMNode> parent;
   bool defaultPrevented;
-  aDragEvent->GetDefaultPrevented(&defaultPrevented);
+  aDragEvent->AsEvent()->GetDefaultPrevented(&defaultPrevented);
   if (defaultPrevented) {
     return NS_OK;
   }
@@ -850,7 +834,7 @@ nsEditorEventListener::DragOver(nsIDOMDragEvent* aDragEvent)
   NS_ENSURE_TRUE(dropParent, NS_ERROR_FAILURE);
 
   if (dropParent->IsEditable() && CanDrop(aDragEvent)) {
-    aDragEvent->PreventDefault(); // consumed
+    aDragEvent->AsEvent()->PreventDefault(); // consumed
 
     if (!mCaret) {
       return NS_OK;
@@ -869,7 +853,7 @@ nsEditorEventListener::DragOver(nsIDOMDragEvent* aDragEvent)
   if (!IsFileControlTextBox()) {
     // This is needed when dropping on an input, to prevent the editor for
     // the editable parent from receiving the event.
-    aDragEvent->StopPropagation();
+    aDragEvent->AsEvent()->StopPropagation();
   }
 
   if (mCaret) {
@@ -914,7 +898,7 @@ nsEditorEventListener::Drop(nsIDOMDragEvent* aDragEvent)
   CleanupDragDropCaret();
 
   bool defaultPrevented;
-  aDragEvent->GetDefaultPrevented(&defaultPrevented);
+  aDragEvent->AsEvent()->GetDefaultPrevented(&defaultPrevented);
   if (defaultPrevented) {
     return NS_OK;
   }
@@ -932,14 +916,14 @@ nsEditorEventListener::Drop(nsIDOMDragEvent* aDragEvent)
       // since someone else handling it might be unintentional and the
       // user could probably re-drag to be not over the disabled/readonly
       // editfields if that is what is desired.
-      return aDragEvent->StopPropagation();
+      return aDragEvent->AsEvent()->StopPropagation();
     }
     return NS_OK;
   }
 
-  aDragEvent->StopPropagation();
-  aDragEvent->PreventDefault();
-  return mEditor->InsertFromDrop(aDragEvent);
+  aDragEvent->AsEvent()->StopPropagation();
+  aDragEvent->AsEvent()->PreventDefault();
+  return mEditor->InsertFromDrop(aDragEvent->AsEvent());
 }
 
 bool
@@ -1047,7 +1031,7 @@ nsEditorEventListener::HandleStartComposition(nsIDOMEvent* aCompositionEvent)
     return NS_OK;
   }
   WidgetCompositionEvent* compositionStart =
-    aCompositionEvent->GetInternalNSEvent()->AsCompositionEvent();
+    aCompositionEvent->WidgetEventPtr()->AsCompositionEvent();
   return mEditor->BeginIMEComposition(compositionStart);
 }
 
@@ -1183,7 +1167,7 @@ nsEditorEventListener::ShouldHandleNativeKeyBindings(nsIDOMKeyEvent* aKeyEvent)
   // mouse events.
 
   nsCOMPtr<nsIDOMEventTarget> target;
-  aKeyEvent->GetTarget(getter_AddRefs(target));
+  aKeyEvent->AsEvent()->GetTarget(getter_AddRefs(target));
   nsCOMPtr<nsIContent> targetContent = do_QueryInterface(target);
   if (!targetContent) {
     return false;

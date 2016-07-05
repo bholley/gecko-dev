@@ -35,11 +35,11 @@ using mozilla::ipc::StringInputStreamParams;
 //
 // To enable logging (see prlog.h for full details):
 //
-//    set NSPR_LOG_MODULES=StorageStreamLog:5
-//    set NSPR_LOG_FILE=nspr.log
+//    set MOZ_LOG=StorageStreamLog:5
+//    set MOZ_LOG_FILE=storage.log
 //
-// this enables LogLevel::Debug level information and places all output in
-// the file nspr.log
+// This enables LogLevel::Debug level information and places all output in
+// the file storage.log.
 //
 static LazyLogModule sStorageStreamLog("nsStorageStream");
 #ifdef LOG
@@ -199,7 +199,7 @@ nsStorageStream::Write(const char* aBuffer, uint32_t aCount,
     mWriteCursor += count;
     LOG(("nsStorageStream [%p] Writing mWriteCursor=%x mSegmentEnd=%x count=%d\n",
          this, mWriteCursor, mSegmentEnd, count));
-  };
+  }
 
 out:
   *aNumWritten = aCount - remaining;
@@ -476,7 +476,7 @@ nsStorageInputStream::ReadSegments(nsWriteSegmentFun aWriter, void* aClosure,
     remainingCapacity -= bytesConsumed;
     mReadCursor += bytesConsumed;
     mLogicalCursor += bytesConsumed;
-  };
+  }
 
 out:
   *aNumRead = aCount - remainingCapacity;

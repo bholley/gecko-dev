@@ -6,7 +6,9 @@
 #if !defined(MediaDecoderReader_h_)
 #define MediaDecoderReader_h_
 
+#include "mozilla/EnumSet.h"
 #include "mozilla/MozPromise.h"
+#include "nsAutoPtr.h"
 
 #include "AbstractMediaDecoder.h"
 #include "MediaInfo.h"
@@ -17,6 +19,7 @@
 #include "AudioCompactor.h"
 #include "Intervals.h"
 #include "TimeUnits.h"
+#include "SeekTarget.h"
 
 namespace mozilla {
 
@@ -72,13 +75,13 @@ public:
     CANCELED
   };
 
+  using TrackSet = EnumSet<TrackInfo::TrackType>;
+
   using MetadataPromise =
     MozPromise<RefPtr<MetadataHolder>, ReadMetadataFailureReason, IsExclusive>;
-  using AudioDataPromise =
+  using MediaDataPromise =
     MozPromise<RefPtr<MediaData>, NotDecodedReason, IsExclusive>;
-  using VideoDataPromise =
-    MozPromise<RefPtr<MediaData>, NotDecodedReason, IsExclusive>;
-  using SeekPromise = MozPromise<int64_t, nsresult, IsExclusive>;
+  using SeekPromise = MozPromise<media::TimeUnit, nsresult, IsExclusive>;
 
   // Note that, conceptually, WaitForData makes sense in a non-exclusive sense.
   // But in the current architecture it's only ever used exclusively (by MDSM),
@@ -86,6 +89,8 @@ public:
   // for multiple WaitForData consumers, feel free to flip the exclusivity here.
   using WaitForDataPromise =
     MozPromise<MediaData::Type, WaitForDataRejectValue, IsExclusive>;
+
+  using BufferedUpdatePromise = MozPromise<bool, bool, IsExclusive>;
 
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(MediaDecoderReader)
 
@@ -100,10 +105,6 @@ public:
   // Release media resources they should be released in dormant state
   // The reader can be made usable again by calling ReadMetadata().
   virtual void ReleaseMediaResources() {}
-  // Breaks reference-counted cycles. Called during shutdown.
-  // WARNING: If you override this, you must call the base implementation
-  // in your override.
-  virtual void BreakCycles();
 
   // Destroys the decoding state. The reader cannot be made usable again.
   // This is different from ReleaseMediaResources() as it is irreversable,
@@ -128,7 +129,11 @@ public:
   // The first samples of every stream produced after a ResetDecode() call
   // *must* be marked as "discontinuities". If it's not, seeking work won't
   // properly!
-  virtual nsresult ResetDecode();
+  //
+  // aParam is a set of TrackInfo::TrackType enums specifying which
+  // queues need to be reset, defaulting to both audio and video tracks.
+  virtual nsresult ResetDecode(TrackSet aTracks = TrackSet(TrackInfo::kAudioTrack,
+                                                           TrackInfo::kVideoTrack));
 
   // Requests one audio sample from the reader.
   //
@@ -136,7 +141,7 @@ public:
   // be resolved when it is complete. Don't hold the decoder
   // monitor while calling this, as the implementation may try to wait
   // on something that needs the monitor and deadlock.
-  virtual RefPtr<AudioDataPromise> RequestAudioData();
+  virtual RefPtr<MediaDataPromise> RequestAudioData();
 
   // Requests one video sample from the reader.
   //
@@ -144,13 +149,13 @@ public:
   // may try to wait on something that needs the monitor and deadlock.
   // If aSkipToKeyframe is true, the decode should skip ahead to the
   // the next keyframe at or after aTimeThreshold microseconds.
-  virtual RefPtr<VideoDataPromise>
+  virtual RefPtr<MediaDataPromise>
   RequestVideoData(bool aSkipToNextKeyframe, int64_t aTimeThreshold);
 
   // By default, the state machine polls the reader once per second when it's
   // in buffering mode. Some readers support a promise-based mechanism by which
   // they notify the state machine when the data arrives.
-  virtual bool IsWaitForDataSupported() { return false; }
+  virtual bool IsWaitForDataSupported() const { return false; }
 
   virtual RefPtr<WaitForDataPromise> WaitForData(MediaData::Type aType)
   {
@@ -177,7 +182,7 @@ public:
   // Moves the decode head to aTime microseconds. aEndTime denotes the end
   // time of the media in usecs. This is only needed for OggReader, and should
   // probably be removed somehow.
-  virtual RefPtr<SeekPromise> Seek(int64_t aTime, int64_t aEndTime) = 0;
+  virtual RefPtr<SeekPromise> Seek(SeekTarget aTarget, int64_t aEndTime) = 0;
 
   // Called to move the reader into idle state. When the reader is
   // created it is assumed to be active (i.e. not idle). When the media
@@ -210,7 +215,7 @@ public:
   // raw media data is arriving sequentially from a network channel. This
   // makes sense in the <video src="foo"> case, but not for more advanced use
   // cases like MSE.
-  virtual bool UseBufferingHeuristics() { return true; }
+  virtual bool UseBufferingHeuristics() const { return true; }
 
   // Returns the number of bytes of memory allocated by structures/frames in
   // the video queue.
@@ -223,21 +228,22 @@ public:
   virtual size_t SizeOfVideoQueueInFrames();
   virtual size_t SizeOfAudioQueueInFrames();
 
-  void DispatchNotifyDataArrived()
-  {
-    RefPtr<nsRunnable> r = NS_NewRunnableMethod(
-      this, &MediaDecoderReader::NotifyDataArrived);
-
-    OwnerThread()->Dispatch(
-      r.forget(), AbstractThread::DontAssertDispatchSuccess);
-  }
-
   void NotifyDataArrived()
   {
     MOZ_ASSERT(OnTaskQueue());
     NS_ENSURE_TRUE_VOID(!mShutdown);
     NotifyDataArrivedInternal();
     UpdateBuffered();
+  }
+
+  // Update the buffered ranges and upon doing so return a promise
+  // to indicate success. Overrides may need to do extra work to ensure
+  // buffered is up to date.
+  virtual RefPtr<BufferedUpdatePromise> UpdateBufferedWithPromise()
+  {
+    MOZ_ASSERT(OnTaskQueue());
+    UpdateBuffered();
+    return BufferedUpdatePromise::CreateAndResolve(true, __func__);
   }
 
   virtual MediaQueue<AudioData>& AudioQueue() { return mAudioQueue; }
@@ -247,10 +253,6 @@ public:
   {
     return &mBuffered;
   }
-
-  // Indicates if the media is seekable.
-  // ReadMetada should be called before calling this method.
-  virtual bool IsMediaSeekable() = 0;
 
   void DispatchSetStartTime(int64_t aStartTime)
   {
@@ -281,11 +283,28 @@ public:
   // decoding.
   virtual bool VideoIsHardwareAccelerated() const { return false; }
 
-  virtual void DisableHardwareAcceleration() {}
-
   TimedMetadataEventSource& TimedMetadataEvent()
   {
     return mTimedMetadataEvent;
+  }
+
+  // Notified by the OggReader during playback when chained ogg is detected.
+  MediaEventSource<void>& OnMediaNotSeekable() { return mOnMediaNotSeekable; }
+
+  bool IsSuspended() const
+  {
+    MOZ_ASSERT(OnTaskQueue());
+    return mIsSuspended;
+  }
+
+  void SetIsSuspended(bool aState)
+  {
+    MOZ_ASSERT(OnTaskQueue());
+    mIsSuspended = aState;
+  }
+
+  AbstractCanonical<bool>* CanonicalIsSuspended() {
+    return &mIsSuspended;
   }
 
 protected:
@@ -309,7 +328,7 @@ protected:
   // called.
   virtual media::TimeIntervals GetBuffered();
 
-  RefPtr<VideoDataPromise> DecodeToFirstVideoData();
+  RefPtr<MediaDataPromise> DecodeToFirstVideoData();
 
   bool HaveStartTime()
   {
@@ -378,6 +397,9 @@ protected:
   // Used to send TimedMetadata to the listener.
   TimedMetadataEventProducer mTimedMetadataEvent;
 
+  // Notify if this media is not seekable.
+  MediaEventProducer<void> mOnMediaNotSeekable;
+
 private:
   // Does any spinup that needs to happen on this task queue. This runs on a
   // different thread than Init, and there should not be ordering dependencies
@@ -396,6 +418,8 @@ private:
 
   // Recomputes mBuffered.
   virtual void UpdateBuffered();
+
+  virtual void VisibilityChanged();
 
   virtual void NotifyDataArrivedInternal() {}
 
@@ -421,13 +445,16 @@ private:
 
   // Promises used only for the base-class (sync->async adapter) implementation
   // of Request{Audio,Video}Data.
-  MozPromiseHolder<AudioDataPromise> mBaseAudioPromise;
-  MozPromiseHolder<VideoDataPromise> mBaseVideoPromise;
+  MozPromiseHolder<MediaDataPromise> mBaseAudioPromise;
+  MozPromiseHolder<MediaDataPromise> mBaseVideoPromise;
 
   // Flags whether a the next audio/video sample comes after a "gap" or
   // "discontinuity" in the stream. For example after a seek.
   bool mAudioDiscontinuity;
   bool mVideoDiscontinuity;
+  Canonical<bool> mIsSuspended;
+
+  MediaEventListener mDataArrivedListener;
 };
 
 } // namespace mozilla

@@ -12,6 +12,7 @@
 #include "nsNetUtil.h"
 #include "nsHttpHandler.h"
 #include "nsIHttpAuthenticator.h"
+#include "nsIHttpChannelInternal.h"
 #include "nsIAuthPrompt2.h"
 #include "nsIAuthPromptProvider.h"
 #include "nsIInterfaceRequestor.h"
@@ -39,11 +40,21 @@ namespace net {
 #define HTTP_AUTH_DIALOG_TOP_LEVEL_DOC 0
 #define HTTP_AUTH_DIALOG_SAME_ORIGIN_SUBRESOURCE 1
 #define HTTP_AUTH_DIALOG_CROSS_ORIGIN_SUBRESOURCE 2
+#define HTTP_AUTH_DIALOG_XHR 3
+
+#define HTTP_AUTH_BASIC_INSECURE 0
+#define HTTP_AUTH_BASIC_SECURE 1
+#define HTTP_AUTH_DIGEST_INSECURE 2
+#define HTTP_AUTH_DIGEST_SECURE 3
+#define HTTP_AUTH_NTLM_INSECURE 4
+#define HTTP_AUTH_NTLM_SECURE 5
+#define HTTP_AUTH_NEGOTIATE_INSECURE 6
+#define HTTP_AUTH_NEGOTIATE_SECURE 7
 
 static void
 GetOriginAttributesSuffix(nsIChannel* aChan, nsACString &aSuffix)
 {
-    OriginAttributes oa;
+    NeckoOriginAttributes oa;
 
     // Deliberately ignoring the result and going with defaults
     if (aChan) {
@@ -62,6 +73,7 @@ nsHttpChannelAuthProvider::nsHttpChannelAuthProvider()
     , mTriedProxyAuth(false)
     , mTriedHostAuth(false)
     , mSuppressDefensiveAuth(false)
+    , mCrossOrigin(false)
     , mHttpHandler(gHttpHandler)
 {
 }
@@ -178,7 +190,7 @@ nsHttpChannelAuthProvider::ProcessAuthentication(uint32_t httpStatus,
 }
 
 NS_IMETHODIMP
-nsHttpChannelAuthProvider::AddAuthorizationHeaders()
+nsHttpChannelAuthProvider::AddAuthorizationHeaders(bool aDontUseCachedWWWCreds)
 {
     LOG(("nsHttpChannelAuthProvider::AddAuthorizationHeaders? "
          "[this=%p channel=%p]\n", this, mAuthChannel));
@@ -202,14 +214,21 @@ nsHttpChannelAuthProvider::AddAuthorizationHeaders()
 
     // check if proxy credentials should be sent
     const char *proxyHost = ProxyHost();
-    if (proxyHost && UsingHttpProxy())
+    if (proxyHost && UsingHttpProxy()) {
         SetAuthorizationHeader(authCache, nsHttp::Proxy_Authorization,
                                "http", proxyHost, ProxyPort(),
                                nullptr, // proxy has no path
                                mProxyIdent);
+    }
 
     if (loadFlags & nsIRequest::LOAD_ANONYMOUS) {
         LOG(("Skipping Authorization header for anonymous load\n"));
+        return NS_OK;
+    }
+
+    if (aDontUseCachedWWWCreds) {
+        LOG(("Authorization header already present:"
+             " skipping adding auth header from cache\n"));
         return NS_OK;
     }
 
@@ -756,12 +775,34 @@ nsHttpChannelAuthProvider::GetCredentialsForChallenge(const char *challenge,
             else if (authFlags & nsIHttpAuthenticator::IDENTITY_ENCRYPTED)
                 level = nsIAuthPrompt2::LEVEL_PW_ENCRYPTED;
 
+            // Collect statistics on how frequently the various types of HTTP
+            // authentication are used over SSL and non-SSL connections.
+            if (gHttpHandler->IsTelemetryEnabled()) {
+              if (NS_LITERAL_CSTRING("basic").LowerCaseEqualsASCII(authType)) {
+                Telemetry::Accumulate(Telemetry::HTTP_AUTH_TYPE_STATS,
+                  UsingSSL() ? HTTP_AUTH_BASIC_SECURE : HTTP_AUTH_BASIC_INSECURE);
+              } else if (NS_LITERAL_CSTRING("digest").LowerCaseEqualsASCII(authType)) {
+                Telemetry::Accumulate(Telemetry::HTTP_AUTH_TYPE_STATS,
+                  UsingSSL() ? HTTP_AUTH_DIGEST_SECURE : HTTP_AUTH_DIGEST_INSECURE);
+              } else if (NS_LITERAL_CSTRING("ntlm").LowerCaseEqualsASCII(authType)) {
+                Telemetry::Accumulate(Telemetry::HTTP_AUTH_TYPE_STATS,
+                  UsingSSL() ? HTTP_AUTH_NTLM_SECURE : HTTP_AUTH_NTLM_INSECURE);
+              } else if (NS_LITERAL_CSTRING("negotiate").LowerCaseEqualsASCII(authType)) {
+                Telemetry::Accumulate(Telemetry::HTTP_AUTH_TYPE_STATS,
+                  UsingSSL() ? HTTP_AUTH_NEGOTIATE_SECURE : HTTP_AUTH_NEGOTIATE_INSECURE);
+              }
+            }
+
             // Depending on the pref setting, the authentication dialog may be
             // blocked for all sub-resources, blocked for cross-origin
             // sub-resources, or always allowed for sub-resources.
             // For more details look at the bug 647010.
+            // BlockPrompt will set mCrossOrigin parameter as well.
             if (BlockPrompt()) {
-              return NS_ERROR_ABORT;
+                LOG(("nsHttpChannelAuthProvider::GetCredentialsForChallenge: "
+                     "Prompt is blocked [this=%p pref=%d]\n",
+                      this, sAuthAllowPref));
+                return NS_ERROR_ABORT;
             }
 
             // at this point we are forced to interact with the user to get
@@ -810,58 +851,79 @@ nsHttpChannelAuthProvider::GetCredentialsForChallenge(const char *challenge,
 bool
 nsHttpChannelAuthProvider::BlockPrompt()
 {
+    // Verify that it's ok to prompt for credentials here, per spec
+    // http://xhr.spec.whatwg.org/#the-send%28%29-method
+
+    nsCOMPtr<nsIHttpChannelInternal> chanInternal = do_QueryInterface(mAuthChannel);
+    MOZ_ASSERT(chanInternal);
+
+    if (chanInternal->GetBlockAuthPrompt()) {
+        LOG(("nsHttpChannelAuthProvider::BlockPrompt: Prompt is blocked "
+             "[this=%p channel=%p]\n", this, mAuthChannel));
+        return true;
+    }
+
     nsCOMPtr<nsIChannel> chan = do_QueryInterface(mAuthChannel);
     nsCOMPtr<nsILoadInfo> loadInfo;
     chan->GetLoadInfo(getter_AddRefs(loadInfo));
-    if (!loadInfo) {
-        return false;
+
+    // We will treat loads w/o loadInfo as a top level document.
+    bool topDoc = true;
+    bool xhr = false;
+
+    if (loadInfo) {
+        if (loadInfo->GetExternalContentPolicyType() !=
+            nsIContentPolicy::TYPE_DOCUMENT) {
+            topDoc = false;
+        }
+        if (loadInfo->GetExternalContentPolicyType() ==
+            nsIContentPolicy::TYPE_XMLHTTPREQUEST) {
+            xhr = true;
+        }
+
+        if (!topDoc && !xhr) {
+            nsCOMPtr<nsIURI> topURI;
+            chanInternal->GetTopWindowURI(getter_AddRefs(topURI));
+
+            if (!topURI) {
+                // If we do not have topURI try the loadingPrincipal.
+                nsCOMPtr<nsIPrincipal> loadingPrinc = loadInfo->LoadingPrincipal();
+                if (loadingPrinc) {
+                    loadingPrinc->GetURI(getter_AddRefs(topURI));
+                }
+            }
+
+            if (!NS_SecurityCompareURIs(topURI, mURI, true)) {
+                mCrossOrigin = true;
+            }
+        }
     }
 
     if (gHttpHandler->IsTelemetryEnabled()) {
-      if (loadInfo->GetExternalContentPolicyType() == nsIContentPolicy::TYPE_DOCUMENT) {
-        Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS,
-                              HTTP_AUTH_DIALOG_TOP_LEVEL_DOC);
-      } else {
-        nsCOMPtr<nsIPrincipal> loadingPrincipal = loadInfo->LoadingPrincipal();
-        if (loadingPrincipal) {
-          if (NS_SUCCEEDED(loadingPrincipal->CheckMayLoad(mURI, false, false))) {
+        if (topDoc) {
             Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS,
-              HTTP_AUTH_DIALOG_SAME_ORIGIN_SUBRESOURCE);
-          } else {
+                                  HTTP_AUTH_DIALOG_TOP_LEVEL_DOC);
+        } else if (xhr) {
             Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS,
-              HTTP_AUTH_DIALOG_CROSS_ORIGIN_SUBRESOURCE);
-          }
+                                  HTTP_AUTH_DIALOG_XHR);
+        } else if (!mCrossOrigin) {
+            Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS,
+                                  HTTP_AUTH_DIALOG_SAME_ORIGIN_SUBRESOURCE);
+        } else {
+            Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS,
+                                  HTTP_AUTH_DIALOG_CROSS_ORIGIN_SUBRESOURCE);
         }
-      }
-    }
-
-    // Allow if it is the top-level document or xhr.
-    if ((loadInfo->GetExternalContentPolicyType() == nsIContentPolicy::TYPE_DOCUMENT) ||
-        (loadInfo->GetExternalContentPolicyType() == nsIContentPolicy::TYPE_XMLHTTPREQUEST)) {
-        return false;
     }
 
     switch (sAuthAllowPref) {
     case SUBRESOURCE_AUTH_DIALOG_DISALLOW_ALL:
         // Do not open the http-authentication credentials dialog for
         // the sub-resources.
-        return true;
-        break;
+        return !topDoc && !xhr;
     case SUBRESOURCE_AUTH_DIALOG_DISALLOW_CROSS_ORIGIN:
-        // Do not open the http-authentication credentials dialog for
+        // Open the http-authentication credentials dialog for
         // the sub-resources only if they are not cross-origin.
-        {
-            nsCOMPtr<nsIPrincipal> loadingPrincipal =
-                loadInfo->LoadingPrincipal();
-            if (!loadingPrincipal) {
-                return false;
-            }
-
-            if (NS_FAILED(loadingPrincipal->CheckMayLoad(mURI, false, false))) {
-                return true;
-            }
-        }
-        break;
+        return !topDoc && !xhr && mCrossOrigin;
     case SUBRESOURCE_AUTH_DIALOG_ALLOW_ALL:
         // Allow the http-authentication dialog.
         return false;
@@ -1054,6 +1116,10 @@ nsHttpChannelAuthProvider::PromptForIdentity(uint32_t            level,
 
     if (authFlags & nsIHttpAuthenticator::IDENTITY_INCLUDES_DOMAIN)
         promptFlags |= nsIAuthInformation::NEED_DOMAIN;
+
+    if (mCrossOrigin) {
+        promptFlags |= nsIAuthInformation::CROSS_ORIGIN_SUB_RESOURCE;
+    }
 
     RefPtr<nsHTTPAuthInformation> holder =
         new nsHTTPAuthInformation(promptFlags, realmU,

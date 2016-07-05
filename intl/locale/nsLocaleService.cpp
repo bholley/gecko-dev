@@ -9,7 +9,6 @@
 #endif
 
 #include "nsCOMPtr.h"
-#include "nsAutoPtr.h"
 #include "nsILocale.h"
 #include "nsILocaleService.h"
 #include "nsLocale.h"
@@ -178,7 +177,7 @@ nsLocaleService::nsLocaleService(void)
     CFStringRef userLocaleStr = ::CFLocaleGetIdentifier(userLocaleRef);
     ::CFRetain(userLocaleStr);
 
-    nsAutoTArray<UniChar, 32> buffer;
+    AutoTArray<UniChar, 32> buffer;
     int size = ::CFStringGetLength(userLocaleStr);
     buffer.SetLength(size + 1);
     CFRange range = ::CFRangeMake(0, size);

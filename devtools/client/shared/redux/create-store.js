@@ -22,12 +22,17 @@ const { history } = require("./middleware/history");
  *                   used in tests.
  *        - middleware: array of middleware to be included in the redux store
  */
-module.exports = (opts={}) => {
+module.exports = (opts = {}) => {
   const middleware = [
     task,
     thunk,
-    waitUntilService,
     promise,
+
+    // Order is important: services must go last as they always
+    // operate on "already transformed" actions. Actions going through
+    // them shouldn't have any special fields like promises, they
+    // should just be normal JSON objects.
+    waitUntilService
   ];
 
   if (opts.history) {
@@ -43,4 +48,4 @@ module.exports = (opts={}) => {
   }
 
   return applyMiddleware(...middleware)(createStore);
-}
+};

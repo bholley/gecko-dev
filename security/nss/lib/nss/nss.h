@@ -8,17 +8,6 @@
 #ifndef __nss_h_
 #define __nss_h_
 
-/* The private macro _NSS_ECC_STRING is for NSS internal use only. */
-#ifndef NSS_DISABLE_ECC
-#ifdef NSS_ECC_MORE_THAN_SUITE_B
-#define _NSS_ECC_STRING " Extended ECC"
-#else
-#define _NSS_ECC_STRING " Basic ECC"
-#endif
-#else
-#define _NSS_ECC_STRING ""
-#endif
-
 /* The private macro _NSS_CUSTOMIZED is for NSS internal use only. */
 #if defined(NSS_ALLOW_UNSUPPORTED_CRITICAL)
 #define _NSS_CUSTOMIZED " (Customized build)"
@@ -33,9 +22,9 @@
  * The format of the version string should be
  *     "<major version>.<minor version>[.<patch level>[.<build number>]][ <ECC>][ <Beta>]"
  */
-#define NSS_VERSION  "3.21" _NSS_ECC_STRING _NSS_CUSTOMIZED
+#define NSS_VERSION  "3.25" _NSS_CUSTOMIZED
 #define NSS_VMAJOR   3
-#define NSS_VMINOR   21
+#define NSS_VMINOR   25
 #define NSS_VPATCH   0
 #define NSS_VBUILD   0
 #define NSS_BETA     PR_FALSE
@@ -296,9 +285,13 @@ SECStatus NSS_UnregisterShutdown(NSS_ShutdownFunc sFunc, void *appData);
 
 /* Available options for NSS_OptionSet() and NSS_OptionGet().
  */
-#define NSS_RSA_MIN_KEY_SIZE (1<<0)
-#define NSS_DH_MIN_KEY_SIZE  (1<<1)
-#define NSS_DSA_MIN_KEY_SIZE (1<<2)
+#define NSS_RSA_MIN_KEY_SIZE        0x001
+#define NSS_DH_MIN_KEY_SIZE         0x002
+#define NSS_DSA_MIN_KEY_SIZE        0x004
+#define NSS_TLS_VERSION_MIN_POLICY  0x008
+#define NSS_TLS_VERSION_MAX_POLICY  0x009
+#define NSS_DTLS_VERSION_MIN_POLICY 0x00a
+#define NSS_DTLS_VERSION_MAX_POLICY 0x00b
 
 /*
  * Set and get global options for the NSS library.

@@ -12,6 +12,8 @@ Cu.import("resource://services-sync/util.js");
 Cu.import("resource://testing-common/services/sync/utils.js");
 Cu.import("resource://gre/modules/Promise.jsm");
 
+initTestLogging("Trace");
+
 Service.engineManager.register(BookmarksEngine);
 
 add_test(function bad_record_allIDs() {
@@ -71,7 +73,7 @@ add_test(function test_ID_caching() {
     _("New mobile ID: " + newMobileID);
   } catch (ex) {
     err = ex;
-    _("Error: " + Utils.exceptionStr(err));
+    _("Error: " + Log.exceptionStr(err));
   }
 
   do_check_true(!err);
@@ -167,7 +169,7 @@ add_test(function test_processIncoming_error_orderChildren() {
   }
 });
 
-add_task(function test_restorePromptsReupload() {
+add_task(function* test_restorePromptsReupload() {
   _("Ensure that restoring from a backup will reupload all records.");
   let engine = new BookmarksEngine(Service);
   let store  = engine._store;
@@ -204,8 +206,7 @@ add_task(function test_restorePromptsReupload() {
     backupFile.append("t_b_e_" + Date.now() + ".json");
 
     _("Backing up to file " + backupFile.path);
-    backupFile.create(Ci.nsILocalFile.NORMAL_FILE_TYPE, 0600);
-    yield BookmarkJSONUtils.exportToFile(backupFile);
+    yield BookmarkJSONUtils.exportToFile(backupFile.path);
 
     _("Create a different record and sync.");
     let bmk2_id = PlacesUtils.bookmarks.insertBookmark(
@@ -220,7 +221,7 @@ add_task(function test_restorePromptsReupload() {
       engine.sync();
     } catch(ex) {
       error = ex;
-      _("Got error: " + Utils.exceptionStr(ex));
+      _("Got error: " + Log.exceptionStr(ex));
     }
     do_check_true(!error);
 
@@ -264,7 +265,7 @@ add_task(function test_restorePromptsReupload() {
       engine.sync();
     } catch(ex) {
       error = ex;
-      _("Got error: " + Utils.exceptionStr(ex));
+      _("Got error: " + Log.exceptionStr(ex));
     }
     do_check_true(!error);
 
@@ -396,7 +397,9 @@ add_test(function test_bookmark_guidMap_fail() {
   engine.lastSync = 1;   // So we don't back up.
 
   // Make building the GUID map fail.
-  store.getAllIDs = function () { throw "Nooo"; };
+
+  let pbt = PlacesUtils.promiseBookmarksTree;
+  PlacesUtils.promiseBookmarksTree = function() { return Promise.reject("Nooo"); };
 
   // Ensure that we throw when accessing _guidMap.
   engine._syncStartup();
@@ -422,6 +425,7 @@ add_test(function test_bookmark_guidMap_fail() {
   }
   do_check_eq(err, "Nooo");
 
+  PlacesUtils.promiseBookmarksTree = pbt;
   server.stop(run_next_test);
 });
 

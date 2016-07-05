@@ -20,6 +20,8 @@
 #include "mp4_demuxer/AnnexB.h"
 #include "mp4_demuxer/H264.h"
 
+#include "nsAutoPtr.h"
+
 mozilla::LogModule* GetDemuxerLog() {
   static mozilla::LazyLogModule log("MP4Demuxer");
   return log;
@@ -34,21 +36,21 @@ public:
                   UniquePtr<TrackInfo>&& aInfo,
                   const nsTArray<mp4_demuxer::Index::Indice>& indices);
 
-  virtual UniquePtr<TrackInfo> GetInfo() const override;
+  UniquePtr<TrackInfo> GetInfo() const override;
 
-  virtual RefPtr<SeekPromise> Seek(media::TimeUnit aTime) override;
+  RefPtr<SeekPromise> Seek(media::TimeUnit aTime) override;
 
-  virtual RefPtr<SamplesPromise> GetSamples(int32_t aNumSamples = 1) override;
+  RefPtr<SamplesPromise> GetSamples(int32_t aNumSamples = 1) override;
 
-  virtual void Reset() override;
+  void Reset() override;
 
-  virtual nsresult GetNextRandomAccessPoint(media::TimeUnit* aTime) override;
+  nsresult GetNextRandomAccessPoint(media::TimeUnit* aTime) override;
 
   RefPtr<SkipAccessPointPromise> SkipToNextRandomAccessPoint(media::TimeUnit aTimeThreshold) override;
 
-  virtual media::TimeIntervals GetBuffered() override;
+  media::TimeIntervals GetBuffered() override;
 
-  virtual void BreakCycles() override;
+  void BreakCycles() override;
 
 private:
   friend class MP4Demuxer;
@@ -59,9 +61,6 @@ private:
   RefPtr<MP4Demuxer> mParent;
   RefPtr<mp4_demuxer::ResourceStream> mStream;
   UniquePtr<TrackInfo> mInfo;
-  // We do not actually need a monitor, however MoofParser (in mIndex) will
-  // assert if a monitor isn't held.
-  Monitor mMonitor;
   RefPtr<mp4_demuxer::Index> mIndex;
   UniquePtr<mp4_demuxer::SampleIterator> mIterator;
   Maybe<media::TimeUnit> mNextKeyframeTime;
@@ -228,12 +227,10 @@ MP4TrackDemuxer::MP4TrackDemuxer(MP4Demuxer* aParent,
   : mParent(aParent)
   , mStream(new mp4_demuxer::ResourceStream(mParent->mResource))
   , mInfo(Move(aInfo))
-  , mMonitor("MP4TrackDemuxer")
   , mIndex(new mp4_demuxer::Index(indices,
                                   mStream,
                                   mInfo->mTrackId,
-                                  mInfo->IsAudio(),
-                                  &mMonitor))
+                                  mInfo->IsAudio()))
   , mIterator(MakeUnique<mp4_demuxer::SampleIterator>(mIndex))
   , mNeedReIndex(true)
 {
@@ -264,12 +261,11 @@ MP4TrackDemuxer::EnsureUpToDateIndex()
     return;
   }
   AutoPinned<MediaResource> resource(mParent->mResource);
-  nsTArray<MediaByteRange> byteRanges;
+  MediaByteRangeSet byteRanges;
   nsresult rv = resource->GetCachedRanges(byteRanges);
   if (NS_FAILED(rv)) {
     return;
   }
-  MonitorAutoLock mon(mMonitor);
   mIndex->UpdateMoofIndex(byteRanges);
   mNeedReIndex = false;
 }
@@ -280,7 +276,6 @@ MP4TrackDemuxer::Seek(media::TimeUnit aTime)
   int64_t seekTime = aTime.ToMicroseconds();
   mQueuedSample = nullptr;
 
-  MonitorAutoLock mon(mMonitor);
   mIterator->Seek(seekTime);
 
   // Check what time we actually seeked to.
@@ -307,9 +302,11 @@ MP4TrackDemuxer::GetSamples(int32_t aNumSamples)
     mQueuedSample = nullptr;
     aNumSamples--;
   }
-  MonitorAutoLock mon(mMonitor);
   RefPtr<MediaRawData> sample;
   while (aNumSamples && (sample = mIterator->GetNext())) {
+    if (!sample->Size()) {
+      continue;
+    }
     samples->mSamples.AppendElement(sample);
     aNumSamples--;
   }
@@ -338,7 +335,6 @@ MP4TrackDemuxer::Reset()
 {
   mQueuedSample = nullptr;
   // TODO, Seek to first frame available, which isn't always 0.
-  MonitorAutoLock mon(mMonitor);
   mIterator->Seek(0);
   SetNextKeyFrameTime();
 }
@@ -386,7 +382,6 @@ MP4TrackDemuxer::GetNextRandomAccessPoint(media::TimeUnit* aTime)
 RefPtr<MP4TrackDemuxer::SkipAccessPointPromise>
 MP4TrackDemuxer::SkipToNextRandomAccessPoint(media::TimeUnit aTimeThreshold)
 {
-  MonitorAutoLock mon(mMonitor);
   mQueuedSample = nullptr;
   // Loop until we reach the next keyframe after the threshold.
   uint32_t parsed = 0;
@@ -413,24 +408,14 @@ MP4TrackDemuxer::GetBuffered()
 {
   EnsureUpToDateIndex();
   AutoPinned<MediaResource> resource(mParent->mResource);
-  nsTArray<MediaByteRange> byteRanges;
+  MediaByteRangeSet byteRanges;
   nsresult rv = resource->GetCachedRanges(byteRanges);
 
   if (NS_FAILED(rv)) {
     return media::TimeIntervals();
   }
-  nsTArray<mp4_demuxer::Interval<int64_t>> timeRanges;
 
-  MonitorAutoLock mon(mMonitor);
-  mIndex->ConvertByteRangesToTimeRanges(byteRanges, &timeRanges);
-  // convert timeRanges.
-  media::TimeIntervals ranges = media::TimeIntervals();
-  for (size_t i = 0; i < timeRanges.Length(); i++) {
-    ranges +=
-      media::TimeInterval(media::TimeUnit::FromMicroseconds(timeRanges[i].start),
-                          media::TimeUnit::FromMicroseconds(timeRanges[i].end));
-  }
-  return ranges;
+  return mIndex->ConvertByteRangesToTimeRanges(byteRanges);
 }
 
 void

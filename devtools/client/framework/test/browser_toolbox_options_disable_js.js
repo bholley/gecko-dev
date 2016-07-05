@@ -1,3 +1,5 @@
+/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
+/* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
@@ -33,7 +35,7 @@ function testJSEnabled(event, tool, secondPass) {
 
   // We use executeSoon here because switching docSehll.allowJavascript to true
   // takes a while to become live.
-  executeSoon(function() {
+  executeSoon(function () {
     let output = doc.getElementById("output");
     doc.querySelector("#logJSEnabled").click();
     is(output.textContent, "JavaScript Enabled", 'Output is "JavaScript Enabled"');
@@ -57,12 +59,9 @@ function testJSEnabledIframe(secondPass) {
   }
 }
 
-function toggleJS() {
-  let deferred = promise.defer();
+let toggleJS = Task.async(function* () {
   let panel = toolbox.getCurrentPanel();
   let cbx = panel.panelDoc.getElementById("devtools-disable-javascript");
-
-  cbx.scrollIntoView();
 
   if (cbx.checked) {
     info("Clearing checkbox to re-enable JS");
@@ -70,16 +69,11 @@ function toggleJS() {
     info("Checking checkbox to disable JS");
   }
 
-  gBrowser.selectedBrowser.addEventListener("load", function onLoad(evt) {
-    gBrowser.selectedBrowser.removeEventListener(evt.type, onLoad, true);
-    doc = content.document;
-    deferred.resolve();
-  }, true);
-
+  let browserLoaded = BrowserTestUtils.browserLoaded(gBrowser.selectedBrowser);
   cbx.click();
-
-  return deferred.promise;
-}
+  yield browserLoaded;
+  doc = content.document;
+});
 
 function testJSDisabled() {
   info("Testing that JS is disabled");
@@ -101,13 +95,13 @@ function testJSDisabledIframe() {
   iframeDoc.querySelector("#logJSDisabled").click();
   ok(output.textContent !== "JavaScript Disabled",
      'output is not "JavaScript Disabled" in iframe');
-  toggleJS().then(function() {
+  toggleJS().then(function () {
     testJSEnabled(null, null, true);
   });
 }
 
 function finishUp() {
-  toolbox.destroy().then(function() {
+  toolbox.destroy().then(function () {
     gBrowser.removeCurrentTab();
     toolbox = doc = null;
     finish();

@@ -114,6 +114,8 @@
 #include "nsIFrame.h"
 #include "nsIContent.h"
 #include "nsLayoutStylesheetCache.h"
+#include "mozilla/StyleSheetHandle.h"
+#include "mozilla/StyleSheetHandleInlines.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -267,9 +269,9 @@ nsHTMLDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
 already_AddRefed<nsIPresShell>
 nsHTMLDocument::CreateShell(nsPresContext* aContext,
                             nsViewManager* aViewManager,
-                            nsStyleSet* aStyleSet)
+                            StyleSetHandle aStyleSet)
 {
-  return doCreateShell(aContext, aViewManager, aStyleSet, mCompatMode);
+  return doCreateShell(aContext, aViewManager, aStyleSet);
 }
 
 void
@@ -891,8 +893,8 @@ nsHTMLDocument::GetDomain(nsAString& aDomain)
   }
 
   nsAutoCString hostName;
-
-  if (NS_SUCCEEDED(uri->GetHost(hostName))) {
+  nsresult rv = nsContentUtils::GetHostOrIPv6WithBrackets(uri, hostName);
+  if (NS_SUCCEEDED(rv)) {
     CopyUTF8toUTF16(hostName, aDomain);
   } else {
     // If we can't get the host from the URI (e.g. about:, javascript:,
@@ -932,23 +934,22 @@ nsHTMLDocument::SetDomain(const nsAString& aDomain, ErrorResult& rv)
     return;
   }
 
-  nsAutoCString newURIString;
-  if (NS_FAILED(uri->GetScheme(newURIString))) {
-    rv.Throw(NS_ERROR_FAILURE);
-    return;
-  }
-  nsAutoCString path;
-  if (NS_FAILED(uri->GetPath(path))) {
-    rv.Throw(NS_ERROR_FAILURE);
-    return;
-  }
-  newURIString.AppendLiteral("://");
-  AppendUTF16toUTF8(aDomain, newURIString);
-  newURIString.Append(path);
-
   nsCOMPtr<nsIURI> newURI;
-  if (NS_FAILED(NS_NewURI(getter_AddRefs(newURI), newURIString))) {
-    rv.Throw(NS_ERROR_FAILURE);
+  nsresult rv2 = uri->Clone(getter_AddRefs(newURI));
+  if (NS_FAILED(rv2)) {
+    rv.Throw(rv2);
+    return;
+  }
+
+  rv2 = newURI->SetUserPass(EmptyCString());
+  if (NS_FAILED(rv2)) {
+    rv.Throw(rv2);
+    return;
+  }
+
+  rv2 = newURI->SetHostPort(NS_ConvertUTF16toUTF8(aDomain));
+  if (NS_FAILED(rv2)) {
+    rv.Throw(rv2);
     return;
   }
 
@@ -987,6 +988,7 @@ nsHTMLDocument::SetDomain(const nsAString& aDomain, ErrorResult& rv)
     return;
   }
 
+  NS_TryToSetImmutable(newURI);
   rv = NodePrincipal()->SetDomain(newURI);
 }
 
@@ -1034,7 +1036,7 @@ nsHTMLDocument::SetBody(nsIDOMHTMLElement* aBody)
 void
 nsHTMLDocument::SetBody(nsGenericHTMLElement* newBody, ErrorResult& rv)
 {
-  Element* root = GetRootElement();
+  nsCOMPtr<Element> root = GetRootElement();
 
   // The body element must be either a body tag or a frameset tag. And we must
   // have a html root tag, otherwise GetBody will not return the newly set
@@ -1105,7 +1107,7 @@ nsHTMLDocument::MatchLinks(nsIContent *aContent, int32_t aNamespaceID,
   nsIDocument* doc = aContent->GetUncomposedDoc();
 
   if (doc) {
-    NS_ASSERTION(aContent->IsInDoc(),
+    NS_ASSERTION(aContent->IsInUncomposedDoc(),
                  "This method should never be called on content nodes that "
                  "are not in a document!");
 #ifdef DEBUG
@@ -1150,7 +1152,7 @@ bool
 nsHTMLDocument::MatchAnchors(nsIContent *aContent, int32_t aNamespaceID,
                              nsIAtom* aAtom, void* aData)
 {
-  NS_ASSERTION(aContent->IsInDoc(),
+  NS_ASSERTION(aContent->IsInUncomposedDoc(),
                "This method should never be called on content nodes that "
                "are not in a document!");
 #ifdef DEBUG
@@ -1221,9 +1223,11 @@ nsHTMLDocument::CreateDummyChannelForCookies(nsIURI* aCodebaseURI)
   // FOR ANY OTHER PURPOSE.
   MOZ_ASSERT(!mChannel);
 
+  // The following channel is never openend, so it does not matter what
+  // securityFlags we pass; let's follow the principle of least privilege.
   nsCOMPtr<nsIChannel> channel;
   NS_NewChannel(getter_AddRefs(channel), aCodebaseURI, this,
-                nsILoadInfo::SEC_NORMAL,
+                nsILoadInfo::SEC_REQUIRE_SAME_ORIGIN_DATA_IS_BLOCKED,
                 nsIContentPolicy::TYPE_INVALID);
   nsCOMPtr<nsIPrivateBrowsingChannel> pbChannel =
     do_QueryInterface(channel);
@@ -1364,7 +1368,7 @@ nsHTMLDocument::Open(const nsAString& aContentTypeOrUrl,
   return rv.StealNSResult();
 }
 
-already_AddRefed<nsIDOMWindow>
+already_AddRefed<nsPIDOMWindowOuter>
 nsHTMLDocument::Open(JSContext* /* unused */,
                      const nsAString& aURL,
                      const nsAString& aName,
@@ -1375,18 +1379,19 @@ nsHTMLDocument::Open(JSContext* /* unused */,
   NS_ASSERTION(nsContentUtils::CanCallerAccess(static_cast<nsIDOMHTMLDocument*>(this)),
                "XOW should have caught this!");
 
-  nsCOMPtr<nsPIDOMWindow> window = GetInnerWindow();
+  nsCOMPtr<nsPIDOMWindowInner> window = GetInnerWindow();
   if (!window) {
     rv.Throw(NS_ERROR_DOM_INVALID_ACCESS_ERR);
     return nullptr;
   }
-  window = nsPIDOMWindow::GetOuterFromCurrentInner(window);
-  if (!window) {
+  nsCOMPtr<nsPIDOMWindowOuter> outer =
+    nsPIDOMWindowOuter::GetFromCurrentInner(window);
+  if (!outer) {
     rv.Throw(NS_ERROR_NOT_INITIALIZED);
     return nullptr;
   }
-  RefPtr<nsGlobalWindow> win = static_cast<nsGlobalWindow*>(window.get());
-  nsCOMPtr<nsIDOMWindow> newWindow;
+  RefPtr<nsGlobalWindow> win = nsGlobalWindow::Cast(outer);
+  nsCOMPtr<nsPIDOMWindowOuter> newWindow;
   // XXXbz We ignore aReplace for now.
   rv = win->OpenJS(aURL, aName, aFeatures, getter_AddRefs(newWindow));
   return newWindow.forget();
@@ -1442,7 +1447,7 @@ nsHTMLDocument::Open(JSContext* cx,
     return ret.forget();
   }
 
-  nsPIDOMWindow* outer = GetWindow();
+  nsPIDOMWindowOuter* outer = GetWindow();
   if (!outer || (GetInnerWindow() != outer->GetCurrentInnerWindow())) {
     nsCOMPtr<nsIDocument> ret = this;
     return ret.forget();
@@ -1593,8 +1598,7 @@ nsHTMLDocument::Open(JSContext* cx,
   // Hold onto ourselves on the offchance that we're down to one ref
   nsCOMPtr<nsIDocument> kungFuDeathGrip = this;
 
-  nsPIDOMWindow *window = GetInnerWindow();
-  if (window) {
+  if (nsPIDOMWindowInner *window = GetInnerWindow()) {
     // Remember the old scope in case the call to SetNewDocument changes it.
     nsCOMPtr<nsIScriptGlobalObject> oldScope(do_QueryReferent(mScopeObject));
 
@@ -1971,86 +1975,6 @@ nsHTMLDocument::GetElementsByName(const nsAString& aElementName,
   return NS_OK;
 }
 
-static bool MatchItems(nsIContent* aContent, int32_t aNameSpaceID, 
-                       nsIAtom* aAtom, void* aData)
-{
-  if (!aContent->IsHTMLElement()) {
-    return false;
-  }
-
-  nsGenericHTMLElement* elem = static_cast<nsGenericHTMLElement*>(aContent);
-  if (!elem->HasAttr(kNameSpaceID_None, nsGkAtoms::itemscope) ||
-      elem->HasAttr(kNameSpaceID_None, nsGkAtoms::itemprop)) {
-    return false;
-  }
-
-  nsTArray<nsCOMPtr<nsIAtom> >* tokens = static_cast<nsTArray<nsCOMPtr<nsIAtom> >*>(aData);
-  if (tokens->IsEmpty()) {
-    return true;
-  }
- 
-  const nsAttrValue* attr = elem->GetParsedAttr(nsGkAtoms::itemtype);
-  if (!attr)
-    return false;
-
-  for (uint32_t i = 0; i < tokens->Length(); i++) {
-    if (!attr->Contains(tokens->ElementAt(i), eCaseMatters)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static void DestroyTokens(void* aData)
-{
-  nsTArray<nsCOMPtr<nsIAtom> >* tokens = static_cast<nsTArray<nsCOMPtr<nsIAtom> >*>(aData);
-  delete tokens;
-}
-
-static void* CreateTokens(nsINode* aRootNode, const nsString* types)
-{
-  nsTArray<nsCOMPtr<nsIAtom> >* tokens = new nsTArray<nsCOMPtr<nsIAtom> >();
-  nsAString::const_iterator iter, end;
-  types->BeginReading(iter);
-  types->EndReading(end);
-  
-  // skip initial whitespace
-  while (iter != end && nsContentUtils::IsHTMLWhitespace(*iter)) {
-    ++iter;
-  }
-
-  // parse the tokens
-  while (iter != end) {
-    nsAString::const_iterator start(iter);
-
-    do {
-      ++iter;
-    } while (iter != end && !nsContentUtils::IsHTMLWhitespace(*iter));
-
-    tokens->AppendElement(do_GetAtom(Substring(start, iter)));
-
-    // skip whitespace
-    while (iter != end && nsContentUtils::IsHTMLWhitespace(*iter)) {
-      ++iter;
-    }
-  }
-  return tokens;
-}
-
-NS_IMETHODIMP
-nsHTMLDocument::GetItems(const nsAString& types, nsIDOMNodeList** aReturn)
-{
-  *aReturn = GetItems(types).take();
-  return NS_OK;
-}
-
-already_AddRefed<nsINodeList>
-nsHTMLDocument::GetItems(const nsAString& aTypeNames)
-{
-  return NS_GetFuncStringNodeList(this, MatchItems, DestroyTokens, CreateTokens,
-                                  aTypeNames);
-}
-
 void
 nsHTMLDocument::AddedForm()
 {
@@ -2217,7 +2141,7 @@ nsHTMLDocument::GetSelection(nsISelection** aReturn)
 Selection*
 nsHTMLDocument::GetSelection(ErrorResult& aRv)
 {
-  nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(GetScopeObject());
+  nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(GetScopeObject());
   if (!window) {
     return nullptr;
   }
@@ -2227,7 +2151,7 @@ nsHTMLDocument::GetSelection(ErrorResult& aRv)
     return nullptr;
   }
 
-  return static_cast<nsGlobalWindow*>(window.get())->GetSelection(aRv);
+  return nsGlobalWindow::Cast(window)->GetSelection(aRv);
 }
 
 NS_IMETHODIMP
@@ -2321,14 +2245,8 @@ nsHTMLDocument::NamedGetter(JSContext* cx, const nsAString& aName, bool& aFound,
   aRetval.set(&val.toObject());
 }
 
-bool
-nsHTMLDocument::NameIsEnumerable(const nsAString& aName)
-{
-  return true;
-}
-
 void
-nsHTMLDocument::GetSupportedNames(unsigned, nsTArray<nsString>& aNames)
+nsHTMLDocument::GetSupportedNames(nsTArray<nsString>& aNames)
 {
   for (auto iter = mIdentifierMap.Iter(); !iter.Done(); iter.Next()) {
     nsIdentifierMapEntry* entry = iter.Get();
@@ -2501,7 +2419,7 @@ nsHTMLDocument::MaybeEditingStateChanged()
       EditingStateChanged();
     } else if (!mInDestructor) {
       nsContentUtils::AddScriptRunner(
-        NS_NewRunnableMethod(this, &nsHTMLDocument::MaybeEditingStateChanged));
+        NewRunnableMethod(this, &nsHTMLDocument::MaybeEditingStateChanged));
     }
   }
 }
@@ -2520,7 +2438,7 @@ nsHTMLDocument::EndUpdate(nsUpdateType aUpdateType)
 
 
 // Helper class, used below in ChangeContentEditableCount().
-class DeferredContentEditableCountChangeEvent : public nsRunnable
+class DeferredContentEditableCountChangeEvent : public Runnable
 {
 public:
   DeferredContentEditableCountChangeEvent(nsHTMLDocument *aDoc,
@@ -2575,7 +2493,7 @@ nsHTMLDocument::DeferredContentEditableCountChange(nsIContent *aElement)
     // the spellchecking state of that node.
     nsCOMPtr<nsIDOMNode> node = do_QueryInterface(aElement);
     if (node) {
-      nsPIDOMWindow *window = GetWindow();
+      nsPIDOMWindowOuter *window = GetWindow();
       if (!window)
         return;
 
@@ -2641,16 +2559,18 @@ nsHTMLDocument::TearingDownEditor(nsIEditor *aEditor)
     if (!presShell)
       return;
 
-    nsCOMArray<nsIStyleSheet> agentSheets;
+    nsTArray<StyleSheetHandle::RefPtr> agentSheets;
     presShell->GetAgentStyleSheets(agentSheets);
 
-    agentSheets.RemoveObject(nsLayoutStylesheetCache::ContentEditableSheet());
+    auto cache = nsLayoutStylesheetCache::For(GetStyleBackendType());
+
+    agentSheets.RemoveElement(cache->ContentEditableSheet());
     if (oldState == eDesignMode)
-      agentSheets.RemoveObject(nsLayoutStylesheetCache::DesignModeSheet());
+      agentSheets.RemoveElement(cache->DesignModeSheet());
 
     presShell->SetAgentStyleSheets(agentSheets);
 
-    presShell->ReconstructStyleData();
+    presShell->RestyleForCSSRuleChanges();
   }
 }
 
@@ -2659,7 +2579,7 @@ nsHTMLDocument::TurnEditingOff()
 {
   NS_ASSERTION(mEditingState != eOff, "Editing is already off.");
 
-  nsPIDOMWindow *window = GetWindow();
+  nsPIDOMWindowOuter *window = GetWindow();
   if (!window)
     return NS_ERROR_FAILURE;
 
@@ -2667,8 +2587,8 @@ nsHTMLDocument::TurnEditingOff()
   if (!docshell)
     return NS_ERROR_FAILURE;
 
-  nsresult rv;
-  nsCOMPtr<nsIEditingSession> editSession = do_GetInterface(docshell, &rv);
+  nsCOMPtr<nsIEditingSession> editSession;
+  nsresult rv = docshell->GetEditingSession(getter_AddRefs(editSession));
   NS_ENSURE_SUCCESS(rv, rv);
 
   // turn editing off
@@ -2680,7 +2600,7 @@ nsHTMLDocument::TurnEditingOff()
   return NS_OK;
 }
 
-static bool HasPresShell(nsPIDOMWindow *aWindow)
+static bool HasPresShell(nsPIDOMWindowOuter *aWindow)
 {
   nsIDocShell *docShell = aWindow->GetDocShell();
   if (!docShell)
@@ -2730,7 +2650,7 @@ nsHTMLDocument::EditingStateChanged()
 
   // get editing session, make sure this is a strong reference so the
   // window can't get deleted during the rest of this call.
-  nsCOMPtr<nsPIDOMWindow> window = GetWindow();
+  nsCOMPtr<nsPIDOMWindowOuter> window = GetWindow();
   if (!window)
     return NS_ERROR_FAILURE;
 
@@ -2738,8 +2658,8 @@ nsHTMLDocument::EditingStateChanged()
   if (!docshell)
     return NS_ERROR_FAILURE;
 
-  nsresult rv;
-  nsCOMPtr<nsIEditingSession> editSession = do_GetInterface(docshell, &rv);
+  nsCOMPtr<nsIEditingSession> editSession;
+  nsresult rv = docshell->GetEditingSession(getter_AddRefs(editSession));
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIEditor> existingEditor;
@@ -2780,18 +2700,16 @@ nsHTMLDocument::EditingStateChanged()
     // Before making this window editable, we need to modify UA style sheet
     // because new style may change whether focused element will be focusable
     // or not.
-    nsCOMArray<nsIStyleSheet> agentSheets;
+    nsTArray<StyleSheetHandle::RefPtr> agentSheets;
     rv = presShell->GetAgentStyleSheets(agentSheets);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    CSSStyleSheet* contentEditableSheet =
-      nsLayoutStylesheetCache::ContentEditableSheet();
+    auto cache = nsLayoutStylesheetCache::For(GetStyleBackendType());
 
-    bool result;
+    StyleSheetHandle contentEditableSheet = cache->ContentEditableSheet();
 
     if (!agentSheets.Contains(contentEditableSheet)) {
-      bool result = agentSheets.AppendObject(contentEditableSheet);
-      NS_ENSURE_TRUE(result, NS_ERROR_OUT_OF_MEMORY);
+      agentSheets.AppendElement(contentEditableSheet);
     }
 
     // Should we update the editable state of all the nodes in the document? We
@@ -2799,11 +2717,9 @@ nsHTMLDocument::EditingStateChanged()
     // specific states on the elements.
     if (designMode) {
       // designMode is being turned on (overrides contentEditable).
-      CSSStyleSheet* designModeSheet =
-        nsLayoutStylesheetCache::DesignModeSheet();
+      StyleSheetHandle designModeSheet = cache->DesignModeSheet();
       if (!agentSheets.Contains(designModeSheet)) {
-        result = agentSheets.AppendObject(designModeSheet);
-        NS_ENSURE_TRUE(result, NS_ERROR_OUT_OF_MEMORY);
+        agentSheets.AppendElement(designModeSheet);
       }
 
       updateState = true;
@@ -2811,20 +2727,20 @@ nsHTMLDocument::EditingStateChanged()
     }
     else if (oldState == eDesignMode) {
       // designMode is being turned off (contentEditable is still on).
-      agentSheets.RemoveObject(nsLayoutStylesheetCache::DesignModeSheet());
+      agentSheets.RemoveElement(cache->DesignModeSheet());
       updateState = true;
     }
 
     rv = presShell->SetAgentStyleSheets(agentSheets);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    presShell->ReconstructStyleData();
+    presShell->RestyleForCSSRuleChanges();
 
     // Adjust focused element with new style but blur event shouldn't be fired
     // until mEditingState is modified with newState.
     nsAutoScriptBlocker scriptBlocker;
     if (designMode) {
-      nsCOMPtr<nsPIDOMWindow> focusedWindow;
+      nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
       nsIContent* focusedContent =
         nsFocusManager::GetFocusedDescendant(window, false,
                                              getter_AddRefs(focusedWindow));
@@ -2959,7 +2875,7 @@ nsHTMLDocument::GetMidasCommandManager(nsICommandManager** aCmdMgr)
 
   *aCmdMgr = nullptr;
 
-  nsPIDOMWindow *window = GetWindow();
+  nsPIDOMWindowOuter *window = GetWindow();
   if (!window)
     return NS_ERROR_FAILURE;
 
@@ -2967,7 +2883,7 @@ nsHTMLDocument::GetMidasCommandManager(nsICommandManager** aCmdMgr)
   if (!docshell)
     return NS_ERROR_FAILURE;
 
-  mMidasCommandManager = do_GetInterface(docshell);
+  mMidasCommandManager = docshell->GetCommandManager();
   if (!mMidasCommandManager)
     return NS_ERROR_FAILURE;
 
@@ -3284,7 +3200,7 @@ nsHTMLDocument::ExecCommand(const nsAString& commandID,
     return false;
   }
 
-  nsIDOMWindow* window = GetWindow();
+  nsPIDOMWindowOuter* window = GetWindow();
   if (!window) {
     rv.Throw(NS_ERROR_FAILURE);
     return false;
@@ -3379,7 +3295,7 @@ nsHTMLDocument::QueryCommandEnabled(const nsAString& commandID, ErrorResult& rv)
     return false;
   }
 
-  nsIDOMWindow* window = GetWindow();
+  nsPIDOMWindowOuter* window = GetWindow();
   if (!window) {
     rv.Throw(NS_ERROR_FAILURE);
     return false;
@@ -3420,7 +3336,7 @@ nsHTMLDocument::QueryCommandIndeterm(const nsAString& commandID, ErrorResult& rv
     return false;
   }
 
-  nsIDOMWindow* window = GetWindow();
+  nsPIDOMWindowOuter* window = GetWindow();
   if (!window) {
     rv.Throw(NS_ERROR_FAILURE);
     return false;
@@ -3479,7 +3395,7 @@ nsHTMLDocument::QueryCommandState(const nsAString& commandID, ErrorResult& rv)
     return false;
   }
 
-  nsIDOMWindow* window = GetWindow();
+  nsPIDOMWindowOuter* window = GetWindow();
   if (!window) {
     rv.Throw(NS_ERROR_FAILURE);
     return false;
@@ -3599,7 +3515,7 @@ nsHTMLDocument::QueryCommandValue(const nsAString& commandID,
     return;
   }
 
-  nsIDOMWindow* window = GetWindow();
+  nsPIDOMWindowOuter* window = GetWindow();
   if (!window) {
     rv.Throw(NS_ERROR_FAILURE);
     return;

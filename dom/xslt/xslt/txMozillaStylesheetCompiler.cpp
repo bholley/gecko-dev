@@ -34,11 +34,11 @@
 #include "nsAttrName.h"
 #include "nsIScriptError.h"
 #include "nsIURL.h"
-#include "nsCORSListenerProxy.h"
 #include "nsError.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/EncodingUtils.h"
+#include "mozilla/UniquePtr.h"
 
 using namespace mozilla;
 using mozilla::dom::EncodingUtils;
@@ -416,11 +416,10 @@ txCompileObserver::loadURI(const nsAString& aUri,
     rv = NS_NewURI(getter_AddRefs(referrerUri), aReferrerUri);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsCOMPtr<nsIPrincipal> referrerPrincipal;
-    rv = nsContentUtils::GetSecurityManager()->
-      GetSimpleCodebasePrincipal(referrerUri,
-                                 getter_AddRefs(referrerPrincipal));
-    NS_ENSURE_SUCCESS(rv, rv);
+    PrincipalOriginAttributes attrs;
+    nsCOMPtr<nsIPrincipal> referrerPrincipal =
+      BasePrincipal::CreateCodebasePrincipal(referrerUri, attrs);
+    NS_ENSURE_TRUE(referrerPrincipal, NS_ERROR_FAILURE);
 
     return startLoad(uri, aCompiler, referrerPrincipal, aReferrerPolicy);
 }
@@ -526,11 +525,9 @@ handleNode(nsINode* aNode, txStylesheetCompiler* aCompiler)
         dom::Element* element = aNode->AsElement();
 
         uint32_t attsCount = element->GetAttrCount();
-        nsAutoArrayPtr<txStylesheetAttr> atts;
+        UniquePtr<txStylesheetAttr[]> atts;
         if (attsCount > 0) {
-            atts = new txStylesheetAttr[attsCount];
-            NS_ENSURE_TRUE(atts, NS_ERROR_OUT_OF_MEMORY);
-
+            atts = MakeUnique<txStylesheetAttr[]>(attsCount);
             uint32_t counter;
             for (counter = 0; counter < attsCount; ++counter) {
                 txStylesheetAttr& att = atts[counter];
@@ -546,7 +543,7 @@ handleNode(nsINode* aNode, txStylesheetCompiler* aCompiler)
 
         rv = aCompiler->startElement(ni->NamespaceID(),
                                      ni->NameAtom(),
-                                     ni->GetPrefixAtom(), atts,
+                                     ni->GetPrefixAtom(), atts.get(),
                                      attsCount);
         NS_ENSURE_SUCCESS(rv, rv);
 
@@ -623,11 +620,9 @@ txSyncCompileObserver::loadURI(const nsAString& aUri,
     rv = NS_NewURI(getter_AddRefs(referrerUri), aReferrerUri);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsCOMPtr<nsIPrincipal> referrerPrincipal;
-    rv = nsContentUtils::GetSecurityManager()->
-      GetSimpleCodebasePrincipal(referrerUri,
-                                 getter_AddRefs(referrerPrincipal));
-    NS_ENSURE_SUCCESS(rv, rv);
+    nsCOMPtr<nsIPrincipal> referrerPrincipal =
+      BasePrincipal::CreateCodebasePrincipal(referrerUri, PrincipalOriginAttributes());
+    NS_ENSURE_TRUE(referrerPrincipal, NS_ERROR_FAILURE);
 
     // This is probably called by js, a loadGroup for the channel doesn't
     // make sense.

@@ -53,6 +53,7 @@
 #include "js/TypeDecls.h"
 #endif
 #include "mozilla/UniquePtr.h"
+#include "mozilla/Vector.h"
 
 namespace mozilla {
 class TimeStamp;
@@ -63,6 +64,10 @@ class Promise;
 
 } // namespace mozilla
 
+#ifndef SPS_STANDALONE
+class nsIProfilerStartParams;
+#endif
+
 enum TracingMetadata {
   TRACING_DEFAULT,
   TRACING_INTERVAL_START,
@@ -72,7 +77,7 @@ enum TracingMetadata {
   TRACING_TIMESTAMP
 };
 
-#if !defined(MOZ_ENABLE_PROFILER_SPS) || defined(MOZILLA_XPCOMRT_API)
+#if !defined(MOZ_ENABLE_PROFILER_SPS)
 
 #include <stdint.h>
 #include <stdarg.h>
@@ -97,7 +102,7 @@ enum TracingMetadata {
 // only recorded if a sample is collected while it is active, marker will always
 // be collected.
 #define PROFILER_MARKER(info) do {} while (0)
-#define PROFILER_MARKER_PAYLOAD(info, payload) do { nsAutoPtr<ProfilerMarkerPayload> payloadDeletor(payload); } while (0)
+#define PROFILER_MARKER_PAYLOAD(info, payload) do { mozilla::UniquePtr<ProfilerMarkerPayload> payloadDeletor(payload); } while (0)
 
 // Main thread specilization to avoid TLS lookup for performance critical use.
 #define PROFILER_MAIN_THREAD_LABEL(name_space, info, category) do {} while (0)
@@ -182,6 +187,10 @@ static inline JSObject* profiler_get_profile_jsobject(JSContext* aCx,
 // Get the profile encoded as a JSON object.
 static inline void profiler_get_profile_jsobject_async(double aSinceTime = 0,
                                                        mozilla::dom::Promise* = 0) {}
+static inline void profiler_get_start_params(int* aEntrySize,
+                                             double* aInterval,
+                                             mozilla::Vector<const char*>* aFilters,
+                                             mozilla::Vector<const char*>* aFeatures) {}
 #endif
 
 // Get the profile and write it into a file

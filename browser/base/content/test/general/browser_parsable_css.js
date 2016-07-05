@@ -27,6 +27,9 @@ const kWhitelist = [
   // Highlighter CSS uses a UA-only pseudo-class, see bug 985597.
   {sourceName: /highlighters\.css$/i,
    errorMessage: /Unknown pseudo-class.*moz-native-anonymous/i},
+  // Responsive Design Mode CSS uses a UA-only pseudo-class, see Bug 1241714.
+  {sourceName: /responsive-ua\.css$/i,
+   errorMessage: /Unknown pseudo-class.*moz-dropdown-list/i},
 ];
 
 var moduleLocation = gTestPath.replace(/\/[^\/]*$/i, "/parsingTestHelpers.jsm");
@@ -157,7 +160,7 @@ function messageIsCSSError(msg) {
   return false;
 }
 
-add_task(function checkAllTheCSS() {
+add_task(function* checkAllTheCSS() {
   let appDir = Services.dirsvc.get("XCurProcD", Ci.nsIFile);
   // This asynchronously produces a list of URLs (sadly, mostly sync on our
   // test infrastructure because it runs against jarfiles there, and
@@ -236,4 +239,6 @@ add_task(function checkAllTheCSS() {
   doc.head.innerHTML = '';
   doc = null;
   iframe = null;
+  windowless.close();
+  windowless = null;
 });

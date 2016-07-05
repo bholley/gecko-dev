@@ -12,6 +12,8 @@
 #include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/Monitor.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/UniquePtr.h"
+#include "nsContentUtils.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsIStreamingProtocolService.h"
 #include "nsServiceManagerUtils.h"
@@ -72,7 +74,7 @@ public:
     MOZ_COUNT_CTOR(RtspTrackBuffer);
     mTrackIdx = aTrackIdx;
     MOZ_ASSERT(mSlotSize < UINT32_MAX / BUFFER_SLOT_NUM);
-    mRingBuffer = new uint8_t[mTotalBufferSize];
+    mRingBuffer = MakeUnique<uint8_t[]>(mTotalBufferSize);
     Reset();
   };
   ~RtspTrackBuffer() {
@@ -85,7 +87,7 @@ public:
     size_t size = aMallocSizeOf(this);
 
     // excluding this
-    size += mRingBuffer.SizeOfExcludingThis(aMallocSizeOf);
+    size += aMallocSizeOf(mRingBuffer.get());
 
     return size;
   }
@@ -179,7 +181,7 @@ private:
   BufferSlotData mBufferSlotData[BUFFER_SLOT_NUM];
 
   // The ring buffer pointer.
-  nsAutoArrayPtr<uint8_t> mRingBuffer;
+  UniquePtr<uint8_t[]> mRingBuffer;
   // Each slot's size.
   uint32_t mSlotSize;
   // Total mRingBuffer's total size.
@@ -523,8 +525,8 @@ void RtspMediaResource::SetSuspend(bool aIsSuspend)
   RTSPMLOG("SetSuspend %d",aIsSuspend);
 
   nsCOMPtr<nsIRunnable> runnable =
-    NS_NewRunnableMethodWithArg<bool>(this, &RtspMediaResource::NotifySuspend,
-                                      aIsSuspend);
+    NewRunnableMethod<bool>(this, &RtspMediaResource::NotifySuspend,
+                            aIsSuspend);
   NS_DispatchToMainThread(runnable);
 }
 
