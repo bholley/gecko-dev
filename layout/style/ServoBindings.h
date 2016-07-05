@@ -166,6 +166,8 @@ void Gecko_SetMozBinding(nsStyleDisplay* style_struct,
                          ThreadSafePrincipalHolder* principal);
 void Gecko_CopyMozBindingFrom(nsStyleDisplay* des, const nsStyleDisplay* src);
 
+// `array` must be an nsTArray
+void Gecko_ArrayEnsureCapacity(void* array, size_t capacity, size_t size);
 // Styleset and Stylesheet management.
 //
 // TODO: Make these return already_AddRefed and UniquePtr when the binding

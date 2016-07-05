@@ -17,7 +17,7 @@
 #include "nsIPrincipal.h"
 #include "nsNameSpaceManager.h"
 #include "nsString.h"
-#include "nsStyleStruct.h"
+#include "nsTArray.h"
 #include "StyleStructContext.h"
 
 #include "mozilla/EventStates.h"
@@ -436,6 +436,11 @@ Gecko_CreateGradient(uint8_t aShape,
   }
 
   return result;
+}
+
+void Gecko_ArrayEnsureCapacity(void* array, size_t capacity, size_t size) {
+  auto *base = (nsTArray_base<nsTArrayInfallibleAllocator, nsTArray_CopyWithMemutils> *)array;
+  base->EnsureCapacity<nsTArrayInfallibleAllocator>(capacity, size);
 }
 
 #define STYLE_STRUCT(name, checkdata_cb)                                      \
