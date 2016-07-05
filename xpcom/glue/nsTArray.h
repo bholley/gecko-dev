@@ -372,10 +372,6 @@ public:
   void* DebugGetHeader() const { return mHdr; }
 #endif
 
-protected:
-  nsTArray_base();
-
-  ~nsTArray_base();
 
   // Resize the storage if necessary to achieve the requested capacity.
   // @param aCapacity The requested number of array elements.
@@ -384,6 +380,11 @@ protected:
   template<typename ActualAlloc>
   typename ActualAlloc::ResultTypeProxy EnsureCapacity(size_type aCapacity,
                                                        size_type aElemSize);
+
+protected:
+  nsTArray_base();
+
+  ~nsTArray_base();
 
   // Tries to resize the storage to the minimum required amount. If this fails,
   // the array is left as-is.
