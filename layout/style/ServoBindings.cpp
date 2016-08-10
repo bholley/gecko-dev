@@ -6,17 +6,24 @@
 
 #include "mozilla/ServoBindings.h"
 
+#include "ChildIterator.h"
 #include "StyleStructContext.h"
 #include "gfxFontFamilyList.h"
 #include "nsAttrValueInlines.h"
+#include "nsBindingManager.h"
+#include "nsCSSAnonBoxes.h"
+#include "nsCSSPseudoElements.h"
 #include "nsCSSRuleProcessor.h"
 #include "nsContentUtils.h"
 #include "nsDOMTokenList.h"
+#include "nsIAnonymousContentCreator.h"
 #include "nsIDOMNode.h"
 #include "nsIDocument.h"
+#include "nsIFrame.h"
 #include "nsINode.h"
 #include "nsIPrincipal.h"
 #include "nsNameSpaceManager.h"
+#include "nsQueryFrame.h"
 #include "nsString.h"
 #include "nsStyleStruct.h"
 #include "nsStyleUtil.h"
@@ -25,6 +32,9 @@
 #include "mozilla/EventStates.h"
 #include "mozilla/ServoElementSnapshot.h"
 #include "mozilla/dom/Element.h"
+
+using namespace mozilla;
+using namespace mozilla::dom;
 
 uint32_t
 Gecko_ChildrenCount(RawGeckoNode* aNode)
@@ -101,6 +111,136 @@ RawGeckoElement*
 Gecko_GetDocumentElement(RawGeckoDocument* aDoc)
 {
   return aDoc->GetDocumentElement();
+}
+
+static bool
+IsNativeAnonymousImplementationOfPseudoElement(nsIContent* aContent)
+{
+  // First, we need a frame. This leads to the tricky issue of what we can
+  // infer if the frame is null.
+  //
+  // Unlike regular nodes, native anonymous content (NAC) gets created during
+  // frame construction, which happens after the main style traversal. This
+  // means that we have to manually resolve style for those nodes shortly after
+  // they're created, either by (a) invoking ResolvePseudoElementStyle (for PE
+  // NAC), or (b) handing the subtree off to Servo for a mini-traversal (for
+  // non-PE NAC). We have assertions in nsCSSFrameConstructor that we don't do
+  // both.
+  //
+  // Once that happens, the NAC has a frame. So if we have no frame here,
+  // we're either not NAC, or in the process of doing (b). Either way, this
+  // isn't a PE.
+  nsIFrame* f = aContent->GetPrimaryFrame();
+  if (!f) {
+    return false;
+  }
+
+  // Get the pseudo type.
+  CSSPseudoElementType pseudoType = f->StyleContext()->GetPseudoType();
+
+  // In general nodes never get anonymous box style. However, we somewhat-
+  // confusingly give text nodes a style context tagged with ":-moz-text",
+  // so we need to check for the anonymous box case here.
+  if (pseudoType == CSSPseudoElementType::AnonBox) {
+    MOZ_ASSERT(aContent->IsNodeOfType(nsINode::eTEXT));
+    MOZ_ASSERT(f->StyleContext()->GetPseudo() == nsCSSAnonBoxes::mozText);
+    return false;
+  }
+
+  // Finally check the actual pseudo type.
+  return pseudoType != CSSPseudoElementType::NotPseudo;
+}
+
+// Iterates over all the nodes that inherit style from the given element:
+//   * Normal children
+//   * XBL children
+//   * Non-pseudo-element-implementing native anonymous children
+//   * Shadow DOM children
+class StyleChildrenIterator
+{
+public:
+  explicit StyleChildrenIterator(Element* aElement)
+    : mIterator(aElement, nsIContent::eAllChildren)
+  {
+    MOZ_COUNT_CTOR(StyleChildrenIterator);
+  }
+
+  ~StyleChildrenIterator()
+  {
+    MOZ_COUNT_DTOR(StyleChildrenIterator);
+  }
+
+  nsINode* GetNextStyleChild()
+  {
+    while (nsIContent* child = mIterator.GetNextChild()) {
+      if (IsNativeAnonymousImplementationOfPseudoElement(child)) {
+        // Skip any native-anonymous children that are used to implement pseudo-
+        // elements. These match pseudo-element selectors instead of being
+        // considered a child of their host, and thus the style system needs to
+        // handle them separately.
+        MOZ_ASSERT(child->IsRootOfNativeAnonymousSubtree());
+      } else {
+        return child;
+      }
+    }
+
+    return nullptr;
+  }
+
+private:
+  AllChildrenIterator mIterator;
+};
+
+// Returns true if we cannot find all the children we need to style by
+// traversing the siblings of the first child.
+static bool
+NeedsStyleChildrenIterator(Element* aElement)
+{
+  // If the node is in an anonymous subtree, we conservatively return true to
+  // handle insertion points.
+  if (aElement->IsInAnonymousSubtree()) {
+    return true;
+  }
+
+  // If the node has an XBL binding with anonymous content return true.
+  if (aElement->HasFlag(NODE_MAY_BE_IN_BINDING_MNGR)) {
+    nsBindingManager* manager = aElement->OwnerDoc()->BindingManager();
+    nsXBLBinding* binding = manager->GetBindingWithContent(aElement);
+    if (binding && binding->GetAnonymousContent()) {
+      return true;
+    }
+  }
+
+  // If the node has native anonymous content, return true. Otherwise, return
+  // false.
+  nsIAnonymousContentCreator* ac = do_QueryFrame(aElement->GetPrimaryFrame());
+  return !!ac;
+}
+
+StyleChildrenIterator*
+Gecko_MaybeCreateStyleChildrenIterator(RawGeckoNode* aNode)
+{
+  if (!aNode->IsElement()) {
+    return nullptr;
+  }
+
+  Element* el = aNode->AsElement();
+  return NeedsStyleChildrenIterator(el) ? new StyleChildrenIterator(el)
+                                        : nullptr;
+}
+
+void
+Gecko_DropStyleChildrenIterator(StyleChildrenIterator* aIterator)
+{
+  MOZ_ASSERT(aIterator);
+  delete aIterator;
+}
+
+RawGeckoNode*
+Gecko_GetNextStyleChild(StyleChildrenIterator* aIterator)
+{
+  MOZ_ASSERT(aIterator);
+  return aIterator->GetNextStyleChild();
 }
 
 EventStates::ServoType

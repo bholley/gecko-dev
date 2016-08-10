@@ -54,6 +54,7 @@ class nsStyleGradient;
 class nsStyleCoord;
 struct nsStyleDisplay;
 struct ServoDeclarationBlock;
+class StyleChildrenIterator;
 
 #define NS_DECL_THREADSAFE_FFI_REFCOUNTING(class_, name_)                     \
   void Gecko_AddRef##name_##ArbitraryThread(class_* aPtr);                    \
@@ -93,6 +94,16 @@ RawGeckoElement* Gecko_GetLastChildElement(RawGeckoElement* element);
 RawGeckoElement* Gecko_GetPrevSiblingElement(RawGeckoElement* element);
 RawGeckoElement* Gecko_GetNextSiblingElement(RawGeckoElement* element);
 RawGeckoElement* Gecko_GetDocumentElement(RawGeckoDocument* document);
+
+// By default, Servo walks the DOM by traversing the siblings of the DOM-view
+// first child. This generally works, but misses anonymous children, which we
+// want to traverse during styling. To support these cases, we create an
+// optional heap-allocated iterator for nodes that need it. If the creation
+// method returns null, Servo falls back to the aforementioned simpler (and
+// faster) sibling traversal.
+StyleChildrenIterator* Gecko_MaybeCreateStyleChildrenIterator(RawGeckoNode* node);
+void Gecko_DropStyleChildrenIterator(StyleChildrenIterator* it);
+RawGeckoNode* Gecko_GetNextStyleChild(StyleChildrenIterator* it);
 
 // Selector Matching.
 uint8_t Gecko_ElementState(RawGeckoElement* element);
