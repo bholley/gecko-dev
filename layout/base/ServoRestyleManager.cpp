@@ -144,16 +144,15 @@ ServoRestyleManager::RecreateStyleContexts(nsIContent* aContent,
   }
 }
 
-static void
-MarkParentsAsHavingDirtyDescendants(Element* aElement)
+void
+ServoRestyleManager::NoteExplicitlyDirtyChildren(nsINode* aNode)
 {
-  nsINode* cur = aElement;
-  while ((cur = cur->GetParentNode())) {
-    if (cur->HasDirtyDescendantsForServo()) {
-      break;
-    }
+  MOZ_ASSERT(aNode->IsInUncomposedDoc());
+  MOZ_ASSERT(aNode->OwnerDoc() == PresContext()->Document());
 
-    cur->SetHasDirtyDescendantsForServo();
+  while (aNode && !aNode->HasDirtyDescendantsForServo()) {
+    aNode->SetHasDirtyDescendantsForServo();
+    aNode = aNode->GetParentNode();
   }
 }
 
@@ -186,13 +185,13 @@ ServoRestyleManager::NoteRestyleHint(Element* aElement, nsRestyleHint aHint)
   // eRestyle_Subtree.
   if (aHint & (eRestyle_Self | eRestyle_Subtree)) {
     aElement->SetIsDirtyForServo();
-    MarkParentsAsHavingDirtyDescendants(aElement);
+    NoteExplicitlyDirtyChildren(aElement->GetParentNode());
   // NB: Servo gives us a eRestyle_SomeDescendants when it expects us to run
   // selector matching on all the descendants. There's a bug on Servo to align
   // meanings here (#12710) to avoid this potential source of confusion.
   } else if (aHint & eRestyle_SomeDescendants) {
     MarkChildrenAsDirtyForServo(aElement);
-    MarkParentsAsHavingDirtyDescendants(aElement);
+    NoteExplicitlyDirtyChildren(aElement->GetParentNode());
   }
 
   if (aHint & eRestyle_LaterSiblings) {

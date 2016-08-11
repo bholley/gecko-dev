@@ -75,7 +75,14 @@ public:
 
   nsresult ReparentStyleContext(nsIFrame* aFrame);
 
-  bool HasPendingRestyles() { return !mModifiedElements.IsEmpty(); }
+  void NoteExplicitlyDirtyChildren(nsINode* aNode);
+
+  bool HasPendingRestyles()
+  {
+    return !mModifiedElements.IsEmpty() ||
+           PresContext()->Document()->HasDirtyDescendantsForServo();
+  }
+
 
 protected:
   ~ServoRestyleManager() {}
@@ -101,7 +108,7 @@ private:
   /**
    * Marks the tree with the appropriate dirty flags for the given restyle hint.
    */
-  static void NoteRestyleHint(Element* aElement, nsRestyleHint aRestyleHint);
+  void NoteRestyleHint(Element* aElement, nsRestyleHint aRestyleHint);
 
   inline ServoStyleSet* StyleSet() const
   {
