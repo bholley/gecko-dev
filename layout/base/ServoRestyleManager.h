@@ -78,9 +78,11 @@ public:
   void NoteExplicitlyDirtyChildren(nsINode* aNode);
 
 #ifdef DEBUG
-  static void AssertSubtreeIsExplicitlyDirty(nsIContent* aRoot);
+  static void AssertSubtreeIsExplicitlyDirty(nsIContent* aRoot,
+                                             bool aIncludeRoot = true);
 #else
-  static void AssertSubtreeIsExplicitlyDirty(nsIContent* aRoot) {}
+  static void AssertSubtreeIsExplicitlyDirty(nsIContent* aRoot,
+                                             bool aIncludeRoot = true) {}
 #endif
 
   bool HasPendingRestyles()
