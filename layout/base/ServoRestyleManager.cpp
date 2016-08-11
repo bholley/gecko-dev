@@ -156,6 +156,21 @@ ServoRestyleManager::NoteExplicitlyDirtyChildren(nsINode* aNode)
   }
 }
 
+#ifdef DEBUG
+
+/* static */ void
+ServoRestyleManager::AssertSubtreeIsExplicitlyDirty(nsIContent* aRoot)
+{
+  MOZ_ASSERT(aRoot->IsDirtyForServo());
+  FlattenedChildIterator it(aRoot);
+  for (nsIContent* n = it.GetNextChild(); n; n = it.GetNextChild()) {
+    MOZ_ASSERT(aRoot->HasDirtyDescendantsForServo());
+    AssertSubtreeIsExplicitlyDirty(n);
+  }
+}
+
+#endif
+
 static void
 MarkChildrenAsDirtyForServo(nsIContent* aContent)
 {
@@ -278,16 +293,31 @@ void
 ServoRestyleManager::RestyleForInsertOrChange(Element* aContainer,
                                               nsIContent* aChild)
 {
-  // XXX Emilio we can do way better.
-  PostRestyleEvent(aContainer, eRestyle_Subtree, nsChangeHint(0));
+  //
+  // XXXbholley: Need the superclass logic too.
+  //
+
+  AssertSubtreeIsExplicitlyDirty(aChild);
+  NoteExplicitlyDirtyChildren(aContainer);
 }
 
 void
 ServoRestyleManager::RestyleForAppend(Element* aContainer,
                                       nsIContent* aFirstNewContent)
 {
-  // XXX Emilio we can do way better.
-  PostRestyleEvent(aContainer, eRestyle_Subtree, nsChangeHint(0));
+  //
+  // XXXbholley: Need the superclass logic too.
+  //
+
+#ifdef DEBUG
+  nsIContent* currContent = aFirstNewContent;
+  while (currContent) {
+    AssertSubtreeIsExplicitlyDirty(currContent);
+    currContent = currContent->GetNextSibling();
+  }
+#endif
+
+  NoteExplicitlyDirtyChildren(aContainer);
 }
 
 void

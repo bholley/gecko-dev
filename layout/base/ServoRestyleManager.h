@@ -77,6 +77,12 @@ public:
 
   void NoteExplicitlyDirtyChildren(nsINode* aNode);
 
+#ifdef DEBUG
+  static void AssertSubtreeIsExplicitlyDirty(nsIContent* aRoot);
+#else
+  static void AssertSubtreeIsExplicitlyDirty(nsIContent* aRoot) {}
+#endif
+
   bool HasPendingRestyles()
   {
     return !mModifiedElements.IsEmpty() ||
