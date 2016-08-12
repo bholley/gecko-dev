@@ -51,6 +51,10 @@ Gecko_NodeIsElement(RawGeckoNode* aNode)
 RawGeckoNode*
 Gecko_GetParentNode(RawGeckoNode* aNode)
 {
+  if (MOZ_UNLIKELY(aNode->HasFlag(NODE_MAY_BE_IN_BINDING_MNGR))) {
+    MOZ_ASSERT(aNode->IsContent());
+    return aNode->AsContent()->GetFlattenedTreeParent();
+  }
   return aNode->GetParentNode();
 }
 
@@ -81,6 +85,14 @@ Gecko_GetNextSibling(RawGeckoNode* aNode)
 RawGeckoElement*
 Gecko_GetParentElement(RawGeckoElement* aElement)
 {
+  if (MOZ_UNLIKELY(aElement->HasFlag(NODE_MAY_BE_IN_BINDING_MNGR))) {
+    nsIContent* parent = aElement->GetFlattenedTreeParent();
+    if (!parent->IsElement()) {
+      // This probably can't happen, but the type system doesn't prevent it.
+      return parent->GetParentElement();
+    }
+    return parent->AsElement();
+  }
   return aElement->GetParentElement();
 }
 
