@@ -101,14 +101,20 @@ SERVO_BINDING_FUNC(Servo_Initialize, void)
 // Shut down Servo components. Should be called exactly once at shutdown.
 SERVO_BINDING_FUNC(Servo_Shutdown, void)
 
-// Restyle hints
-SERVO_BINDING_FUNC(Servo_ComputeRestyleHint, nsRestyleHint,
-                   RawGeckoElementBorrowed element, ServoElementSnapshot* snapshot,
-                   RawServoStyleSetBorrowed set)
+// Restyle and change hints.
+SERVO_BINDING_FUNC(Servo_SnapshotForElement, ServoElementSnapshotBorrowedMut,
+                   RawGeckoElementBorrowed element)
+SERVO_BINDING_FUNC(Servo_NoteExplicitHints, void, RawGeckoElementBorrowed element,
+                   nsRestyleHint restyle_hint, nsChangeHint change_hint)
+SERVO_BINDING_FUNC(Servo_ConsumeRestyle, bool,
+                   RawGeckoElementBorrowed element, nsChangeHint *hint_out)
 
 // Restyle the given subtree.
 SERVO_BINDING_FUNC(Servo_RestyleSubtree, void,
                    RawGeckoNodeBorrowed node, RawServoStyleSetBorrowed set)
+
+// Assert that the tree has no pending or unconsumed restyles.
+SERVO_BINDING_FUNC(Servo_AssertTreeIsClean, void, RawGeckoElementBorrowed root)
 
 // Style-struct management.
 #define STYLE_STRUCT(name, checkdata_cb)                            \

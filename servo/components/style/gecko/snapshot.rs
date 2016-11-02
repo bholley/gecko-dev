@@ -4,24 +4,32 @@
 
 use element_state::ElementState;
 use gecko::snapshot_helpers;
-use gecko::wrapper::AttrSelectorHelpers;
+use gecko::wrapper::{AttrSelectorHelpers, GeckoElement};
 use gecko_bindings::bindings;
-use gecko_bindings::structs::ServoElementSnapshot;
 use gecko_bindings::structs::ServoElementSnapshotFlags as Flags;
 use restyle_hints::ElementSnapshot;
 use selector_impl::TheSelectorImpl;
 use selectors::parser::AttrSelector;
 use string_cache::Atom;
 
-// NB: This is sound, in some sense, because during computation of restyle hints
-// the snapshot is kept alive by the modified elements table.
 #[derive(Debug)]
-pub struct GeckoElementSnapshot(*mut ServoElementSnapshot);
+pub struct GeckoElementSnapshot(bindings::ServoElementSnapshotOwned);
+
+impl Drop for GeckoElementSnapshot {
+    fn drop(&mut self) {
+        unsafe {
+            bindings::Gecko_DropElementSnapshot(self.0);
+        }
+    }
+}
 
 impl GeckoElementSnapshot {
-    #[inline]
-    pub unsafe fn from_raw(raw: *mut ServoElementSnapshot) -> Self {
-        GeckoElementSnapshot(raw)
+    pub fn new<'le>(el: GeckoElement<'le>) -> Self {
+        unsafe { GeckoElementSnapshot(bindings::Gecko_CreateElementSnapshot(el.0)) }
+    }
+
+    pub fn borrow_mut_raw(&mut self) -> bindings::ServoElementSnapshotBorrowedMut {
+        self.0
     }
 
     #[inline]

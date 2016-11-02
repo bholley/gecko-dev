@@ -91,12 +91,6 @@ nsStyleContext::nsStyleContext(nsStyleContext* aParent,
   , mCachedResetData(nullptr)
   , mBits(((uint64_t)aPseudoType) << NS_STYLE_CONTEXT_TYPE_SHIFT)
   , mRefCnt(0)
-#ifdef MOZ_STYLO
-  , mStoredChangeHint(nsChangeHint(0))
-#ifdef DEBUG
-  , mConsumedChangeHint(false)
-#endif
-#endif
 #ifdef DEBUG
   , mFrameRefCnt(0)
   , mComputingStruct(nsStyleStructID_None)

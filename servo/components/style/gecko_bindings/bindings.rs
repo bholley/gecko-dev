@@ -178,6 +178,8 @@ unsafe impl Sync for nsStyleXUL {}
 pub type RawGeckoNode = nsINode;
 pub type RawGeckoElement = Element;
 pub type RawGeckoDocument = nsIDocument;
+pub type ServoElementSnapshotOwned = *mut ServoElementSnapshot;
+pub type ServoElementSnapshotBorrowedMut = *mut ServoElementSnapshot;
 extern "C" {
     pub fn Servo_StyleSheet_AddRef(ptr: RawServoStyleSheetBorrowed);
 }
@@ -532,8 +534,11 @@ extern "C" {
      -> nsChangeHint;
 }
 extern "C" {
-    pub fn Gecko_StoreStyleDifference(node: RawGeckoNodeBorrowed,
-                                      change: nsChangeHint);
+    pub fn Gecko_CreateElementSnapshot(element: RawGeckoElementBorrowed)
+     -> ServoElementSnapshotOwned;
+}
+extern "C" {
+    pub fn Gecko_DropElementSnapshot(snapshot: ServoElementSnapshotOwned);
 }
 extern "C" {
     pub fn Gecko_ClearStyleContents(content: *mut nsStyleContent);
@@ -971,14 +976,24 @@ extern "C" {
     pub fn Servo_Shutdown();
 }
 extern "C" {
-    pub fn Servo_ComputeRestyleHint(element: RawGeckoElementBorrowed,
-                                    snapshot: *mut ServoElementSnapshot,
-                                    set: RawServoStyleSetBorrowed)
-     -> nsRestyleHint;
+    pub fn Servo_SnapshotForElement(element: RawGeckoElementBorrowed)
+     -> ServoElementSnapshotBorrowedMut;
+}
+extern "C" {
+    pub fn Servo_NoteExplicitHints(element: RawGeckoElementBorrowed,
+                                   restyle_hint: nsRestyleHint,
+                                   change_hint: nsChangeHint);
+}
+extern "C" {
+    pub fn Servo_ConsumeRestyle(element: RawGeckoElementBorrowed,
+                                hint_out: *mut nsChangeHint) -> bool;
 }
 extern "C" {
     pub fn Servo_RestyleSubtree(node: RawGeckoNodeBorrowed,
                                 set: RawServoStyleSetBorrowed);
+}
+extern "C" {
+    pub fn Servo_AssertTreeIsClean(root: RawGeckoElementBorrowed);
 }
 extern "C" {
     pub fn Servo_GetStyleFont(computed_values:

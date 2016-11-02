@@ -4,8 +4,10 @@
 
 //! Per-node data used in style calculation.
 
+use dom::{TElement, TRestyleDamage};
 use properties::ComputedValues;
-use selector_impl::PseudoElement;
+use restyle_hints::RestyleHint;
+use selector_impl::{PseudoElement, RestyleDamage, Snapshot};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::mem;
@@ -84,20 +86,121 @@ impl ElementDataStyles {
     }
 }
 
+/// Enum to describe the different requirements that a restyle hint may impose
+/// on its descendants.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DescendantRestyleHint {
+    /// This hint does not require any descendants to be restyled.
+    Empty,
+    /// This hint requires direct children to be restyled.
+    Children,
+    /// This hint requires all descendants to be restyled.
+    Descendants,
+}
+
+impl DescendantRestyleHint {
+    /// Propagates this descendant behavior to a child element.
+    fn propagate(self) -> Self {
+        use self::DescendantRestyleHint::*;
+        if self == Descendants {
+            Descendants
+        } else {
+            Empty
+        }
+    }
+
+    fn union(self, other: Self) -> Self {
+        use self::DescendantRestyleHint::*;
+        if self == Descendants || other == Descendants {
+            Descendants
+        } else if self == Children || other == Children {
+            Children
+        } else {
+            Empty
+        }
+    }
+}
+
+/// Restyle hint for storing on ElementData. We use a separate representation
+/// to provide more type safety while propagating restyle hints down the tree.
+#[derive(Clone, Debug)]
+pub struct StoredRestyleHint {
+    pub restyle_self: bool,
+    pub descendants: DescendantRestyleHint,
+}
+
+impl StoredRestyleHint {
+    /// Propagates this restyle hint to a child element.
+    pub fn propagate(&self) -> Self {
+        StoredRestyleHint {
+            restyle_self: self.descendants == DescendantRestyleHint::Empty,
+            descendants: self.descendants.propagate(),
+        }
+    }
+
+    pub fn empty() -> Self {
+        StoredRestyleHint {
+            restyle_self: false,
+            descendants: DescendantRestyleHint::Empty,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.restyle_self && self.descendants == DescendantRestyleHint::Empty
+    }
+
+    pub fn insert(&mut self, other: &Self) {
+        self.restyle_self = self.restyle_self || other.restyle_self;
+        self.descendants = self.descendants.union(other.descendants);
+    }
+}
+
+impl Default for StoredRestyleHint {
+    fn default() -> Self {
+        StoredRestyleHint {
+            restyle_self: false,
+            descendants: DescendantRestyleHint::Empty,
+        }
+    }
+}
+
+impl From<RestyleHint> for StoredRestyleHint {
+    fn from(hint: RestyleHint) -> Self {
+        use restyle_hints::*;
+        use self::DescendantRestyleHint::*;
+        debug_assert!(hint.contains(RESTYLE_LATER_SIBLINGS), "Caller should apply sibling hints");
+        StoredRestyleHint {
+            restyle_self: hint.contains(RESTYLE_SELF),
+            descendants: if hint.contains(RESTYLE_DESCENDANTS) { Descendants } else { Empty },
+        }
+    }
+}
+
 /// Transient data used by the restyle algorithm. This structure is instantiated
 /// either before or during restyle traversal, and is cleared at the end of node
 /// processing.
 #[derive(Debug)]
 pub struct RestyleData {
-    // FIXME(bholley): Start adding the fields from the algorithm doc.
-    pub _dummy: u64,
+    pub hint: StoredRestyleHint,
+    pub damage: RestyleDamage,
+    pub snapshot: Option<Snapshot>,
 }
 
 impl RestyleData {
     fn new() -> Self {
         RestyleData {
-            _dummy: 42,
+            hint: StoredRestyleHint::default(),
+            damage: RestyleDamage::empty(),
+            snapshot: None,
         }
+    }
+
+    pub fn ensure_snapshot<E: TElement>(&mut self, element: E) -> &mut Snapshot {
+        if self.snapshot.is_none() {
+            self.snapshot = Some(element.create_snapshot());
+        }
+
+        self.snapshot.as_mut().unwrap()
     }
 }
 
@@ -179,20 +282,15 @@ impl ElementData {
         };
     }
 
-    pub fn ensure_restyle_data(&mut self) {
+    pub fn ensure_restyle_data(&mut self) -> &mut RestyleData {
         if self.restyle_data.is_none() {
             self.restyle_data = Some(RestyleData::new());
         }
-    }
-
-    pub fn style_text_node(&mut self, style: Arc<ComputedValues>) {
-        self.styles = ElementDataStyles::Current(ElementStyles::new(style));
-        self.restyle_data = None;
+        self.restyle_data.as_mut().unwrap()
     }
 
     pub fn finish_styling(&mut self, styles: ElementStyles) {
         debug_assert!(self.styles.is_previous());
         self.styles = ElementDataStyles::Current(styles);
-        self.restyle_data = None;
     }
 }

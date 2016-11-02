@@ -5,18 +5,16 @@
 #![allow(unsafe_code)]
 
 
-use atomic_refcell::{AtomicRef, AtomicRefCell};
+use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
 use data::ElementData;
 use dom::{LayoutIterator, NodeInfo, TDocument, TElement, TNode, UnsafeNode};
 use dom::{OpaqueNode, PresentationalHintsSynthetizer};
 use element_state::ElementState;
 use error_reporting::StdoutErrorReporter;
-use gecko::restyle_damage::GeckoRestyleDamage;
 use gecko::selector_impl::{GeckoSelectorImpl, NonTSPseudoClass, PseudoElement};
 use gecko::snapshot::GeckoElementSnapshot;
 use gecko::snapshot_helpers;
 use gecko_bindings::bindings;
-use gecko_bindings::bindings::Gecko_StoreStyleDifference;
 use gecko_bindings::bindings::{Gecko_DropStyleChildrenIterator, Gecko_MaybeCreateStyleChildrenIterator};
 use gecko_bindings::bindings::{Gecko_ElementState, Gecko_GetDocumentElement};
 use gecko_bindings::bindings::{Gecko_GetLastChild, Gecko_GetNextStyleChild};
@@ -28,7 +26,7 @@ use gecko_bindings::bindings::Gecko_ClassOrClassList;
 use gecko_bindings::bindings::Gecko_GetStyleContext;
 use gecko_bindings::bindings::Gecko_SetNodeFlags;
 use gecko_bindings::structs;
-use gecko_bindings::structs::{NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO, NODE_IS_DIRTY_FOR_SERVO};
+use gecko_bindings::structs::NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO;
 use gecko_bindings::structs::{nsIAtom, nsIContent, nsStyleContext};
 use libc::uintptr_t;
 use parking_lot::RwLock;
@@ -44,6 +42,7 @@ use std::fmt;
 use std::ptr;
 use std::sync::Arc;
 use string_cache::{Atom, Namespace, WeakAtom, WeakNamespace};
+use traversal::prepare_for_styling;
 use url::Url;
 
 // Important: We don't currently refcount the DOM, because the wrapper lifetime
@@ -303,7 +302,26 @@ impl<'le> GeckoElement<'le> {
                                                .get(pseudo).map(|c| c.clone()))
     }
 
-    pub fn ensure_data(&self) -> &AtomicRefCell<ElementData> {
+    /// Only safe to call on the main thread, with exclusive access to the
+    /// element _and_ its ancestors.
+    pub unsafe fn prepare_for_restyle(&self) -> AtomicRefMut<ElementData> {
+        // Set up the restyle data on the node.
+        let mut data = prepare_for_styling(*self, self.ensure_data_internal());
+        data.ensure_restyle_data();
+
+        // Propagate the bit up the chain.
+        let mut curr = *self;
+        while let Some(parent) = curr.parent_element() {
+            curr = parent;
+            if curr.has_restyle_descendants() { break; }
+            unsafe { curr.set_has_restyle_descendants(); }
+        }
+
+        data
+    }
+
+    // Only safe to call with exclusive access to the element.
+    pub unsafe fn ensure_data_internal(&self) -> &AtomicRefCell<ElementData> {
         match self.get_data() {
             Some(x) => x,
             None => {
@@ -360,14 +378,6 @@ impl<'le> TElement for GeckoElement<'le> {
         }
     }
 
-    fn set_restyle_damage(self, damage: GeckoRestyleDamage) {
-        // FIXME(bholley): Gecko currently relies on the dirty bit being set to
-        // drive the post-traversal. This will go away soon.
-        unsafe { self.set_flags(NODE_IS_DIRTY_FOR_SERVO as u32) }
-
-        unsafe { Gecko_StoreStyleDifference(self.as_node().0, damage.as_change_hint()) }
-    }
-
     fn existing_style_for_restyle_damage<'a>(&'a self,
                                              current_cv: Option<&'a Arc<ComputedValues>>,
                                              pseudo: Option<&PseudoElement>)
@@ -385,20 +395,11 @@ impl<'le> TElement for GeckoElement<'le> {
         }
     }
 
-    fn deprecated_dirty_bit_is_set(&self) -> bool {
-        self.flags() & (NODE_IS_DIRTY_FOR_SERVO as u32) != 0
-    }
-
-    fn has_dirty_descendants(&self) -> bool {
-        // Return true unconditionally if we're not yet styled. This is a hack
-        // and should go away soon.
-        if self.get_data().is_none() {
-            return true;
-        }
+    fn has_restyle_descendants(&self) -> bool {
         self.flags() & (NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO as u32) != 0
     }
 
-    unsafe fn set_dirty_descendants(&self) {
+    unsafe fn set_has_restyle_descendants(&self) {
         self.set_flags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO as u32)
     }
 
@@ -418,6 +419,9 @@ impl<'le> TElement for GeckoElement<'le> {
         unsafe { self.raw_node().mServoData.get().as_ref() }
     }
 
+    fn create_snapshot(&self) -> GeckoElementSnapshot {
+        GeckoElementSnapshot::new(*self)
+    }
 }
 
 impl<'le> PartialEq for GeckoElement<'le> {

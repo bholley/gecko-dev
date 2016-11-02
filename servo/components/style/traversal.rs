@@ -6,13 +6,14 @@
 
 use atomic_refcell::{AtomicRefCell, AtomicRefMut};
 use context::{LocalStyleContext, SharedStyleContext, StyleContext};
-use data::ElementData;
+use data::{ElementData, StoredRestyleHint};
 use dom::{OpaqueNode, StylingMode, TElement, TNode, UnsafeNode};
 use matching::{ApplicableDeclarations, MatchMethods, StyleSharingResult};
+use restyle_hints::{RESTYLE_DESCENDANTS, RESTYLE_LATER_SIBLINGS, RESTYLE_SELF};
 use selectors::bloom::BloomFilter;
 use selectors::matching::StyleRelations;
 use std::cell::RefCell;
-use std::mem;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
 use tid::tid;
 use util::opts;
@@ -185,15 +186,11 @@ pub trait DomTraversalContext<N: TNode> {
     /// should be enqueued for processing.
     fn traverse_children<F: FnMut(N)>(parent: N::ConcreteElement, mut f: F)
     {
-        // If we enqueue any children for traversal, we need to set the dirty
-        // descendants bit. Avoid doing it more than once.
-        let mut marked_dirty_descendants = false;
-
+        use dom::StylingMode::Restyle;
         for kid in parent.as_node().children() {
             if Self::should_traverse_child(parent, kid) {
-                if !marked_dirty_descendants {
-                    unsafe { parent.set_dirty_descendants(); }
-                    marked_dirty_descendants = true;
+                if kid.as_element().map_or(false, |el| el.styling_mode() == Restyle) {
+                    unsafe { parent.set_has_restyle_descendants(); }
                 }
                 f(kid);
             }
@@ -311,6 +308,9 @@ pub fn recalc_style_at<'a, E, C, D>(context: &'a C,
     // Get the style bloom filter.
     let mut bf = take_thread_local_bloom_filter(element.parent_element(), root, context.shared_context());
 
+    // Grab a reference to the shared style system state.
+    let stylist = &context.shared_context().stylist;
+
     let mode = element.styling_mode();
     debug_assert!(mode != StylingMode::Stop, "Parent should not have enqueued us");
     if mode != StylingMode::Traverse {
@@ -339,8 +339,6 @@ pub fn recalc_style_at<'a, E, C, D>(context: &'a C,
                     }
 
                     // Perform the CSS selector matching.
-                    let stylist = &context.shared_context().stylist;
-
                     relations = element.match_element(&**stylist,
                                                       Some(&*bf),
                                                       &mut applicable_declarations);
@@ -370,16 +368,11 @@ pub fn recalc_style_at<'a, E, C, D>(context: &'a C,
                                                                      relations);
                 }
             }
-            StyleSharingResult::StyleWasShared(index, damage) => {
+            StyleSharingResult::StyleWasShared(index) => {
                 if opts::get().style_sharing_stats {
                     STYLE_SHARING_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
                 }
                 style_sharing_candidate_cache.touch(index);
-
-                // Drop the mutable borrow early, since Servo's set_restyle_damage also borrows.
-                mem::drop(data);
-
-                element.set_restyle_damage(damage);
             }
         }
     }
@@ -400,13 +393,62 @@ pub fn recalc_style_at<'a, E, C, D>(context: &'a C,
             }
         };
         clear_descendant_data::<_, D>(element);
-    } else if mode == StylingMode::Restyle {
-        // If we restyled this node, conservatively mark all our children as needing
-        // processing. The eventual algorithm we're designing does this in a more granular
-        // fashion.
-        for kid in element.as_node().children() {
-            if let Some(kid) = kid.as_element() {
-                unsafe { let _ = D::prepare_for_styling(&kid); }
+    } else {
+
+        // Grab the restyle data for the node we processed, if any.
+        //
+        // FIXME(bholley): avoid reborrowing this. We no longer need to pass the
+        // AtomicRefMut by value above.
+        let data = element.borrow_data();
+        let restyle_data = data.as_ref().and_then(|d| d.restyle_data.as_ref());
+
+        // Compute the hint to propagate. We may modify this during the loop if
+        // we encounter RESTYLE_LATER_SIBLINGS.
+        let mut propagated_hint = restyle_data.map_or(StoredRestyleHint::empty(),
+                                                      |d| d.hint.propagate());
+
+        // Loop over all the children.
+        for child in element.as_node().children() {
+            // FIXME(bholley): Add TElement::element_children instead of this.
+            let child = match child.as_element() {
+                Some(el) => el,
+                None => continue,
+            };
+
+            // Set up our lazy child data.
+            let mut child_data = unsafe { LazyElementData::<E, D>::new(&child) };
+
+            // Propagate the parent and sibling restyle hint.
+            if !propagated_hint.is_empty() {
+                child_data.ensure().ensure_restyle_data().hint.insert(&propagated_hint);
+            }
+
+            // Handle element snapshots, making sure not to instantiate the child
+            // and restyle data if they don't exist.
+            let maybe_snapshot = child_data.get().and_then(|d| d.restyle_data.as_mut())
+                                                 .and_then(|d| d.snapshot.take());
+            if let Some(ref snapshot) = maybe_snapshot {
+                // Compute the restyle hint.
+                let mut hint = stylist.compute_restyle_hint(&child, snapshot, child.get_state());
+
+                // If the hint includes a directive for later siblings, strip
+                // it out and modify the base hint for future siblings.
+                if hint.contains(RESTYLE_LATER_SIBLINGS) {
+                    hint.remove(RESTYLE_LATER_SIBLINGS);
+                    propagated_hint.insert(&(RESTYLE_SELF | RESTYLE_DESCENDANTS).into());
+                }
+
+                // Insert the hint.
+                if !hint.is_empty() {
+                    child_data.ensure().ensure_restyle_data().hint.insert(&hint.into());
+                }
+            }
+
+            // If we restyled this node, conservatively mark all our children as
+            // needing a re-cascade. Once we have the rule tree, we will be able
+            // to distinguish between re-matching and re-cascading.
+            if mode == StylingMode::Restyle {
+                child_data.ensure();
             }
         }
     }
@@ -420,4 +462,40 @@ pub fn recalc_style_at<'a, E, C, D>(context: &'a C,
 
     // NB: flow construction updates the bloom filter on the way up.
     put_thread_local_bloom_filter(bf, &unsafe_layout_node, context.shared_context());
+}
+
+// Various steps in the child preparation algorithm above may cause us to lazily
+// instantiate the ElementData on the child. Encapsulate that logic into a
+// convenient abstraction.
+struct LazyElementData<'b, E: TElement + 'b, D: DomTraversalContext<E::ConcreteNode>> {
+    data: Option<AtomicRefMut<'b, ElementData>>,
+    element: &'b E,
+    phantom: PhantomData<D>,
+}
+
+impl<'b, E: TElement, D: DomTraversalContext<E::ConcreteNode>> LazyElementData<'b, E, D> {
+    /// This may lazily instantiate ElementData, and is therefore only safe to
+    /// call on an element for which we have exclusive access.
+    unsafe fn new(element: &'b E) -> Self {
+        LazyElementData {
+            data: None,
+            element: element,
+            phantom: PhantomData,
+        }
+    }
+    fn ensure(&mut self) -> &mut AtomicRefMut<'b, ElementData> {
+        if self.data.is_none() {
+            unsafe { self.data = Some(D::prepare_for_styling(self.element)); }
+        }
+        self.data.as_mut().unwrap()
+    }
+
+    /// Like ensure(), but returns None if the Element currently has no data.
+    fn get(&mut self) -> Option<&mut AtomicRefMut<'b, ElementData>> {
+        if self.element.get_data().is_none() {
+            None
+        } else {
+            Some(self.ensure())
+        }
+    }
 }

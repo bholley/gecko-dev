@@ -422,58 +422,40 @@ ServoStyleSet::HasStateDependentStyle(dom::Element* aElement,
   return nsRestyleHint(0);
 }
 
-nsRestyleHint
-ServoStyleSet::ComputeRestyleHint(dom::Element* aElement,
-                                  ServoElementSnapshot* aSnapshot)
-{
-  return Servo_ComputeRestyleHint(aElement, aSnapshot, mRawSet.get());
-}
-
-static void
-ClearDirtyBits(nsIContent* aContent)
-{
-  bool traverseDescendants = aContent->HasDirtyDescendantsForServo();
-  aContent->UnsetIsDirtyAndHasDirtyDescendantsForServo();
-  if (!traverseDescendants) {
-    return;
-  }
-
-  StyleChildrenIterator it(aContent);
-  for (nsIContent* n = it.GetNextChild(); n; n = it.GetNextChild()) {
-    ClearDirtyBits(n);
-  }
-}
-
 void
-ServoStyleSet::StyleDocument(bool aLeaveDirtyBits)
+ServoStyleSet::StyleDocument()
 {
   // Grab the root.
   nsIDocument* doc = mPresContext->Document();
   nsIContent* root = doc->GetRootElement();
   MOZ_ASSERT(root);
 
-  // Restyle the document, clearing the dirty bits if requested.
+  // Restyle the document.
   Servo_RestyleSubtree(root, mRawSet.get());
-  if (!aLeaveDirtyBits) {
-    ClearDirtyBits(root);
-    doc->UnsetHasDirtyDescendantsForServo();
-  }
 }
 
 void
 ServoStyleSet::StyleNewSubtree(nsIContent* aContent)
 {
-  MOZ_ASSERT(aContent->IsDirtyForServo());
-  if (aContent->IsElement() || aContent->IsNodeOfType(nsINode::eTEXT)) {
+  if (aContent->IsElement()) {
     Servo_RestyleSubtree(aContent, mRawSet.get());
   }
-  ClearDirtyBits(aContent);
 }
 
 void
 ServoStyleSet::StyleNewChildren(nsIContent* aParent)
 {
-  MOZ_ASSERT(aParent->HasDirtyDescendantsForServo());
   Servo_RestyleSubtree(aParent, mRawSet.get());
-  ClearDirtyBits(aParent);
 }
+
+#ifdef DEBUG
+void
+ServoStyleSet::AssertTreeIsClean()
+{
+  Element* root = mPresContext->Document()->GetRootElement();
+  if (root) {
+    Servo_AssertTreeIsClean(root);
+  }
+
+}
+#endif

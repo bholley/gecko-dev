@@ -25,7 +25,6 @@ use sink::ForgetfulSink;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
-use std::mem;
 use std::ops::Deref;
 use std::slice::IterMut;
 use std::sync::Arc;
@@ -481,7 +480,7 @@ pub enum StyleSharingResult {
     /// LRU cache that was hit and the damage that was done, and the restyle
     /// result the original result of the candidate's styling, that is, whether
     /// it should stop the traversal or not.
-    StyleWasShared(usize, RestyleDamage),
+    StyleWasShared(usize),
 }
 
 // Callers need to pass several boolean flags to cascade_node_pseudo_element.
@@ -726,8 +725,9 @@ pub trait MatchMethods : TElement {
                         };
 
                     data.finish_styling(ElementStyles::new(shared_style));
+                    data.restyle_data.as_mut().map(|d| d.damage = d.damage | damage);
 
-                    return StyleSharingResult::StyleWasShared(i, damage)
+                    return StyleSharingResult::StyleWasShared(i)
                 }
                 Err(miss) => {
                     debug!("Cache miss: {:?}", miss);
@@ -895,9 +895,7 @@ pub trait MatchMethods : TElement {
         };
 
         data.finish_styling(new_styles);
-        // Drop the mutable borrow early, since Servo's set_restyle_damage also borrows.
-        mem::drop(data);
-        self.set_restyle_damage(damage);
+        data.restyle_data.as_mut().map(|d| d.damage = d.damage | damage);
     }
 
     fn compute_damage_and_cascade_pseudos<'a, Ctx>(&self,

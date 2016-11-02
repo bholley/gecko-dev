@@ -9,6 +9,7 @@
 
 #include "mozilla/EventStates.h"
 #include "mozilla/RestyleManagerBase.h"
+#include "mozilla/ServoBindings.h"
 #include "mozilla/ServoElementSnapshot.h"
 #include "nsChangeHint.h"
 #include "nsHashKeys.h"
@@ -75,15 +76,15 @@ public:
                         nsIAtom* aAttribute, int32_t aModType,
                         const nsAttrValue* aOldValue)
   {
-    MOZ_ASSERT(SnapshotForElement(aElement)->HasAttrs());
+    MOZ_ASSERT(Servo_SnapshotForElement(aElement)->HasAttrs());
   }
 
   nsresult ReparentStyleContext(nsIFrame* aFrame);
 
   bool HasPendingRestyles()
   {
-    return !mModifiedElements.IsEmpty() ||
-           PresContext()->Document()->HasDirtyDescendantsForServo();
+    Element* root = PresContext()->Document()->GetRootElement();
+    return root && root->HasRestyleDescendantsForServo();
   }
 
 
@@ -100,27 +101,18 @@ protected:
   ~ServoRestyleManager() {}
 
 private:
-  ServoElementSnapshot* SnapshotForElement(Element* aElement);
-
-  /**
-   * The element-to-element snapshot table to compute restyle hints.
-   */
-  nsClassHashtable<nsRefPtrHashKey<Element>, ServoElementSnapshot>
-    mModifiedElements;
-
   /**
    * Traverses a tree of content that Servo has just restyled, recreating style
    * contexts for their frames with the new style data.
    */
-  void RecreateStyleContexts(nsIContent* aContent,
+  void RecreateStyleContexts(Element* aElement,
                              nsStyleContext* aParentContext,
                              ServoStyleSet* aStyleSet,
                              nsStyleChangeList& aChangeList);
 
-  /**
-   * Marks the tree with the appropriate dirty flags for the given restyle hint.
-   */
-  static void NoteRestyleHint(Element* aElement, nsRestyleHint aRestyleHint);
+  void RecreateStyleContextsForText(nsIContent* aTextNode,
+                                    nsStyleContext* aParentContext,
+                                    ServoStyleSet* aStyleSet);
 
   inline ServoStyleSet* StyleSet() const
   {

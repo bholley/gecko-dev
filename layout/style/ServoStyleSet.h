@@ -118,19 +118,10 @@ public:
     dom::Element* aPseudoElement, EventStates aStateMask);
 
   /**
-   * Computes a restyle hint given a element and a previous element snapshot.
-   */
-  nsRestyleHint ComputeRestyleHint(dom::Element* aElement,
-                                   ServoElementSnapshot* aSnapshot);
-
-  /**
    * Performs a Servo traversal to compute style for all dirty nodes in the
    * document. The root element must be non-null.
-   *
-   * If aLeaveDirtyBits is true, the dirty/dirty-descendant bits are not
-   * cleared.
    */
-  void StyleDocument(bool aLeaveDirtyBits);
+  void StyleDocument();
 
   /**
    * Eagerly styles a subtree of dirty nodes that were just appended to the
@@ -151,6 +142,12 @@ public:
    * parallelism.
    */
   void StyleNewChildren(nsIContent* aParent);
+
+#ifdef DEBUG
+  void AssertTreeIsClean();
+#else
+  void AssertTreeIsClean() {}
+#endif
 
 private:
   already_AddRefed<nsStyleContext> GetContext(already_AddRefed<ServoComputedValues>,

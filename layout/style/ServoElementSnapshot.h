@@ -67,7 +67,8 @@ class ServoElementSnapshot
 public:
   typedef ServoElementSnapshotFlags Flags;
 
-  explicit ServoElementSnapshot(Element* aElement);
+  explicit ServoElementSnapshot(const Element* aElement);
+  ~ServoElementSnapshot();
 
   bool HasAttrs() { return HasAny(Flags::Attributes); }
 

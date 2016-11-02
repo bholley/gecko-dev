@@ -186,14 +186,13 @@ enum {
   // These two bits are shared by Gecko's and Servo's restyle systems for
   // different purposes. They should not be accessed directly, and access to
   // them should be properly guarded by asserts.
+  //
+  // FIXME(bholley): These should move to Element, and we only need one now.
   NODE_SHARED_RESTYLE_BIT_1 =             NODE_FLAG_BIT(21),
   NODE_SHARED_RESTYLE_BIT_2 =             NODE_FLAG_BIT(22),
 
-  // Whether this node is dirty for Servo's style system.
-  NODE_IS_DIRTY_FOR_SERVO =               NODE_SHARED_RESTYLE_BIT_1,
-
-  // Whether this node has dirty descendants for Servo's style system.
-  NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO =  NODE_SHARED_RESTYLE_BIT_2,
+  // Whether this node has restyle descendants for Servo's style system.
+  NODE_HAS_RESTYLE_DESCENDANTS_FOR_SERVO =  NODE_SHARED_RESTYLE_BIT_2,
 
   // Remaining bits are node type specific.
   NODE_TYPE_SPECIFIC_BITS_OFFSET =        23
@@ -981,46 +980,15 @@ public:
   bool IsStyledByServo() const { return false; }
 #endif
 
-  bool IsDirtyForServo() const
+  bool HasRestyleDescendantsForServo() const
   {
     MOZ_ASSERT(IsStyledByServo());
-    return HasFlag(NODE_IS_DIRTY_FOR_SERVO);
+    return HasFlag(NODE_HAS_RESTYLE_DESCENDANTS_FOR_SERVO);
   }
 
-  bool HasDirtyDescendantsForServo() const
-  {
+  void UnsetHasRestyleDescendantsForServo() {
     MOZ_ASSERT(IsStyledByServo());
-    return HasFlag(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
-  }
-
-  void SetIsDirtyForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    SetFlags(NODE_IS_DIRTY_FOR_SERVO);
-  }
-
-  void SetHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    SetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
-  }
-
-  void SetIsDirtyAndHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    SetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO | NODE_IS_DIRTY_FOR_SERVO);
-  }
-
-  void UnsetIsDirtyForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    UnsetFlags(NODE_IS_DIRTY_FOR_SERVO);
-  }
-
-  void UnsetHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    UnsetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
-  }
-
-  void UnsetIsDirtyAndHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    UnsetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO | NODE_IS_DIRTY_FOR_SERVO);
+    UnsetFlags(NODE_HAS_RESTYLE_DESCENDANTS_FOR_SERVO);
   }
 
   inline void UnsetRestyleFlagsIfGecko();

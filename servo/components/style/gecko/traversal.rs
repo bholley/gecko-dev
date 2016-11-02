@@ -55,7 +55,7 @@ impl<'lc, 'ln> DomTraversalContext<GeckoNode<'ln>> for RecalcStyleOnly<'lc> {
     }
 
     unsafe fn ensure_element_data<'a>(element: &'a GeckoElement<'ln>) -> &'a AtomicRefCell<ElementData> {
-        element.ensure_data()
+        element.ensure_data_internal()
     }
 
     unsafe fn clear_element_data<'a>(element: &'a GeckoElement<'ln>) {

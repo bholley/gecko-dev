@@ -12,15 +12,13 @@ use element_state::ElementState;
 use parking_lot::RwLock;
 use properties::{ComputedValues, PropertyDeclarationBlock};
 use properties::longhands::display::computed_value as display;
-use restyle_hints::{RESTYLE_DESCENDANTS, RESTYLE_LATER_SIBLINGS, RESTYLE_SELF, RestyleHint};
 use selector_impl::{ElementExt, PseudoElement, RestyleDamage, Snapshot};
 use selector_matching::ApplicableDeclarationBlock;
 use sink::Push;
 use std::fmt::Debug;
-use std::ops::BitOr;
+use std::ops::{BitOr, BitOrAssign};
 use std::sync::Arc;
 use string_cache::{Atom, Namespace};
-use traversal::DomTraversalContext;
 use util::opts;
 
 pub use style_traits::UnsafeNode;
@@ -59,7 +57,7 @@ pub enum StylingMode {
     Stop,
 }
 
-pub trait TRestyleDamage : Debug + PartialEq + BitOr<Output=Self> + Copy {
+pub trait TRestyleDamage : BitOr<Output=Self> + BitOrAssign + Copy + Debug + PartialEq {
     /// The source for our current computed values in the cascade. This is a
     /// ComputedValues in Servo and a StyleContext in Gecko.
     ///
@@ -183,9 +181,6 @@ pub trait TElement : PartialEq + Debug + Sized + Copy + Clone + ElementExt + Pre
     fn has_attr(&self, namespace: &Namespace, attr: &Atom) -> bool;
     fn attr_equals(&self, namespace: &Namespace, attr: &Atom, value: &Atom) -> bool;
 
-    /// Set the restyle damage field.
-    fn set_restyle_damage(self, damage: RestyleDamage);
-
     /// XXX: It's a bit unfortunate we need to pass the current computed values
     /// as an argument here, but otherwise Servo would crash due to double
     /// borrows to return it.
@@ -194,15 +189,17 @@ pub trait TElement : PartialEq + Debug + Sized + Copy + Clone + ElementExt + Pre
                                              pseudo: Option<&PseudoElement>)
         -> Option<&'a <RestyleDamage as TRestyleDamage>::PreExistingComputedValues>;
 
-    /// The concept of a dirty bit doesn't exist in our new restyle algorithm.
-    /// Instead, we associate restyle and change hints with nodes. However, we
-    /// continue to allow the dirty bit to trigger unconditional restyles while
-    /// we transition both Servo and Stylo to the new architecture.
-    fn deprecated_dirty_bit_is_set(&self) -> bool;
+    /// Returns true if this element may have a descendant for restyle.
+    ///
+    /// Note that we cannot guarantee the existence of such an element, because
+    /// it may have been removed from the DOM between marking it for restyle and
+    /// the actual restyle traversal.
+    fn has_restyle_descendants(&self) -> bool;
 
-    fn has_dirty_descendants(&self) -> bool;
-
-    unsafe fn set_dirty_descendants(&self);
+    /// Flag that this element has a descendant for restyle.
+    ///
+    /// Only safe to call with exclusive access to the element.
+    unsafe fn set_has_restyle_descendants(&self);
 
     /// Atomically stores the number of children of this node that we will
     /// need to process during bottom-up traversal.
@@ -243,13 +240,13 @@ pub trait TElement : PartialEq + Debug + Sized + Copy + Clone + ElementExt + Pre
         }
 
         // Compute the default result if this node doesn't require processing.
-        let mode_for_descendants = if self.has_dirty_descendants() {
+        let mode_for_descendants = if self.has_restyle_descendants() {
             Traverse
         } else {
             Stop
         };
 
-        let mut mode = match self.borrow_data() {
+        match self.borrow_data() {
             // No element data, no style on the frame.
             None if !self.frame_has_style() => Initial,
             // No element data, style on the frame.
@@ -270,14 +267,7 @@ pub trait TElement : PartialEq + Debug + Sized + Copy + Clone + ElementExt + Pre
                     }
                 }
             },
-        };
-
-        // Handle the deprecated dirty bit. This should go away soon.
-        if mode != Initial && self.deprecated_dirty_bit_is_set() {
-            mode = Restyle;
         }
-        mode
-
     }
 
     /// Immutable borrows the ElementData.
@@ -286,41 +276,6 @@ pub trait TElement : PartialEq + Debug + Sized + Copy + Clone + ElementExt + Pre
     /// Gets a reference to the ElementData container.
     fn get_data(&self) -> Option<&AtomicRefCell<ElementData>>;
 
-    /// Properly marks nodes as dirty in response to restyle hints.
-    fn note_restyle_hint<C: DomTraversalContext<Self::ConcreteNode>>(&self, hint: RestyleHint) {
-        // Bail early if there's no restyling to do.
-        if hint.is_empty() {
-            return;
-        }
-
-        // If the restyle hint is non-empty, we need to restyle either this element
-        // or one of its siblings. Mark our ancestor chain as having dirty descendants.
-        let mut curr = *self;
-        while let Some(parent) = curr.parent_element() {
-            if parent.has_dirty_descendants() { break }
-            unsafe { parent.set_dirty_descendants(); }
-            curr = parent;
-        }
-
-        // Process hints.
-        if hint.contains(RESTYLE_SELF) {
-            unsafe { let _ = C::prepare_for_styling(self); }
-        // XXX(emilio): For now, dirty implies dirty descendants if found.
-        } else if hint.contains(RESTYLE_DESCENDANTS) {
-            unsafe { self.set_dirty_descendants(); }
-            let mut current = self.first_child_element();
-            while let Some(el) = current {
-                unsafe { let _ = C::prepare_for_styling(&el); }
-                current = el.next_sibling_element();
-            }
-        }
-
-        if hint.contains(RESTYLE_LATER_SIBLINGS) {
-            let mut next = ::selectors::Element::next_sibling_element(self);
-            while let Some(sib) = next {
-                unsafe { let _ = C::prepare_for_styling(&sib); }
-                next = ::selectors::Element::next_sibling_element(&sib);
-            }
-        }
-    }
+    /// Creates a blank snapshot for this element.
+    fn create_snapshot(&self) -> Snapshot;
 }

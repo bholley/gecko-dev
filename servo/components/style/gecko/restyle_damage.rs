@@ -7,13 +7,17 @@ use gecko_bindings::bindings;
 use gecko_bindings::structs::{nsChangeHint, nsStyleContext};
 use gecko_bindings::sugar::ownership::FFIArcHelpers;
 use properties::ComputedValues;
-use std::ops::BitOr;
+use std::ops::{BitOr, BitOrAssign};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GeckoRestyleDamage(nsChangeHint);
 
 impl GeckoRestyleDamage {
+    pub fn new(raw: nsChangeHint) -> Self {
+        GeckoRestyleDamage(raw)
+    }
+
     pub fn as_change_hint(&self) -> nsChangeHint {
         self.0
     }
@@ -51,3 +55,8 @@ impl BitOr for GeckoRestyleDamage {
     }
 }
 
+impl BitOrAssign for GeckoRestyleDamage {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = *self | other;
+    }
+}
