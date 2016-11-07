@@ -20,7 +20,7 @@ harness = false
 
 # Explicitly specify what our profiles use.
 [profile.dev]
-opt-level = 1
+opt-level = 0
 debug = true
 rpath = false
 lto = false
