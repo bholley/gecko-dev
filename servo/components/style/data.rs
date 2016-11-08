@@ -283,10 +283,13 @@ impl ElementData {
     }
 
     pub fn ensure_restyle_data(&mut self) -> &mut RestyleData {
+        println!("Before: {:?}\n", self.restyle_data);
         if self.restyle_data.is_none() {
             self.restyle_data = Some(RestyleData::new());
+            println!("After: {:?}\n", self.restyle_data);
         }
-        self.restyle_data.as_mut().unwrap()
+        let result = self.restyle_data.as_mut().unwrap();
+        result
     }
 
     pub fn finish_styling(&mut self, styles: ElementStyles) {
